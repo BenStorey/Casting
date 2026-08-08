@@ -1,0 +1,23 @@
+//! Event-store abstraction.
+//!
+//! The logical event model is database-independent (docs/CASTING_PROJECT_BRIEF.md
+//! §10). We implement SQLite first; Postgres can be added behind the same trait
+//! without changing domain semantics. Do not force a lowest-common-denominator
+//! SQL layer — the trait only needs what the domain requires.
+
+use crate::event::Event;
+use anyhow::Result;
+
+/// Append-only event persistence.
+pub trait EventStore: Send + Sync {
+    /// Append an event, assigning it the next monotonic sequence for its
+    /// project. Returns the event with `sequence` populated.
+    fn append(&self, event: Event) -> Result<Event>;
+
+    /// Read all events for a project with `sequence > after`.
+    /// Ordering is by ascending sequence (deterministic, append order).
+    fn read_since(&self, project_id: &str, after: i64) -> Result<Vec<Event>>;
+
+    /// Highest sequence currently stored for a project (or 0 if empty).
+    fn latest_sequence(&self, project_id: &str) -> Result<i64>;
+}

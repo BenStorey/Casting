@@ -1,0 +1,27 @@
+[package]
+name = "casting"
+version = "0.1.0"
+edition = "2021"
+description = "Casting — autonomous software company in a box (headless core, slice one)"
+license = "Apache-2.0"
+
+# Single binary for now; name the lib crate so both the CLI (main.rs) and
+# integration tests (tests/) can reach the same modules.
+[lib]
+name = "casting"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cast"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
