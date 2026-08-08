@@ -23,5 +23,15 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 
+# Web server (axum) + runtime for the vertical slice.
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
+tower = "0.5"
+futures = "0.3"
+
+# Embed the built React SPA into the binary so `cast run` ships one artifact.
+rust-embed = "8"
+
 [dev-dependencies]
 tempfile = "3"

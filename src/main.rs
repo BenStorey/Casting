@@ -7,11 +7,15 @@
 use anyhow::{Context, Result};
 use casting::cursor::CursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
+use casting::pm::{self, AppState};
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::web;
 use std::path::{Path, PathBuf};
 
 const PROJECT_DIR: &str = ".casting";
+const PROJECT_ID: &str = "project-demo";
+const DEFAULT_ADDR: &str = "127.0.0.1:8080";
 
 struct ProjectPaths {
     db: PathBuf,
@@ -41,10 +45,16 @@ fn main() -> Result<()> {
             let dir = Path::new(dir_str);
             do_smoke(dir)
         }
+        "run" => {
+            let dir_str = args.get(2).context("usage: cast run <project-dir>")?;
+            let dir = Path::new(dir_str);
+            do_run(dir)
+        }
         "help" | "--help" | "-h" => {
             println!(
-                "cast — Casting headless core (slice one)\n\n\
-                 USAGE:\n  cast init <dir>    create a Casting project skeleton\n  cast smoke <dir>   append sample events and replay them\n"
+                "cast — Casting autonomous software company (vertical slice)\n\n\
+                 USAGE:\n  cast init <dir>    create a Casting project skeleton\n  cast smoke <dir>   append sample events and replay them\n  cast run <dir>     start the workspace (PM + web UI)\n\n\
+                 Env:\n  CAST_ADDR   bind address for `cast run` (default {DEFAULT_ADDR})\n"
             );
             Ok(())
         }
@@ -60,6 +70,71 @@ fn do_init(dir: &Path) -> Result<()> {
         "Initialized Casting project at {}",
         dir.join(PROJECT_DIR).display()
     );
+    Ok(())
+}
+
+/// `cast run` — boot the whole workspace: seed the project, start the simulated
+/// PM control loop, and serve the API + embedded React UI from one binary.
+fn do_run(dir: &Path) -> Result<()> {
+    let paths = ProjectPaths::for_dir(dir)?;
+    let store = SqliteEventStore::open(&paths.db)?;
+    let cursors = CursorStore::open(&paths.cursors)?;
+
+    let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+
+    let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
+    rt.block_on(async move {
+        let state = AppState::new(store, cursors, PROJECT_ID);
+
+        // Seed the empty project with its existence + the PM hire.
+        seed_project(&state)?;
+
+        // Start the simulated PM control loop (background, durable cursor).
+        tokio::spawn(pm::run_pm(state.clone()));
+
+        // Serve the workspace.
+        let app = web::router(state);
+        let listener = tokio::net::TcpListener::bind(&addr)
+            .await
+            .with_context(|| format!("bind {addr}"))?;
+        println!("🎬 Casting workspace ready: http://{addr}");
+        println!("   Tell the PM what you want from the chat — the team will kick off.");
+        axum::serve(listener, app)
+            .await
+            .context("axum server error")?;
+        Ok(())
+    })
+}
+
+/// Idempotently seed a fresh project: ProjectCreated + hire the PM, so the
+/// board/team starts with the management layer visible. Safe to re-run (the
+/// PM's cursor starts at 0 and these aren't owner-input events, so the loop
+/// won't react to them).
+fn seed_project(state: &AppState) -> Result<()> {
+    let project = state.project.clone();
+    if state.store.latest_sequence(&project)? > 0 {
+        return Ok(()); // already seeded
+    }
+    state.append(Event::new(
+        &project,
+        Actor::System,
+        EventType::ProjectCreated,
+        Aggregate {
+            kind: "project".into(),
+            id: project.clone(),
+        },
+        serde_json::json!({"name": "Casting demo"}),
+    ))?;
+    state.append(Event::new(
+        &project,
+        Actor::System,
+        EventType::AgentHired,
+        Aggregate {
+            kind: "agent".into(),
+            id: "pm".into(),
+        },
+        serde_json::json!({"role": "Project Manager"}),
+    ))?;
     Ok(())
 }
 

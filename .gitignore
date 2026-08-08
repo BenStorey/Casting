@@ -5,3 +5,7 @@ target/
 *.db-shm
 .casting/
 .tmp-demo/
+
+# Frontend build artifacts (node deps + compiled SPA output)
+frontend/node_modules/
+frontend/dist/
