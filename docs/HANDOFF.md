@@ -302,33 +302,45 @@ mutate state or burn tokens on an invalid action. Keep a `--no-llm`/scripted
 fallback for offline use and `cast smoke`. (Deferred until the gate + tests
 were in, per this handoff's amendment in §6.)
 
-### Then: local Git (addendum §28, 18–27)
-**The ownership boundary prerequisite (D5 / `docs/OWNERSHIP_BOUNDARY.md`) is
-landed** — `src/workspace.rs` gives the self-identity guard, path sandboxing,
-the single pinned git runner, and the mandatory separate state-dir, so the Git
-workflow can never accidentally target the Casting source. Now:
-`cast run` discovers/manages a real repo; agents work on isolated
-`casting/task-N-*` branches; Casting observes *semantic* Git events
-(`BranchCreated`, `CommitObserved`, `MergeConflictDetected`, …) and links
-provenance (commit → changeSet → task → decision → requirement → owner
-intent). Add `ChangeSet` as a first-class concept. Git drives the
+### Then: local Git (addendum §28, 18–27) — NEXT SLICE, planned as 4 increments
+**Ownership boundary prerequisite (D5 / `docs/OWNERSHIP_BOUNDARY.md`) is LANDED**
+— `src/workspace.rs` provides the self-identity guard, path sandboxing, the
+single pinned git runner (`Workspace::git_command()`), and the mandatory
+separate state-dir, so the Git workflow can never accidentally target the
+Casting source. Everything below uses that runner and `resolve_under`. No LLM
+anywhere; this is fully deterministic.
+
+Proceed one increment at a time, in this order:
+
+1. **Boot-time repo management.** `cast run --repo` ensures a real git repo
+   exists at that path (git-init if missing); preflight shows a true HEAD; this
+   wires Git into the workspace at startup. Testable on its own.
+2. **Semantic Git events + a minimal observer.** Add the domain vocabulary —
+   `BranchCreated`, `CommitObserved`, `MergeConflictDetected`, `MergeCompleted`,
+   `ChangeSetReady` — as `EventType` variants, and a watcher that turns raw
+   refs/commits into those events via the event store (durable cursor, same
+   shape as the PM loop). This makes Git a first-class external system.
+3. **`ChangeSet` as a first-class concept.** The unit of agent output: which
+   task, branch, and commits produced a batch of work (ADDENDUM §21–22).
+4. **Provenance linking.** commit → changeSet → task → decision → requirement →
+   owner intent, so the UI can answer "why does this code exist?"
+   (ADDENDUM §24–25).
+
+Design note for the incoming agent: Git has more surface than prior slices —
+draft the semantic-event vocabulary from ADDENDUM §18–30 and confirm with the
+owner before locking it in; the owner makes the big calls. Git drives the
 workflow; Git owns artifacts; Casting owns the organization.
 
-### Meanwhile / opportunistic
-- **Auth + multi-project**: `cast run` is currently a shared
-  `project-demo` with no login and no project selection. The brief's
-  first-run UX (§2.1/§31) wants owner credentials + a project picker.
-- **Realtime gap**: SSE only pushes *new* events; on reconnect, missed
-  events aren't replayed (the UI refetches `/api/state`, so this is
-  benign for the demo, but a catch-up cursor in the stream would be
-  proper).
-- **API 404 wart**: unknown `/api/*` paths fall through to the SPA
-  fallback (return `index.html`, 200) instead of a JSON 404.
-- **Task status model**: no `review` column yet (`TaskStatus` lacks it);
-  add `ReviewRequested`/`ReviewCompleted` events + column when reviews
-  arrive.
-- **Cost capture** (brief §6): token/model/agent are already in event
-  metadata shape (`agent_run_id`); capture spend early, reason late.
+### Meanwhile / opportunistic (small wins; fold in as fits)
+- **Policy-gate hardening**: `StartTask`/`CompleteTask`/`BlockTask` should also
+  check the acting agent is the task's *assignee* (`src/actions.rs`) — hardens
+  the LLM seam. ~10 min.
+- **`/api/*` JSON 404 wart**: unknown API paths fall through to the SPA
+  index.html; return a JSON 404 instead. ~10 min.
+- **SSE catch-up**: stream only pushes new events; replay missed on reconnect.
+- **Auth + multi-project** (brief §2.1/§31, first-run UX), **task `review`
+  status**, **cost capture** (metadata shape is ready) — larger; leave to their
+  own milestone.
 
 ### Later: Postgres, decision policy engine, realtime dashboard polish,
 external owner messaging (Telegram/WhatsApp), context-assembly scoring,
