@@ -15,11 +15,16 @@ design itself.
 # 1. Quick orientation
 
 > **Status update (2026-08-09):** two slices are built plus the policy-gate
-> seam (`src/actions.rs`), and now the **ownership boundary** (`src/workspace.rs`,
-> D5 / `docs/OWNERSHIP_BOUNDARY.md`) — Casting refuses to operate on the repo
-> that built it, keeps its state-dir always separate from the artifact repo, and
-> pins all Git through one runner. `cast run` now takes `--repo` + `--state-dir`.
-> 24 tests (6 + 8 + 3 + 7), clippy clean, slice suites run in ~0s. Read on.
+> seam (`src/actions.rs`), the **ownership boundary** (`src/workspace.rs`,
+> D5 / `docs/OWNERSHIP_BOUNDARY.md`), the **policy-gate hardening**
+> (assignee checks), the **SSE catch-up** + **JSON 404** web fixes, and now the
+> **complete Git slice** (4 increments: boot-time repo management, semantic Git
+> events + observer, ChangeSet as a first-class concept, and provenance linking).
+> `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
+> startup; a git observer turns raw branches/commits/merges into semantic domain
+> events; the projection renders ChangeSets; and `/api/provenance/*` answers
+> "why does this code exist?". **45 tests** (6 + 12 + 3 + 10 + 11 + 3), clippy
+> clean, slice suites run in ~0s. Read on.
 
 Casting is an agent-orchestration platform for building software, framed
 as an **"autonomous software company in a box."**
@@ -73,6 +78,35 @@ of §1. They are:
    (`resolve_under`), and one pinned Git runner. `cast run` now requires
    `--repo` + `--state-dir`. Proven by 7 tests; prerequisite for the Git
    slice.
+5. **Policy-gate hardening** (`src/actions.rs`): `validate()` now takes the
+   acting agent's id and enforces that only the task's assignee (or `system`)
+   may Start/Complete/Block it. Adds `PolicyError::TaskUnassigned` and
+   `NotAssignee`. Also fixed `plan_owner_decision` which started a task without
+   assigning it first. 12 policy-gate tests (4 new).
+6. **SSE catch-up + JSON 404** (`src/web.rs`, `frontend/src/api.ts`): the
+   SSE stream now accepts `?after=N` and replays missed events from the store
+   before switching to live broadcast; the frontend tracks the last sequence
+   seen and passes it on reconnect. Unknown `/api/*` paths return a JSON 404
+   instead of falling through to the SPA index.html.
+7. **The Git slice** (addendum §28, §18–27) — **COMPLETE**, 4 increments:
+   - **Boot-time repo management** (`Workspace::ensure_repo`): `cast run`
+     ensures a real git repo exists at `--repo` (git-init if missing); the
+     preflight banner shows the git init, a true HEAD, and the current branch.
+   - **Semantic Git events + observer** (`src/git_observer.rs`): the event
+     vocabulary gains `BranchCreated`, `CommitObserved`, `MergeCompleted`,
+     `MergeConflictDetected`, `ChangeSetReady`. A polling observer with a
+     durable cursor (same shape as the PM loop) turns raw branches/commits/
+     merges into those events. Runs at boot and on each PM drain.
+   - **ChangeSet as a first-class concept** (`src/projection.rs`): the unit of
+     agent output (task + branch + commits, ADDENDUM §21–22). Auto-derived as
+     `Open` when a task branch appears; transitions to `Ready`
+     (`ChangeSetReady` event) and `Merged` (`MergeCompleted` event).
+     `CommitObserved` appends its sha to the matching ChangeSet.
+   - **Provenance linking** (`src/provenance.rs`): pure query functions that
+     walk the event log to answer "why does this code exist?" — the chain
+     `commit → changeSet → task → requirement → decision → owner intent`
+     (ADDENDUM §24–25). Two API endpoints: `GET /api/provenance/commit/:sha`
+     and `GET /api/provenance/task/:task_id`.
 
 The product milestone (§46) is nearly met: run it, meet the PM, tell it
 what you want, watch requirements/tasks/agents appear, make a decision,
@@ -95,12 +129,16 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
+│   ├── git_observer.rs             <- semantic Git events from raw repo state (Git inc 2)
+│   ├── provenance.rs               <- "why does this code exist?" queries (Git inc 4)
 │   └── main.rs                     <- `cast` CLI (init, smoke, run)
 ├── tests/
 │   ├── event_store.rs              <- 6 integration tests (headless core)
 │   ├── vertical_slice.rs           <- 3 integration tests (projection + PM loop)
-│   ├── policy_gate.rs              <- 8 unit tests (PmAction validation + JSON round-trip)
-│   └── ownership_boundary.rs       <- 7 tests (self-identity guard, sandbox, state-dir)
+│   ├── policy_gate.rs              <- 12 unit tests (PmAction validation + assignee checks + JSON)
+│   ├── ownership_boundary.rs       <- 10 tests (self-identity guard, sandbox, state-dir, ensure_repo)
+│   ├── git_observer.rs             <- 11 tests (semantic Git events, ChangeSet auto-derive, merge)
+│   └── provenance.rs               <- 3 tests (provenance chain: commit → task → requirement → owner)
 ├── frontend/                       <- React + Vite + TypeScript SPA (§2.4)
 │   ├── dist/                       <- npm build output; GITIGNORED (build.rs writes a placeholder)
 │   ├── index.html, vite.config.ts, tsconfig.json, package.json
@@ -206,7 +244,7 @@ npm **10** (needed only for frontend work).
 ```
 cd /home/ben/casting
 cargo build          # builds target/debug/cast
-cargo test           # 6 + 8 + 3 + 7 = 24 tests (all pass; slice suites run in ~0s)
+cargo test           # 6 + 12 + 3 + 10 + 11 + 3 = 45 tests (all pass; slice suites run in ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -302,7 +340,10 @@ mutate state or burn tokens on an invalid action. Keep a `--no-llm`/scripted
 fallback for offline use and `cast smoke`. (Deferred until the gate + tests
 were in, per this handoff's amendment in §6.)
 
-### Then: local Git (addendum §28, 18–27) — NEXT SLICE, planned as 4 increments
+### Local Git (addendum §28, 18–27) — COMPLETE (4 increments built)
+All four increments are built, tested, and committed. The Git slice is
+fully deterministic (no LLM anywhere). Everything uses the pinned git runner
+from `src/workspace.rs` and `resolve_under`.
 **Ownership boundary prerequisite (D5 / `docs/OWNERSHIP_BOUNDARY.md`) is LANDED**
 — `src/workspace.rs` provides the self-identity guard, path sandboxing, the
 single pinned git runner (`Workspace::git_command()`), and the mandatory
@@ -332,12 +373,13 @@ owner before locking it in; the owner makes the big calls. Git drives the
 workflow; Git owns artifacts; Casting owns the organization.
 
 ### Meanwhile / opportunistic (small wins; fold in as fits)
-- **Policy-gate hardening**: `StartTask`/`CompleteTask`/`BlockTask` should also
+- ~~**Policy-gate hardening**: `StartTask`/`CompleteTask`/`BlockTask` should also
   check the acting agent is the task's *assignee* (`src/actions.rs`) — hardens
-  the LLM seam. ~10 min.
-- **`/api/*` JSON 404 wart**: unknown API paths fall through to the SPA
-  index.html; return a JSON 404 instead. ~10 min.
-- **SSE catch-up**: stream only pushes new events; replay missed on reconnect.
+  the LLM seam.~~ **DONE** (12 policy-gate tests).
+- ~~**`/api/*` JSON 404 wart**: unknown API paths fall through to the SPA
+  index.html; return a JSON 404 instead.~~ **DONE**.
+- ~~**SSE catch-up**: stream only pushes new events; replay missed on
+  reconnect.~~ **DONE** (`?after=N` + frontend tracking).
 - **Auth + multi-project** (brief §2.1/§31, first-run UX), **task `review`
   status**, **cost capture** (metadata shape is ready) — larger; leave to their
   own milestone.
