@@ -106,12 +106,43 @@ export async function decide(
 }
 
 /// Subscribe to the realtime event stream. Calls `onEvent` for each event; the
-/// caller decides what to refetch. Returns an unsubscribe function.
+/// caller decides what to refetch. On reconnect, passes `?after=<lastSeq>` so
+/// the server replays any events missed while disconnected (SSE catch-up).
+/// Returns an unsubscribe function.
 export function subscribe(onEvent: () => void): () => void {
-  const es = new EventSource("/api/events/stream");
-  es.addEventListener("event", () => onEvent());
-  es.onerror = () => {
-    /* EventSource auto-reconnects */
+  let lastSeq = 0;
+  let closed = false;
+
+  const connect = () => {
+    if (closed) return;
+    const url =
+      lastSeq > 0
+        ? `/api/events/stream?after=${lastSeq}`
+        : "/api/events/stream";
+    const es = new EventSource(url);
+    es.addEventListener("event", (raw: MessageEvent) => {
+      try {
+        const ev = JSON.parse(raw.data);
+        if (typeof ev.sequence === "number" && ev.sequence > lastSeq) {
+          lastSeq = ev.sequence;
+        }
+      } catch {
+        // Malformed payload — ignore, the caller will refetch state anyway.
+      }
+      onEvent();
+    });
+    es.onerror = () => {
+      // EventSource auto-reconnects, but the browser may not re-add the query
+      // param. Close and reconnect explicitly so catch-up `?after=N` is sent.
+      es.close();
+      if (!closed) {
+        setTimeout(connect, 1000);
+      }
+    };
   };
-  return () => es.close();
+
+  connect();
+  return () => {
+    closed = true;
+  };
 }

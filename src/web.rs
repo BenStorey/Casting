@@ -15,7 +15,7 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use futures::stream::Stream;
+use futures::stream::{Stream, StreamExt};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -168,11 +168,33 @@ async fn decision_handler(
 
 /// GET /api/events/stream — Server-Sent Events: pushes each newly-appended
 /// event to connected browsers so the board/chat/activity update live (§35).
+///
+/// Supports catch-up via `?after=N`: missed events since sequence N are
+/// replayed from the store *before* the stream switches to live broadcast,
+/// so a reconnecting client never loses events that happened while it was
+/// offline. There is a benign race — an event appended between the `read_since`
+/// and the `subscribe` may arrive via both catch-up and broadcast. The UI
+/// refetches `/api/state` on every event, so duplicates are harmless
+/// (idempotent projection rebuild).
 async fn events_stream(
     State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<EventsQuery>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    let after = q.after.unwrap_or(0);
     let rx = state.subscribe();
-    let stream = futures::stream::unfold(rx, |mut rx| async move {
+
+    let catchup = state
+        .store
+        .read_since(&state.project, after)
+        .unwrap_or_default();
+
+    // Catch-up events first (one-shot), then live broadcasts.
+    let catchup_stream = futures::stream::iter(catchup.into_iter().map(|ev| {
+        let json = serde_json::to_string(&ev).unwrap_or_default();
+        Ok::<_, Infallible>(SseEvent::default().event("event").data(json))
+    }));
+
+    let live = futures::stream::unfold(rx, |mut rx| async move {
         match rx.recv().await {
             Ok(ev) => {
                 let json = serde_json::to_string(&ev).unwrap_or_default();
@@ -184,14 +206,28 @@ async fn events_stream(
             Err(_) => None, // sender dropped — stream ends
         }
     });
-    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+
+    Sse::new(catchup_stream.chain(live))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 /// Serve the embedded SPA. Real files serve directly; unknown paths fall back
-/// to index.html so client-side routing works.
+/// to index.html so client-side routing works. Unknown `/api/*` paths return a
+/// JSON 404 instead of falling through to the SPA (so API clients get a proper
+/// error, not an HTML page).
 async fn static_handler(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
+
+    // Unknown API routes get a JSON 404, never the SPA fallback.
+    if path.starts_with("api/") {
+        return (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "application/json")],
+            "{\"error\":\"not found\"}",
+        )
+            .into_response();
+    }
 
     match Assets::get(path) {
         Some(file) => {
