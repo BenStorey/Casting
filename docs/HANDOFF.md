@@ -41,6 +41,8 @@ explainability ("why does this code/decision exist?").
   the meat of how the PM operates and how Git relates to Casting).
 - `docs/PM_INVOCATION_TRIGGERS.md` — WHEN the PM runs (wake vs act,
   tiered triggers, coalescing, cost rules).
+- `docs/OWNERSHIP_BOUNDARY.md` — the state-vs-repo ownership model +
+  self-identity guard + self-hosting (D5, prerequisite for the Git slice).
 - `docs/INITIAL_PITCH.md` — the original rough idea (context/history).
 - `docs/ENGINEERING_NOTES.md` — scoping notes + open decisions (D1–D4).
 
@@ -287,6 +289,11 @@ fallback for offline use and `cast smoke`. (Deferred until the gate + tests
 were in, per this handoff's amendment in §6.)
 
 ### Then: local Git (addendum §28, 18–27)
+**Prerequisite: implement the ownership boundary first (D5 /
+`docs/OWNERSHIP_BOUNDARY.md`)** — the self-identity guard, path sandboxing,
+scoped git calls, and state-dir/repo decoupling must land before any Git
+semantics, so the Git workflow can never accidentally target the Casting
+source. Then:
 `cast run` discovers/manages a real repo; agents work on isolated
 `casting/task-N-*` branches; Casting observes *semantic* Git events
 (`BranchCreated`, `CommitObserved`, `MergeConflictDetected`, …) and links
@@ -316,7 +323,7 @@ agent identity/persona rendering.
 
 ---
 
-# 6. Decision log (D1–D4)
+# 6. Decision log (D1–D5)
 
 - **D1 — Rust toolchain floor: RESOLVED.** 1.97.1 on this box.
 - **D2 — LLM boundary: SCRIPTED FOR NOW (by decision); seam built.** The
@@ -332,6 +339,14 @@ agent identity/persona rendering.
   deployment story. Vite HMR + `/api` proxy is the dev workflow.
 - **D4 — Git/artifact model: RESOLVED — local Git first.** Settled in
   ADDENDUM.md; do not build GitHub before local Git.
+- **D5 — Ownership boundary: RESOLVED — build-time self-identity guard.**
+  Casting refuses to operate on the repo that built it (embedded source root +
+  `name = "casting"` identity in `build.rs`); all Git runs through a single
+  pinned git interface; the **state-dir is mandatory and always separate** from
+  the artifact repo (no collocated default); **self-hosting** (Casting building
+  Casting) is an explicit `CAST_SELFHOST=1` opt-in that records the build
+  commit. Full rules in **docs/OWNERSHIP_BOUNDARY.md** (added 2026-08-09,
+  prerequisite for the Git slice).
 
 Only D2's *execution* is genuinely open (scripted → real provider). Any
 further open decisions should be recorded here.
