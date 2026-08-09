@@ -8,6 +8,7 @@
 //! All repos are throwaway tempdirs; none ever touch the product repo.
 
 use casting::cursor::CursorStore;
+use casting::event::EventType;
 use casting::git_observer;
 use casting::projection::Projection;
 use casting::sqlite_store::SqliteEventStore;
@@ -238,4 +239,106 @@ fn derive_task_id_from_branch_name() {
         .find(|b| b.name == "casting/task-999-some-long-feature-name")
         .unwrap();
     assert_eq!(branch.task_id.as_deref(), Some("task-999"));
+}
+
+#[test]
+fn changeset_auto_derived_from_task_branch() {
+    let (retain, ws, store, cursors) = ws_with_repo();
+    let _ = retain;
+
+    commit(&ws, "initial");
+    branch(&ws, "casting/task-100-feature", true);
+
+    git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
+    let proj = Projection::build(&store, "proj").unwrap();
+
+    // An Open ChangeSet should be auto-derived from the task branch.
+    let cs = proj
+        .changesets
+        .iter()
+        .find(|c| c.task_id == "task-100")
+        .expect("ChangeSet should be auto-derived for task-100");
+    assert_eq!(cs.branch, "casting/task-100-feature");
+    assert_eq!(cs.status, casting::projection::ChangeSetStatus::Open);
+    // All commits reachable from the branch are linked to the ChangeSet
+    // (including those inherited from the parent branch — git log shows
+    // the full reachable history).
+    assert!(!cs.commits.is_empty(), "at least one commit should be linked");
+}
+
+#[test]
+fn changeset_ready_event_updates_status() {
+    let (retain, ws, store, cursors) = ws_with_repo();
+    let _ = retain;
+
+    // Set up a branch with a commit -> observe -> auto-derive ChangeSet.
+    commit(&ws, "initial");
+    branch(&ws, "casting/task-200-work", true);
+    git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
+
+    // Emit a ChangeSetReady event (as the PM/agent would).
+    let ev = casting::event::Event::new(
+        "proj",
+        casting::event::Actor::System,
+        EventType::ChangeSetReady,
+        casting::event::Aggregate {
+            kind: "changeset".into(),
+            id: "changeset-task-200".into(),
+        },
+        serde_json::json!({
+            "task_id": "task-200",
+            "branch": "casting/task-200-work",
+            "commits": [],
+            "agent": "marcus-reed"
+        }),
+    );
+    store.append(ev).unwrap();
+
+    let proj = Projection::build(&store, "proj").unwrap();
+    let cs = proj
+        .changesets
+        .iter()
+        .find(|c| c.id == "changeset-task-200")
+        .unwrap();
+    assert_eq!(cs.status, casting::projection::ChangeSetStatus::Ready);
+    assert_eq!(cs.agent.as_deref(), Some("marcus-reed"));
+}
+
+#[test]
+fn merge_marks_changeset_as_merged() {
+    let (retain, ws, store, cursors) = ws_with_repo();
+    let _ = retain;
+
+    commit(&ws, "initial");
+    let default_branch = ws.current_branch().unwrap();
+    branch(&ws, "casting/task-300-feature", true);
+
+    // Merge the feature branch back.
+    ws.git_command()
+        .arg("checkout")
+        .arg(&default_branch)
+        .output()
+        .unwrap();
+    ws.git_command()
+        .arg("merge")
+        .arg("--no-ff")
+        .arg("casting/task-300-feature")
+        .arg("-m")
+        .arg("merge feature")
+        .output()
+        .unwrap();
+
+    git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
+
+    let proj = Projection::build(&store, "proj").unwrap();
+    let cs = proj
+        .changesets
+        .iter()
+        .find(|c| c.task_id == "task-300")
+        .expect("ChangeSet should exist for task-300");
+    assert_eq!(
+        cs.status,
+        casting::projection::ChangeSetStatus::Merged,
+        "ChangeSet should be Merged after the merge completes"
+    );
 }

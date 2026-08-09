@@ -65,6 +65,17 @@ export interface Merge {
   to_branch: string;
 }
 
+export type ChangeSetStatus = "open" | "ready" | "merged";
+
+export interface ChangeSet {
+  id: string;
+  task_id: string;
+  branch: string;
+  commits: string[];
+  agent: string | null;
+  status: ChangeSetStatus;
+}
+
 export interface Projection {
   project_id: string;
   agents: Agent[];
@@ -76,6 +87,7 @@ export interface Projection {
   branches: Branch[];
   commits: Commit[];
   merges: Merge[];
+  changesets: ChangeSet[];
 }
 
 export interface InboxItem {

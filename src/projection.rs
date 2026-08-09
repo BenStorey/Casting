@@ -123,6 +123,37 @@ pub struct Merge {
     pub to_branch: String,
 }
 
+/// The status of a ChangeSet (ADDENDUM §22).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ChangeSetStatus {
+    #[serde(rename = "open")]
+    /// Branch exists, commits being produced, not yet ready for review.
+    Open,
+    #[serde(rename = "ready")]
+    /// Ready for review (ChangeSetReady emitted).
+    Ready,
+    #[serde(rename = "merged")]
+    /// Merged into a protected branch.
+    Merged,
+}
+
+/// A ChangeSet — the unit of agent output: which task, branch, and commits
+/// produced a batch of work (ADDENDUM §21–22). Git remains authoritative for
+/// the branch and commits; Casting owns the association.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChangeSet {
+    pub id: String,
+    /// The task this ChangeSet fulfills.
+    pub task_id: String,
+    /// The branch the work lives on (e.g. `casting/task-381-authentication`).
+    pub branch: String,
+    /// The commit shas on this branch (in chronological order).
+    pub commits: Vec<String>,
+    /// The agent who produced this work.
+    pub agent: Option<String>,
+    pub status: ChangeSetStatus,
+}
+
 /// The full current-state projection for a project.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Projection {
@@ -139,6 +170,8 @@ pub struct Projection {
     pub commits: Vec<Commit>,
     /// Completed merges (semantic Git events).
     pub merges: Vec<Merge>,
+    /// ChangeSets — the unit of agent output (ADDENDUM §21–22).
+    pub changesets: Vec<ChangeSet>,
 }
 
 impl Projection {
@@ -244,31 +277,111 @@ impl Projection {
                 to: string_field(e, "to").unwrap_or_else(|| "owner".into()),
                 body: string_field(e, "body").unwrap_or_default(),
             }),
-            EventType::BranchCreated => self.branches.push(Branch {
-                name: e.aggregate.id.clone(),
-                task_id: string_field(e, "task_id"),
-            }),
-            EventType::CommitObserved => self.commits.push(Commit {
-                sha: e.aggregate.id.clone(),
-                branch: string_field(e, "branch").unwrap_or_default(),
-                message: string_field(e, "message").unwrap_or_default(),
-                author: string_field(e, "author").unwrap_or_default(),
-                task_id: string_field(e, "task_id"),
-            }),
-            EventType::MergeCompleted => self.merges.push(Merge {
-                sha: e.aggregate.id.clone(),
-                from_branch: string_field(e, "from_branch").unwrap_or_default(),
-                to_branch: string_field(e, "to_branch").unwrap_or_default(),
-            }),
+            EventType::BranchCreated => {
+                let name = e.aggregate.id.clone();
+                let task_id = string_field(e, "task_id");
+                self.branches.push(Branch {
+                    name: name.clone(),
+                    task_id: task_id.clone(),
+                });
+                // Auto-derive an Open ChangeSet when a task branch appears
+                // (ADDENDUM §20–22). The ChangeSet id is derived from the
+                // task id so it's stable and discoverable.
+                if let Some(tid) = &task_id {
+                    let cs_id = format!("changeset-{tid}");
+                    if !self.changesets.iter().any(|c| c.id == cs_id) {
+                        self.changesets.push(ChangeSet {
+                            id: cs_id,
+                            task_id: tid.clone(),
+                            branch: name,
+                            commits: Vec::new(),
+                            agent: None,
+                            status: ChangeSetStatus::Open,
+                        });
+                    }
+                }
+            }
+            EventType::CommitObserved => {
+                let sha = e.aggregate.id.clone();
+                let branch = string_field(e, "branch").unwrap_or_default();
+                let task_id = string_field(e, "task_id");
+                self.commits.push(Commit {
+                    sha: sha.clone(),
+                    branch: branch.clone(),
+                    message: string_field(e, "message").unwrap_or_default(),
+                    author: string_field(e, "author").unwrap_or_default(),
+                    task_id: task_id.clone(),
+                });
+                // Append the commit to its ChangeSet if one exists for this
+                // task (auto-derived from the branch). This keeps the
+                // ChangeSet's commit list in sync as commits arrive.
+                if let Some(tid) = &task_id {
+                    let cs_id = format!("changeset-{tid}");
+                    if let Some(cs) = self.changesets.iter_mut().find(|c| c.id == cs_id) {
+                        if !cs.commits.contains(&sha) {
+                            cs.commits.push(sha);
+                        }
+                    }
+                }
+            }
+            EventType::ChangeSetReady => {
+                // A ChangeSet is explicitly assembled and marked ready.
+                let id = e.aggregate.id.clone();
+                let task_id = string_field(e, "task_id").unwrap_or_default();
+                let branch = string_field(e, "branch").unwrap_or_default();
+                let agent = string_field(e, "agent");
+                let commits: Vec<String> = e
+                    .data
+                    .get("commits")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                if let Some(cs) = self.changesets.iter_mut().find(|c| c.id == id) {
+                    // Update existing ChangeSet to Ready.
+                    cs.status = ChangeSetStatus::Ready;
+                    if !commits.is_empty() {
+                        cs.commits = commits;
+                    }
+                    if agent.is_some() {
+                        cs.agent = agent;
+                    }
+                } else {
+                    self.changesets.push(ChangeSet {
+                        id,
+                        task_id,
+                        branch,
+                        commits,
+                        agent,
+                        status: ChangeSetStatus::Ready,
+                    });
+                }
+            }
+            EventType::MergeCompleted => {
+                // A merge into a protected branch marks a ChangeSet as Merged
+                // if the merged branch matches one.
+                let merged_branch = string_field(e, "from_branch").unwrap_or_default();
+                for cs in self.changesets.iter_mut() {
+                    if cs.branch == merged_branch {
+                        cs.status = ChangeSetStatus::Merged;
+                    }
+                }
+                // Also record the merge as before.
+                self.merges.push(Merge {
+                    sha: e.aggregate.id.clone(),
+                    from_branch: string_field(e, "from_branch").unwrap_or_default(),
+                    to_branch: string_field(e, "to_branch").unwrap_or_default(),
+                });
+            }
             EventType::MergeConflictDetected => {
                 // A merge conflict is an observation-like event — it's recorded
                 // in the event log but doesn't add a persistent entity to the
                 // projection (the PM reacts to it, it doesn't become a board
                 // item). It WILL wake the PM (Tier-1 trigger).
-            }
-            EventType::ChangeSetReady => {
-                // ChangeSetReady is handled in increment 3 (ChangeSet concept).
-                // For now it's a signal event that the PM can react to.
             }
         }
     }
