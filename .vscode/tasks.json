@@ -56,6 +56,41 @@
       "dependsOn": ["Build"],
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Build frontend (SPA)",
+      "type": "shell",
+      "command": "cd frontend && npm run build",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Run workspace (cast run)",
+      "description": "Always builds the Rust binary AND the embedded SPA first, then serves the full Casting workspace (API + UI) from ONE binary at http://127.0.0.1:8080. Open that URL to see the app.",
+      "type": "shell",
+      "command": "cargo build && cd frontend && npm run build && cd .. && ./target/debug/cast run .dev/proj",
+      "problemMatcher": [],
+      "runOptions": { "instanceLimit": 1 },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
+    },
+    {
+      "label": "Dev: API server (cast run)",
+      "description": "Always builds the Rust binary first, then starts ONLY the API at http://127.0.0.1:8080. Pair with 'Dev: Frontend (Vite HMR)' for hot-reload frontend work.",
+      "type": "shell",
+      "command": "cargo build && ./target/debug/cast run .dev/proj",
+      "problemMatcher": [],
+      "runOptions": { "instanceLimit": 1 },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
+    },
+    {
+      "label": "Dev: Frontend (Vite HMR)",
+      "description": "Starts the Vite dev server at http://127.0.0.1:5173 with hot reload, proxying /api to the Rust server on :8080. Start 'Dev: API server' first, then open :5173.",
+      "type": "shell",
+      "command": "cd frontend && npm run dev",
+      "problemMatcher": [],
+      "runOptions": { "instanceLimit": 1 },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
     }
   ],
   "inputs": [

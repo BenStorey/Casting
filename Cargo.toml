@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Casting — autonomous software company in a box (headless core, slice one)"
 license = "Apache-2.0"
+build = "build.rs"
 
 # Single binary for now; name the lib crate so both the CLI (main.rs) and
 # integration tests (tests/) can reach the same modules.
