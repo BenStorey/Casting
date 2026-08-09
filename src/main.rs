@@ -11,6 +11,7 @@ use casting::pm::{self, AppState};
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
 use casting::web;
+use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
 
 const PROJECT_DIR: &str = ".casting";
@@ -46,15 +47,15 @@ fn main() -> Result<()> {
             do_smoke(dir)
         }
         "run" => {
-            let dir_str = args.get(2).context("usage: cast run <project-dir>")?;
-            let dir = Path::new(dir_str);
-            do_run(dir)
+            let run = parse_run(&args[2..])?;
+            do_run(run)
         }
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company (vertical slice)\n\n\
-                 USAGE:\n  cast init <dir>    create a Casting project skeleton\n  cast smoke <dir>   append sample events and replay them\n  cast run <dir>     start the workspace (PM + web UI)\n\n\
-                 Env:\n  CAST_ADDR   bind address for `cast run` (default {DEFAULT_ADDR})\n"
+                 USAGE:\n  cast init <dir>                 create a Casting project skeleton\n  cast smoke <dir>                append sample events and replay them\n  cast run --repo <dir> --state-dir <path> [--selfhost]\n                                  start the workspace (PM + web UI)\n\n\
+                 --repo <dir>     the artifact repo Casting drives (git)\n  --state-dir <path> Casting's internal state dir (always separate from the repo)\n  --selfhost       operate on the Casting source repo itself (off by default)\n\
+                 Env:\n  CAST_ADDR   bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_SELFHOST  1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
@@ -73,12 +74,86 @@ fn do_init(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `cast run` — boot the whole workspace: seed the project, start the simulated
-/// PM control loop, and serve the API + embedded React UI from one binary.
-fn do_run(dir: &Path) -> Result<()> {
-    let paths = ProjectPaths::for_dir(dir)?;
-    let store = SqliteEventStore::open(&paths.db)?;
-    let cursors = CursorStore::open(&paths.cursors)?;
+/// Flags for `cast run`, parsed by [`parse_run`].
+struct RunArgs {
+    repo: PathBuf,
+    state_dir: PathBuf,
+    selfhost: Selfhost,
+}
+
+fn parse_run(args: &[String]) -> Result<RunArgs> {
+    let mut repo = None;
+    let mut state_dir = None;
+    let mut selfhost = Selfhost::Disabled;
+
+    // --selfhost may also come from the env (CAST_SELFHOST=1).
+    if std::env::var("CAST_SELFHOST").is_ok_and(|v| v == "1") {
+        selfhost = Selfhost::Enabled;
+    }
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--repo" => {
+                repo = Some(
+                    args.get(i + 1)
+                        .context("--repo requires a path")?
+                        .into(),
+                );
+                i += 2;
+            }
+            "--state-dir" => {
+                state_dir = Some(
+                    args.get(i + 1)
+                        .context("--state-dir requires a path")?
+                        .into(),
+                );
+                i += 2;
+            }
+            "--selfhost" => {
+                selfhost = Selfhost::Enabled;
+                i += 1;
+            }
+            other => anyhow::bail!(
+                "unknown argument {other:?} (tip: cast run --repo <dir> --state-dir <path> [--selfhost])"
+            ),
+        }
+    }
+
+    let repo = repo.context("cast run requires --repo <dir>")?;
+    let state_dir = state_dir.context("cast run requires --state-dir <path>")?;
+    Ok(RunArgs {
+        repo,
+        state_dir,
+        selfhost,
+    })
+}
+
+/// Print the preflight banner: the canonical target + detected repo HEAD, so
+/// the operator *sees* what Casting is about to touch before anything mutates.
+fn preflight(ws: &Workspace) {
+    println!("🎬 Casting workspace");
+    println!("   artifact repo: {}", ws.repo.display());
+    println!("   state-dir:     {}", ws.state_dir.display());
+    match ws.head() {
+        Some(sha) => println!("   repo HEAD:     {sha}"),
+        None => println!("   repo HEAD:     (no .git yet)"),
+    }
+    if ws.selfhost() == Selfhost::Enabled {
+        println!("   self-hosting:  enabled (operating on the Casting source repo)");
+    }
+}
+
+/// `cast run` — boot the whole workspace: enforce the ownership boundary, seed
+/// the project, start the simulated PM control loop, and serve the API +
+/// embedded React UI from one binary.
+fn do_run(run: RunArgs) -> Result<()> {
+    let ws = Workspace::open(&run.repo, &run.state_dir, run.selfhost)?;
+    preflight(&ws);
+
+    // Casting's internal state lives in the (mandatory, separate) state dir.
+    let store = SqliteEventStore::open(ws.state_dir.join("events.db"))?;
+    let cursors = CursorStore::open(ws.state_dir.join("cursors.db"))?;
 
     let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 

@@ -17,3 +17,4 @@ pub mod projection;
 pub mod sqlite_store;
 pub mod store;
 pub mod web;
+pub mod workspace;

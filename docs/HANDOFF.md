@@ -14,11 +14,12 @@ design itself.
 
 # 1. Quick orientation
 
-> **Status update (2026-08-09):** a third slice — the PM **policy gate and
-> typed action vocabulary** (`src/actions.rs`) — is now built. The scripted
-> PM emits typed `PmAction`s through the gate exactly as a future LLM will,
-> so the addendum §16 seam is proven with tests before any token is spent.
-> 17 tests, clippy clean, vertical-slice suite runs in ~0s. Read on.
+> **Status update (2026-08-09):** two slices are built plus the policy-gate
+> seam (`src/actions.rs`), and now the **ownership boundary** (`src/workspace.rs`,
+> D5 / `docs/OWNERSHIP_BOUNDARY.md`) — Casting refuses to operate on the repo
+> that built it, keeps its state-dir always separate from the artifact repo, and
+> pins all Git through one runner. `cast run` now takes `--repo` + `--state-dir`.
+> 24 tests (6 + 8 + 3 + 7), clippy clean, slice suites run in ~0s. Read on.
 
 Casting is an agent-orchestration platform for building software, framed
 as an **"autonomous software company in a box."**
@@ -44,14 +45,15 @@ explainability ("why does this code/decision exist?").
 - `docs/OWNERSHIP_BOUNDARY.md` — the state-vs-repo ownership model +
   self-identity guard + self-hosting (D5, prerequisite for the Git slice).
 - `docs/INITIAL_PITCH.md` — the original rough idea (context/history).
-- `docs/ENGINEERING_NOTES.md` — scoping notes + open decisions (D1–D4).
+- `docs/ENGINEERING_NOTES.md` — scoping notes + open decisions (D1–D5).
 
 ---
 
 # 2. What exists today
 
-Two slices are complete and committed; a third was built 2026-08-09. An
-introducing note sits at the top of §1. They are:
+Two slices are complete and committed, plus the policy-gate seam and the
+ownership boundary (both built 2026-08-09). An introducing note sits at the top
+of §1. They are:
 
 1. **Headless core** (slice one) — typed domain events, SQLite append-only
    event store, durable cursors, `cast` CLI. LLM-free, fully tested.
@@ -65,6 +67,12 @@ introducing note sits at the top of §1. They are:
    them through `actions::validate`, which rejects anything that breaks a
    project invariant before it becomes an event. Proven by 8 unit tests + a
    JSON round-trip; this is exactly the seam a real provider will occupy.
+4. **The ownership boundary** (`src/workspace.rs`, D5): the self-identity
+   guard (refuses to operate on the repo that built the binary), a mandatory
+   state-dir always separate from the artifact repo, path sandboxing
+   (`resolve_under`), and one pinned Git runner. `cast run` now requires
+   `--repo` + `--state-dir`. Proven by 7 tests; prerequisite for the Git
+   slice.
 
 The product milestone (§46) is nearly met: run it, meet the PM, tell it
 what you want, watch requirements/tasks/agents appear, make a decision,
@@ -86,11 +94,13 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── projection.rs               <- current-state projections derived from the log (§2.1)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
+│   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
 │   └── main.rs                     <- `cast` CLI (init, smoke, run)
 ├── tests/
 │   ├── event_store.rs              <- 6 integration tests (headless core)
 │   ├── vertical_slice.rs           <- 3 integration tests (projection + PM loop)
-│   └── policy_gate.rs              <- 8 unit tests (PmAction validation + JSON round-trip)
+│   ├── policy_gate.rs              <- 8 unit tests (PmAction validation + JSON round-trip)
+│   └── ownership_boundary.rs       <- 7 tests (self-identity guard, sandbox, state-dir)
 ├── frontend/                       <- React + Vite + TypeScript SPA (§2.4)
 │   ├── dist/                       <- npm build output; GITIGNORED (build.rs writes a placeholder)
 │   ├── index.html, vite.config.ts, tsconfig.json, package.json
@@ -175,10 +185,13 @@ Dark themed, single CSS file, no CSS framework.
 
 - `cast init <dir>` — create `.casting/` with `events.db` + `cursors.db`.
 - `cast smoke <dir>` — headless-core smoke test (append/replay/cursor).
-- `cast run <dir>` — boot the workspace: opens/creates the stores,
+- `cast run --repo <dir> --state-dir <path> [--selfhost]` — boot the
+  workspace: enforces the ownership boundary (D5), opens/creates the stores,
   seeds the project (`ProjectCreated` + hire `pm`) if empty, spawns the PM
-  loop, serves API + embedded UI at `http://127.0.0.1:8080`
-  (`CAST_ADDR` env overrides). No prior `cast init` needed.
+  loop, serves API + embedded UI at `http://127.0.0.1:8080` (`CAST_ADDR` env
+  overrides). `--state-dir` is **required** and always separate from the repo;
+  `--selfhost` operates on the Casting source itself (see
+  `docs/OWNERSHIP_BOUNDARY.md`). No prior `cast init` needed.
 
 Known wart: the scripted titles read "Design Build me a todo app" (the
 owner's message gets spliced into task titles) — cosmetic, low priority.
@@ -193,7 +206,7 @@ npm **10** (needed only for frontend work).
 ```
 cd /home/ben/casting
 cargo build          # builds target/debug/cast
-cargo test           # 6 + 3 + 8 = 17 tests (all pass; vertical slice runs in ~0s)
+cargo test           # 6 + 8 + 3 + 7 = 24 tests (all pass; slice suites run in ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -212,16 +225,17 @@ cargo build                  # re-embeds it
 Run the whole product (single binary — this is the milestone UX):
 
 ```
-./target/debug/cast run .dev/proj     # -> http://127.0.0.1:8080
+./target/debug/cast run --repo .dev/proj --state-dir .dev/state  # -> http://127.0.0.1:8080
 ```
 Open the URL, chat with the PM ("Build me a todo app"), watch the team
 form and tasks move, decide on the database in the Inbox, reload — all
-state persists in `.dev/proj/.casting/`.
+state persists in `.dev/state/` (kept separate from the artifact repo,
+per the ownership boundary D5 / `docs/OWNERSHIP_BOUNDARY.md`).
 
 Frontend dev (hot reload, no rebuild needed — pair two terminals):
 
 ```
-./target/debug/cast run .dev/proj     # terminal 1: API on :8080
+./target/debug/cast run --repo .dev/proj --state-dir .dev/state  # terminal 1: API on :8080
 cd frontend && npm run dev            # terminal 2: Vite on :5173,
                                       #   proxies /api -> :8080
 ```
@@ -289,11 +303,10 @@ fallback for offline use and `cast smoke`. (Deferred until the gate + tests
 were in, per this handoff's amendment in §6.)
 
 ### Then: local Git (addendum §28, 18–27)
-**Prerequisite: implement the ownership boundary first (D5 /
-`docs/OWNERSHIP_BOUNDARY.md`)** — the self-identity guard, path sandboxing,
-scoped git calls, and state-dir/repo decoupling must land before any Git
-semantics, so the Git workflow can never accidentally target the Casting
-source. Then:
+**The ownership boundary prerequisite (D5 / `docs/OWNERSHIP_BOUNDARY.md`) is
+landed** — `src/workspace.rs` gives the self-identity guard, path sandboxing,
+the single pinned git runner, and the mandatory separate state-dir, so the Git
+workflow can never accidentally target the Casting source. Now:
 `cast run` discovers/manages a real repo; agents work on isolated
 `casting/task-N-*` branches; Casting observes *semantic* Git events
 (`BranchCreated`, `CommitObserved`, `MergeConflictDetected`, …) and links
@@ -389,8 +402,9 @@ further open decisions should be recorded here.
   is gitignored; `package-lock.json` IS committed).
 - Editor: VS Code with rust-analyzer + CodeLLDB + crates + Even Better
   TOML. Open the project root `/home/ben/casting`.
-- The `cast run` dev workspace lives at `.dev/proj` (gitignored); the
-  smoke workspace at `.tmp-demo/` (gitignored).
+- The `cast run` dev workspace lives at `.dev/proj` (artifact repo, gitignored)
+  with its state in `.dev/state` (gitignored; kept separate per D5); the smoke
+  workspace at `.tmp-demo/` (gitignored).
 - Known session quirk: if `write_file` starts failing with `ENOENT`, its
   working directory may be stuck on a deleted temp folder — fall back to
   shell-based file creation (`cat > file <<'EOF'`) or restart the session.
