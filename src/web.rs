@@ -66,8 +66,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/inbox", get(inbox_handler))
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
-        .route("/api/provenance/commit/:sha", get(provenance_commit_handler))
-        .route("/api/provenance/task/:task_id", get(provenance_task_handler))
+        .route(
+            "/api/provenance/commit/{sha}",
+            get(provenance_commit_handler),
+        )
+        .route(
+            "/api/provenance/task/{task_id}",
+            get(provenance_task_handler),
+        )
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)

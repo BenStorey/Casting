@@ -201,10 +201,7 @@ fn ensure_repo_leaves_existing_repo_untouched() {
     let ws = Workspace::open(&repo, &state, Selfhost::Disabled).unwrap();
 
     // Pre-create a git repo with a commit.
-    ws.git_command()
-        .arg("init")
-        .output()
-        .unwrap();
+    ws.git_command().arg("init").output().unwrap();
     std::fs::write(repo.join("README.md"), "hello\n").unwrap();
     ws.git_command()
         .arg("add")

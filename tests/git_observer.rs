@@ -68,15 +68,22 @@ fn observer_emits_branch_created_for_new_branches() {
     branch(&ws, "casting/task-381-authentication", false);
 
     let emitted = git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
-    assert!(emitted >= 2, "should emit for main + feature branch, got {emitted}");
+    assert!(
+        emitted >= 2,
+        "should emit for main + feature branch, got {emitted}"
+    );
 
     let proj = Projection::build(&store, "proj").unwrap();
     assert!(
-        proj.branches.iter().any(|b| b.name == "casting/task-381-authentication"),
+        proj.branches
+            .iter()
+            .any(|b| b.name == "casting/task-381-authentication"),
         "feature branch should be in projection"
     );
     assert!(
-        proj.branches.iter().any(|b| b.name == "main" || b.name == "master"),
+        proj.branches
+            .iter()
+            .any(|b| b.name == "main" || b.name == "master"),
         "default branch should be in projection"
     );
     // The task_id should be derived from the branch name.
@@ -97,14 +104,13 @@ fn observer_emits_commit_observed_for_new_commits() {
     commit(&ws, "second commit");
 
     let emitted = git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
-    assert!(emitted >= 3, "should emit 1 branch + 2 commits, got {emitted}");
+    assert!(
+        emitted >= 3,
+        "should emit 1 branch + 2 commits, got {emitted}"
+    );
 
     let proj = Projection::build(&store, "proj").unwrap();
-    assert_eq!(
-        proj.commits.len(),
-        2,
-        "two commits should be in projection"
-    );
+    assert_eq!(proj.commits.len(), 2, "two commits should be in projection");
     let first = proj
         .commits
         .iter()
@@ -211,7 +217,9 @@ fn observer_cursor_advances_durably() {
     git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
 
     // The cursor should have advanced.
-    let cursor = cursors.get("proj", git_observer::GIT_OBSERVER_CONSUMER).unwrap();
+    let cursor = cursors
+        .get("proj", git_observer::GIT_OBSERVER_CONSUMER)
+        .unwrap();
     assert!(cursor.last_seen > 0, "cursor should have advanced");
     assert_eq!(
         cursor.last_seen,
@@ -263,7 +271,10 @@ fn changeset_auto_derived_from_task_branch() {
     // All commits reachable from the branch are linked to the ChangeSet
     // (including those inherited from the parent branch — git log shows
     // the full reachable history).
-    assert!(!cs.commits.is_empty(), "at least one commit should be linked");
+    assert!(
+        !cs.commits.is_empty(),
+        "at least one commit should be linked"
+    );
 }
 
 #[test]

@@ -9,19 +9,14 @@
 use casting::cursor::CursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType, Metadata};
 use casting::git_observer;
-use casting::provenance;
 use casting::projection::Projection;
+use casting::provenance;
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo + an event store.
-fn ws_with_repo() -> (
-    tempfile::TempDir,
-    Workspace,
-    SqliteEventStore,
-    CursorStore,
-) {
+fn ws_with_repo() -> (tempfile::TempDir, Workspace, SqliteEventStore, CursorStore) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -257,7 +252,10 @@ fn provenance_for_task_traces_to_requirement_and_commits() {
     let task_prov = provenance::for_task(&store, project, "task-502").unwrap();
 
     assert_eq!(task_prov.task_id, "task-502");
-    assert_eq!(task_prov.changeset_id.as_deref(), Some("changeset-task-502"));
+    assert_eq!(
+        task_prov.changeset_id.as_deref(),
+        Some("changeset-task-502")
+    );
     assert_eq!(task_prov.requirement_id.as_deref(), Some("req-2"));
     assert!(
         task_prov

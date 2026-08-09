@@ -71,11 +71,7 @@ pub struct ProvenanceChain {
 /// 3. Find RequirementCreated events with the same correlation_id.
 /// 4. Find DecisionProposed events with the same correlation_id.
 /// 5. Follow causation_id from TaskCreated to the owner's MessageSent.
-pub fn for_commit<S: EventStore>(
-    store: &S,
-    project: &str,
-    sha: &str,
-) -> Result<ProvenanceChain> {
+pub fn for_commit<S: EventStore>(store: &S, project: &str, sha: &str) -> Result<ProvenanceChain> {
     let events = store.read_since(project, 0)?;
 
     // 1. Find the CommitObserved event for this sha.
@@ -158,10 +154,7 @@ pub fn for_commit<S: EventStore>(
                             entity_kind: "requirement".into(),
                             description: format!(
                                 "Requirement: {}",
-                                e.data
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?")
+                                e.data.get("title").and_then(|v| v.as_str()).unwrap_or("?")
                             ),
                         });
                     }
@@ -307,10 +300,7 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
         .iter()
         .filter(|e| {
             e.event_type == EventType::CommitObserved
-                && e.data
-                    .get("task_id")
-                    .and_then(|v| v.as_str())
-                    == Some(task_id)
+                && e.data.get("task_id").and_then(|v| v.as_str()) == Some(task_id)
         })
         .map(|e| e.aggregate.id.clone())
         .collect();
@@ -320,10 +310,7 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
         .iter()
         .find(|e| {
             e.event_type == EventType::BranchCreated
-                && e.data
-                    .get("task_id")
-                    .and_then(|v| v.as_str())
-                    == Some(task_id)
+                && e.data.get("task_id").and_then(|v| v.as_str()) == Some(task_id)
         })
         .map(|e| e.aggregate.id.clone())
         .or_else(|| {
@@ -331,12 +318,14 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
                 .iter()
                 .find(|e| {
                     e.event_type == EventType::CommitObserved
-                        && e.data
-                            .get("task_id")
-                            .and_then(|v| v.as_str())
-                            == Some(task_id)
+                        && e.data.get("task_id").and_then(|v| v.as_str()) == Some(task_id)
                 })
-                .and_then(|e| e.data.get("branch").and_then(|v| v.as_str()).map(String::from))
+                .and_then(|e| {
+                    e.data
+                        .get("branch")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
         });
 
     Ok(TaskProvenance {

@@ -1,0 +1,72 @@
+//! Regression tests that BOOT the HTTP router.
+//!
+//! Motivation: the committed Git slice shipped provenance routes written with
+//! axum 0.7 capture syntax (`/api/provenance/commit/:sha`) while the project
+//! runs axum 0.8, which requires `{param}`. axum rejects `:param` at router
+//! *build* time, so `cast run` panicked immediately on startup — yet the whole
+//! suite (45 tests) still passed, because the provenance tests exercise the
+//! pure query functions and never construct the web router. This file closes
+//! that coverage gap.
+//!
+//! Building the router is itself the assertion that the route table is valid;
+//! the `oneshot` requests verify the endpoints actually answer.
+
+use casting::cursor::CursorStore;
+use casting::pm::AppState;
+use casting::sqlite_store::SqliteEventStore;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use futures::FutureExt;
+use tower::ServiceExt;
+
+fn boot_state() -> AppState {
+    let store = SqliteEventStore::in_memory().unwrap();
+    let cursors = CursorStore::in_memory().unwrap();
+    AppState::new(store, cursors, "proj-boot")
+}
+
+/// The module under test is `casting::web`, which is why the router type is
+/// `casting::web::router` (not something private to this crate).
+#[test]
+fn router_builds_without_panicking() {
+    // If any route uses invalid axum 0.8 syntax, this call panics (it did:
+    // the old `:capture` form). Constructing it here is the regression guard.
+    let state = boot_state();
+    let _app = casting::web::router(state);
+}
+
+#[test]
+fn provenance_routes_are_mounted_and_answer() {
+    // axum 0.8 capture-group syntax must be `{param}`, not `:param`. Boot the
+    // full router so a future regression throws immediately, then confirm the
+    // two provenance endpoints are reachable (200 for a known-but-missing id is
+    // fine — the point is the route is mounted and dispatch does not 404/panic).
+    let state = boot_state();
+    let app = casting::web::router(state);
+
+    for path in [
+        "/api/provenance/commit/deadbeef",
+        "/api/provenance/task/task-501",
+        "/api/state",
+        "/api/inbox",
+    ] {
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(req)
+            .now_or_never()
+            .expect("router dispatch should not block")
+            .expect("router oneshot is infallible");
+        let status = resp.status();
+        assert!(
+            !status.is_server_error(),
+            "route {path} should not 5xx (got {status})"
+        );
+        assert_ne!(
+            status,
+            StatusCode::NOT_FOUND,
+            "route {path} should be mounted (got 404)"
+        );
+    }
+}
