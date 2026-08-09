@@ -116,7 +116,7 @@ impl Projection {
     }
 
     /// Apply a single event to the running projection.
-    fn apply(&mut self, e: &Event) {
+    pub(crate) fn apply(&mut self, e: &Event) {
         match e.event_type {
             EventType::ProjectCreated => {}
             EventType::AgentHired => self.agents.push(Agent {

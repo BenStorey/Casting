@@ -3,18 +3,19 @@
 //! Per docs/ADDENDUM.md the PM is a control loop over the event stream, not a
 //! chatbot (§1), holds a durable cursor (§2), and turns owner input into
 //! organizational work. This slice uses a deterministic *scripted* PM (D2:
-//! scripted-first) that reacts to owner messages/decisions by appending a fixed
-//! but real chain of domain events (`RequirementCreated → TaskCreated → … →
-//! DecisionProposed → OwnerDecisionRecorded`), so the architecture is proven
-//! before any LLM is wired in. A real provider can later produce the same
-//! structured actions behind this same loop.
+//! scripted-first) that reacts to owner messages/decisions by producing the
+//! SAME typed `PmAction`s an LLM will later emit (docs/ADDENDUM.md §16), which
+//! are then passed through the policy gate in `actions.rs` before they become
+//! domain events. That gate is the seam: swap the scripted planner below for a
+//! real provider client later and the loop stays identical.
 //!
 //! Wake vs act: the loop wakes on a cheap notification (a broadcast of newly
-//! appended events) and drains EVERYTHING since its cursor in one pass,
-//! then advances the cursor — it never reasons per-event (docs/PM_INVOCATION_TRIGGERS.md).
+//! appended events) and drains EVERYTHING since its cursor in one pass, then
+//! advances the cursor — it never reasons per-event (docs/PM_INVOCATION_TRIGGERS.md).
 
+use crate::actions::{self, PmAction};
 use crate::cursor::CursorStore;
-use crate::event::{Actor, Aggregate, Event, EventType, Metadata};
+use crate::event::{Actor, Event, EventType};
 use crate::projection::Projection;
 use crate::sqlite_store::SqliteEventStore;
 use crate::store::EventStore;
@@ -30,15 +31,23 @@ const AGENT_PM: &str = "pm";
 const AGENT_ENG: &str = "marcus-reed";
 const AGENT_QA: &str = "maya-patel";
 
+/// A proposed action plus the actor performing it. `who` is a label
+/// (agent id, "owner", or "system") — converted to `Actor` at execution.
+pub type PlannedAction = (String, PmAction);
+
 /// Shared runtime state: the event store, durable cursors, the active project,
-/// and a broadcast channel for notifying subscribers (UI/SSE and the PM) that
-/// events were appended. A notification is a *hint to consume persisted
-/// events*, never the source of truth (brief §17).
+/// a broadcast channel for notifying subscribers (UI/SSE and the PM) that
+/// events were appended, and the per-event animation delay (brief §35).
+/// A notification is a *hint to consume persisted events*, never the source of
+/// truth (brief §17).
 #[derive(Clone)]
 pub struct AppState {
     pub store: SqliteEventStore,
     pub cursors: CursorStore,
     pub project: String,
+    /// Pause inserted between appended events so the UI animates the company
+    /// working. Zero in tests for speed. (brief §35)
+    pub step_delay: Duration,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -49,8 +58,15 @@ impl AppState {
             store,
             cursors,
             project: project.into(),
+            step_delay: Duration::from_millis(220),
             events: Arc::new(tx),
         }
+    }
+
+    /// Builder-style setter used by tests to disable the animation pause.
+    pub fn with_step_delay(mut self, delay: Duration) -> Self {
+        self.step_delay = delay;
+        self
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -107,7 +123,8 @@ async fn drain(state: &AppState) -> Result<u32> {
 }
 
 /// The scripted policy: look at the events since the cursor and decide what the
-/// PM "company" emits next. Deterministic for this slice.
+/// PM "company" plans next. Deterministic for this slice. Returns the planned
+/// actions, which `run_planned` validates and executes.
 async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]) -> Result<u32> {
     let mut authored = 0u32;
 
@@ -120,383 +137,203 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             _ => (false, ""),
         };
 
-        if is_owner_message {
-            let started = !projection.requirements.is_empty();
-            authored += if started {
-                script_acknowledge(state, e).await?
+        let planned: Vec<PlannedAction> = if is_owner_message {
+            if projection.requirements.is_empty() {
+                plan_onboard(state, e, body)
             } else {
-                script_onboard(state, e, body).await?
-            };
-            continue;
-        }
+                plan_acknowledge(state, e)
+            }
+        } else if e.event_type == EventType::OwnerDecisionRecorded {
+            plan_owner_decision(state, e)
+        } else {
+            Vec::new()
+        };
 
-        if e.event_type == EventType::OwnerDecisionRecorded {
-            authored += script_owner_decision(state, e).await?;
-        }
+        authored += run_planned(state, e, planned).await?;
     }
 
     Ok(authored)
 }
 
-/// Build metadata linking a new event to the one that caused it (the "why?"
-/// chain — brief §11, addendum §24). Uses the owner's input event as the root of
-/// its own correlation id.
-fn linked(causation: &Event, correlation: &str) -> Metadata {
-    Metadata {
-        correlation_id: Some(correlation.to_string()),
-        causation_id: Some(causation.event_id),
-        agent_run_id: Some(format!("sim-run-{}", causation.sequence)),
+/// Run planned actions through the policy gate, then execute the events that
+/// pass. Each action is validated against a *running* projection (updated as we
+/// append), so within one plan an earlier action's effect is visible to a later
+/// validation. Returns how many events were appended.
+async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction>) -> Result<u32> {
+    if planned.is_empty() {
+        return Ok(0);
     }
-}
+    let correlation = format!("run-{}", cause.sequence);
+    let mut projection = Projection::build(&state.store, &state.project)?;
+    let mut authored = 0u32;
+    let mut rejected = 0u32;
 
-/// Make a domain event with provenance metadata already attached.
-fn ev(
-    project: &str,
-    actor: Actor,
-    id: &str,
-    kind: &str,
-    event_type: EventType,
-    data: serde_json::Value,
-    meta: Metadata,
-) -> Event {
-    let mut e = Event::new(
-        project,
-        actor,
-        event_type,
-        Aggregate {
-            kind: kind.to_string(),
-            id: id.to_string(),
-        },
-        data,
-    );
-    e.metadata = meta;
-    e
-}
-
-/// Append a series of events one at a time with a short pause so the UI can
-/// animate the company working (brief §35). Returns how many were appended.
-async fn emit(state: &AppState, events: Vec<Event>) -> Result<u32> {
-    let n = events.len() as u32;
-    for e in events {
-        state.append(e)?;
-        tokio::time::sleep(Duration::from_millis(220)).await;
+    for (who, action) in planned {
+        if action == PmAction::NoOp {
+            continue;
+        }
+        match actions::validate(&action, &projection) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("[pm] policy gate rejected {who} action: {e}");
+                rejected += 1;
+                continue;
+            }
+        }
+        for event in action.to_events(&state.project, &who, cause, &correlation) {
+            state.append(event.clone())?;
+            projection.apply(&event);
+            authored += 1;
+            if !state.step_delay.is_zero() {
+                tokio::time::sleep(state.step_delay).await;
+            }
+        }
     }
-    Ok(n)
+
+    if rejected > 0 {
+        eprintln!("[pm] rejected {rejected} invalid action(s) this pass");
+    }
+    Ok(authored)
 }
 
-/// First owner message: onboard the company and kick off a build.
-async fn script_onboard(state: &AppState, cause: &Event, body: &str) -> Result<u32> {
-    let project = state.project.clone();
+/// First owner message: onboard the company and kick off a build. Plans the
+/// whole sequence as actions; the gate lets each through as the projection
+/// grows.
+fn plan_onboard(_state: &AppState, cause: &Event, body: &str) -> Vec<PlannedAction> {
     let title = if body.trim().is_empty() {
         "the product".to_string()
     } else {
         body.trim().to_string()
     };
-    let corr = format!("req-{}", cause.event_id);
 
-    let mut crew = Vec::new();
-    // Requirement from owner intent.
-    crew.push(ev(
-        &project,
-        Actor::System,
-        "req-1",
-        "requirement",
-        EventType::RequirementCreated,
-        serde_json::json!({"title": title.clone(), "description": body}),
-        linked(cause, &corr),
-    ));
-    // Hire the team (idempotent-ish for slice one).
-    crew.push(ev(
-        &project,
-        Actor::System,
-        AGENT_ENG,
-        "agent",
-        EventType::AgentHired,
-        serde_json::json!({"role": "Principal Engineer"}),
-        linked(cause, &corr),
-    ));
-    crew.push(ev(
-        &project,
-        Actor::System,
-        AGENT_QA,
-        "agent",
-        EventType::AgentHired,
-        serde_json::json!({"role": "QA Consultant"}),
-        linked(cause, &corr),
-    ));
-    // PM greets the owner.
-    crew.push(ev(
-        &project,
-        Actor::Agent { id: AGENT_PM.into() },
-        format!("msg-{}", cause.sequence).as_str(),
-        "message",
-        EventType::MessageSent,
-        serde_json::json!({
-            "to": "owner",
-            "body": format!("Understood — \u{201c}{title}\u{201d}. I've broken this into tasks and brought in Marcus (engineering) and Maya (QA). Stand by.")
-        }),
-        linked(cause, &corr),
-    ));
-    emit(state, crew).await?;
-    let mut n = 4;
-
-    // Design task: assigned -> started -> completed.
-    n += emit(
-        state,
-        vec![
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_PM.into(),
-                },
-                "task-design",
-                "task",
-                EventType::TaskCreated,
-                serde_json::json!({"title": format!("Design {title}"), "kind": "feature"}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_PM.into(),
-                },
-                "task-design",
-                "task",
-                EventType::TaskAssigned,
-                serde_json::json!({"assignee": AGENT_ENG}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_ENG.into(),
-                },
-                "task-design",
-                "task",
-                EventType::TaskStarted,
-                serde_json::json!({}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_ENG.into(),
-                },
-                "task-design",
-                "task",
-                EventType::TaskCompleted,
-                serde_json::json!({"result": format!("Designed {title}")}),
-                linked(cause, &corr),
-            ),
-        ],
-    )
-    .await?;
-
-    // Core implementation: create + assign + start + complete.
-    n += emit(
-        state,
-        vec![
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_PM.into(),
-                },
-                "task-core",
-                "task",
-                EventType::TaskCreated,
-                serde_json::json!({"title": format!("Implement {title} core"), "kind": "feature"}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_PM.into(),
-                },
-                "task-core",
-                "task",
-                EventType::TaskAssigned,
-                serde_json::json!({"assignee": AGENT_ENG}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_ENG.into(),
-                },
-                "task-core",
-                "task",
-                EventType::TaskStarted,
-                serde_json::json!({}),
-                linked(cause, &corr),
-            ),
-        ],
-    )
-    .await?;
-
-    // QA raises an informational observation (the feedback loop, brief §20).
-    n += emit(
-        state,
-        vec![ev(
-            &project,
-            Actor::Agent {
-                id: AGENT_QA.into(),
+    vec![
+        ("system".into(), PmAction::HireAgent { agent_id: AGENT_ENG.into(), role: "Principal Engineer".into() }),
+        ("system".into(), PmAction::HireAgent { agent_id: AGENT_QA.into(), role: "QA Consultant".into() }),
+        (
+            AGENT_PM.into(),
+            PmAction::CreateRequirement {
+                id: format!("req-{}", cause.event_id),
+                title: title.clone(),
+                description: body.to_string(),
             },
-            "obs-1",
-            "observation",
-            EventType::ObservationCreated,
-            serde_json::json!({
-                "severity": "info",
-                "subject": "HTTPS not enabled in the scaffold",
-                "body": "Noted during review. Won't fix now, but worth a task later.",
-                "recommended_action": "Create a hardening task",
-                "requires_owner": false,
-                "pm_action_required": false
-            }),
-            linked(cause, &corr),
-        )],
-    )
-    .await?;
-
-    // Engineer finishes the core implementation.
-    n += emit(
-        state,
-        vec![ev(
-            &project,
-            Actor::Agent {
-                id: AGENT_ENG.into(),
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::SendMessage {
+                to: "owner".into(),
+                body: format!("Understood — \u{201c}{title}\u{201d}. I've broken this into tasks and brought in Marcus (engineering) and Maya (QA). Stand by."),
             },
-            "task-core",
-            "task",
-            EventType::TaskCompleted,
-            serde_json::json!({"result": format!("Core implementation of {title} done")}),
-            linked(cause, &corr),
-        )],
-    )
-    .await?;
-
-    // QA verifies with a test task.
-    n += emit(
-        state,
-        vec![
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_PM.into(),
-                },
-                "task-qa",
-                "task",
-                EventType::TaskCreated,
-                serde_json::json!({"title": "Set up automated tests", "kind": "feature"}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_PM.into(),
-                },
-                "task-qa",
-                "task",
-                EventType::TaskAssigned,
-                serde_json::json!({"assignee": AGENT_QA}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_QA.into(),
-                },
-                "task-qa",
-                "task",
-                EventType::TaskStarted,
-                serde_json::json!({}),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent {
-                    id: AGENT_QA.into(),
-                },
-                "task-qa",
-                "task",
-                EventType::TaskCompleted,
-                serde_json::json!({"result": "Test suite passing"}),
-                linked(cause, &corr),
-            ),
-        ],
-    )
-    .await?;
-
-    // A decision the owner must make (delegated authority — brief §5, §21).
-    n += emit(
-        state,
-        vec![
-            ev(
-                &project,
-                Actor::Agent { id: AGENT_PM.into() },
-                "decision-db",
-                "decision",
-                EventType::DecisionProposed,
-                serde_json::json!({
-                    "subject": "Database choice",
-                    "options": {
-                        "A": "PostgreSQL — robust, more infra, approx $18",
-                        "B": "SQLite — dead simple, zero infra, approx $9"
-                    },
-                    "recommendation": "A",
-                    "owner_involvement": "Required"
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::CreateTask {
+                id: "task-design".into(),
+                title: format!("Design {title}"),
+                kind: "feature".into(),
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::AssignTask { task_id: "task-design".into(), assignee: AGENT_ENG.into() },
+        ),
+        (
+            AGENT_ENG.into(),
+            PmAction::StartTask { task_id: "task-design".into() },
+        ),
+        (
+            AGENT_ENG.into(),
+            PmAction::CompleteTask { task_id: "task-design".into(), result: format!("Designed {title}") },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::CreateTask {
+                id: "task-core".into(),
+                title: format!("Implement {title} core"),
+                kind: "feature".into(),
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::AssignTask { task_id: "task-core".into(), assignee: AGENT_ENG.into() },
+        ),
+        (AGENT_ENG.into(), PmAction::StartTask { task_id: "task-core".into() }),
+        (
+            AGENT_QA.into(),
+            PmAction::CreateObservation {
+                id: "obs-1".into(),
+                severity: "info".into(),
+                subject: "HTTPS not enabled in the scaffold".into(),
+                body: "Noted during review. Won't fix now, but worth a task later.".into(),
+                pm_action_required: false,
+            },
+        ),
+        (
+            AGENT_ENG.into(),
+            PmAction::CompleteTask {
+                task_id: "task-core".into(),
+                result: format!("Core implementation of {title} done"),
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::CreateTask {
+                id: "task-qa".into(),
+                title: "Set up automated tests".into(),
+                kind: "feature".into(),
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::AssignTask { task_id: "task-qa".into(), assignee: AGENT_QA.into() },
+        ),
+        (AGENT_QA.into(), PmAction::StartTask { task_id: "task-qa".into() }),
+        (
+            AGENT_QA.into(),
+            PmAction::CompleteTask { task_id: "task-qa".into(), result: "Test suite passing".into() },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::ProposeDecision {
+                id: "decision-db".into(),
+                subject: "Database choice".into(),
+                options: serde_json::json!({
+                    "A": "PostgreSQL — robust, more infra, approx $18",
+                    "B": "SQLite — dead simple, zero infra, approx $9"
                 }),
-                linked(cause, &corr),
-            ),
-            ev(
-                &project,
-                Actor::Agent { id: AGENT_PM.into() },
-                format!("msg-{}", cause.sequence + 1).as_str(),
-                "message",
-                EventType::MessageSent,
-                serde_json::json!({
-                    "to": "owner",
-                    "body": "We need one call from you: which database for this build? I recommend A (PostgreSQL) for headroom, but B (SQLite) is zero-infra and cheaper."
-                }),
-                linked(cause, &corr),
-            ),
-        ],
-    )
-    .await?;
-    n += 2;
-
-    Ok(n)
+                recommendation: "A".into(),
+                owner_involvement: "Required".into(),
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::SendMessage {
+                to: "owner".into(),
+                body: "We need one call from you: which database for this build? I recommend A (PostgreSQL) for headroom, but B (SQLite) is zero-infra and cheaper.".into(),
+            },
+        ),
+    ]
 }
 
 /// Owner just messaged but we already have requirements — acknowledge politely.
-async fn script_acknowledge(state: &AppState, cause: &Event) -> Result<u32> {
-    let project = state.project.clone();
+fn plan_acknowledge(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
+    let _ = state;
     let body = cause
         .data
         .get("body")
         .and_then(|b| b.as_str())
         .unwrap_or("");
-    let corr = format!("msg-{}", cause.event_id);
-    let msg = ev(
-        &project,
-        Actor::Agent {
-            id: AGENT_PM.into(),
+    vec![(
+        AGENT_PM.into(),
+        PmAction::SendMessage {
+            to: "owner".into(),
+            body: format!("Noted: \u{201c}{body}\u{201d}. It's on the backlog — I'll fold it into the next build pass."),
         },
-        format!("reply-{}", cause.sequence).as_str(),
-        "message",
-        EventType::MessageSent,
-        serde_json::json!({
-            "to": "owner",
-            "body": format!("Noted: \u{201c}{body}\u{201d}. It's on the backlog — I'll fold it into the next build pass.")
-        }),
-        linked(cause, &corr),
-    );
-    emit(state, vec![msg]).await?;
-    Ok(1)
+    )]
 }
 
-/// The owner ruled on a proposed decision — record the verdict's consequences.
-async fn script_owner_decision(state: &AppState, cause: &Event) -> Result<u32> {
-    let project = state.project.clone();
+/// The owner ruled on a proposed decision — plan the verdict's consequences.
+fn plan_owner_decision(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
+    let _ = state;
     let decision_id = cause.aggregate.id.clone();
     let approved = cause
         .data
@@ -513,64 +350,44 @@ async fn script_owner_decision(state: &AppState, cause: &Event) -> Result<u32> {
         .get("subject")
         .and_then(|b| b.as_str())
         .unwrap_or("your decision");
-    let corr = format!("decision-{}", decision_id);
 
-    let mut out = vec![ev(
-        &project,
-        Actor::Agent {
-            id: AGENT_PM.into(),
-        },
-        format!("msg-{}", cause.sequence).as_str(),
-        "message",
-        EventType::MessageSent,
-        serde_json::json!({
-            "to": "owner",
-            "body": if approved {
+    let mut out = vec![(
+        AGENT_PM.into(),
+        PmAction::SendMessage {
+            to: "owner".into(),
+            body: if approved {
                 format!("Great — \u{201c}{subject}\u{201d} approved{}. I'll drive the implementation now.", fmt_note(note))
             } else {
                 format!("Understood — \u{201c}{subject}\u{201d} was declined{}. Discarding that option.", fmt_note(note))
-            }
-        }),
-        linked(cause, &corr),
+            },
+        },
     )];
 
     if approved {
-        out.push(ev(
-            &project,
-            Actor::Agent { id: AGENT_PM.into() },
-            "task-adopt",
-            "task",
-            EventType::TaskCreated,
-            serde_json::json!({"title": format!("Adopt {subject} (owner-approved)"), "kind": "feature"}),
-            linked(cause, &corr),
-        ));
-        out.push(ev(
-            &project,
-            Actor::Agent {
-                id: AGENT_ENG.into(),
+        out.push((
+            AGENT_PM.into(),
+            PmAction::CreateTask {
+                id: format!("task-adopt-{decision_id}"),
+                title: format!("Adopt {subject} (owner-approved)"),
+                kind: "feature".into(),
             },
-            "task-adopt",
-            "task",
-            EventType::TaskStarted,
-            serde_json::json!({}),
-            linked(cause, &corr),
         ));
-        out.push(ev(
-            &project,
-            Actor::Agent {
-                id: AGENT_ENG.into(),
+        out.push((
+            AGENT_ENG.into(),
+            PmAction::StartTask {
+                task_id: format!("task-adopt-{decision_id}"),
             },
-            "task-adopt",
-            "task",
-            EventType::TaskCompleted,
-            serde_json::json!({"result": format!("Adopted {subject}")}),
-            linked(cause, &corr),
+        ));
+        out.push((
+            AGENT_ENG.into(),
+            PmAction::CompleteTask {
+                task_id: format!("task-adopt-{decision_id}"),
+                result: format!("Adopted {subject}"),
+            },
         ));
     }
 
-    let count = out.len();
-    emit(state, out).await?;
-    Ok(count as u32)
+    out
 }
 
 fn fmt_note(note: &str) -> String {

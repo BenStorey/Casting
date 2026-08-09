@@ -8,11 +8,12 @@ use casting::pm::{AppState, PM_CONSUMER};
 use casting::projection::{DecisionStatus, Projection, TaskStatus};
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use std::time::Duration;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = CursorStore::in_memory().unwrap();
-    AppState::new(store, cursors, "proj-test")
+    AppState::new(store, cursors, "proj-test").with_step_delay(Duration::ZERO)
 }
 
 fn owner_message(body: &str) -> Event {
