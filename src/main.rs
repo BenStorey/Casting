@@ -7,6 +7,7 @@
 use anyhow::{Context, Result};
 use casting::cursor::CursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
+use casting::git_observer as git;
 use casting::pm::{self, AppState};
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
@@ -175,8 +176,14 @@ fn do_run(run: RunArgs) -> Result<()> {
         // Seed the empty project with its existence + the PM hire.
         seed_project(&state)?;
 
+        // Run the git observer once at boot so the event log reflects the
+        // current repo state before the PM starts reasoning (Git slice
+        // increment 2). Subsequent observations happen on each PM drain.
+        git::observe_once(&state, &ws).await;
+
         // Start the simulated PM control loop (background, durable cursor).
-        tokio::spawn(pm::run_pm(state.clone()));
+        // The loop also triggers the git observer on each drain pass.
+        tokio::spawn(pm::run_pm(state.clone(), ws.clone()));
 
         // Serve the workspace.
         let app = web::router(state);

@@ -22,9 +22,10 @@ pub enum Actor {
 
 /// Semantic type of a domain event. Deliberately a small, curated set —
 /// the organizational model (docs/CASTING_PROJECT_BRIEF.md §12) rather
-/// than raw machinery.
+/// than raw machinery. Git semantic events per docs/ADDENDUM.md §23.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventType {
+    // --- Organizational events ---
     ProjectCreated,
     AgentHired,
     RequirementCreated,
@@ -38,6 +39,20 @@ pub enum EventType {
     DecisionProposed,
     OwnerDecisionRecorded,
     MessageSent,
+
+    // --- Semantic Git events (ADDENDUM §23) ---
+    /// A new branch appeared in the repo (typically `casting/task-N-*`).
+    BranchCreated,
+    /// A new commit was observed on a branch.
+    CommitObserved,
+    /// A merge was completed (a merge commit appeared on a protected branch).
+    MergeCompleted,
+    /// A merge attempt resulted in conflicts (emitted by the git runner, not
+    /// the passive observer — requires attempting the merge).
+    MergeConflictDetected,
+    /// A batch of work is ready for review (task + branch + commits assembled
+    /// into a ChangeSet). Emitted by the ChangeSet layer (increment 3).
+    ChangeSetReady,
 }
 
 /// The entity primarily affected by an event.

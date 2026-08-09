@@ -73,6 +73,13 @@ impl AppState {
         self.events.subscribe()
     }
 
+    /// Broadcast an already-persisted event to subscribers (wake hint for the
+    /// PM, realtime push for the UI/SSE). Used by the git observer after it
+    /// appends events directly to the store (bypassing `append`).
+    pub fn notify(&self, event: &Event) {
+        let _ = self.events.send(event.clone());
+    }
+
     /// Append an event to the store, assign its sequence, then broadcast it to
     /// subscribers (a wake hint for the PM, a realtime push for the UI).
     pub fn append(&self, event: Event) -> Result<Event> {
@@ -85,12 +92,16 @@ impl AppState {
 
 /// Spawn the simulated PM loop. It blocks on wake hints, drains all new events
 /// since its cursor, lets the scripted policy respond, then advances the cursor.
-pub async fn run_pm(state: AppState) {
+/// On each drain it also runs the git observer so new branches/commits become
+/// semantic events before the PM reasons (Git slice increment 2).
+pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
     let mut rx = state.subscribe();
     loop {
         // Wake on any broadcast (cheap); a 500ms timeout is a safety poll so we
         // still catch events if broadcast lagged. Never per-event reasoning.
         let _ = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        // Observe the repo first — new commits become events the PM can react to.
+        crate::git_observer::observe_once(&state, &ws).await;
         if let Err(e) = drain(&state).await {
             eprintln!("[pm] drain error: {e:#}");
         }

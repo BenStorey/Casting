@@ -88,6 +88,41 @@ pub struct Observation {
     pub body: String,
 }
 
+/// A branch in the artifact repo (semantic Git event, ADDENDUM §20/§23).
+#[derive(Debug, Clone, Serialize)]
+pub struct Branch {
+    pub name: String,
+    /// The task this branch is associated with, if known (ADDENDUM §20).
+    pub task_id: Option<String>,
+}
+
+/// A commit observed on a branch (semantic Git event, ADDENDUM §23).
+/// Git remains authoritative for the commit; Casting owns the organizational
+/// association (ADDENDUM §24).
+#[derive(Debug, Clone, Serialize)]
+pub struct Commit {
+    pub sha: String,
+    /// The branch this commit was observed on.
+    pub branch: String,
+    /// The commit message subject (first line).
+    pub message: String,
+    /// The author of the commit (git author name).
+    pub author: String,
+    /// The task this commit is associated with, if known.
+    pub task_id: Option<String>,
+}
+
+/// A completed merge (semantic Git event, ADDENDUM §23).
+#[derive(Debug, Clone, Serialize)]
+pub struct Merge {
+    /// The merge commit sha.
+    pub sha: String,
+    /// The branch that was merged.
+    pub from_branch: String,
+    /// The branch that received the merge.
+    pub to_branch: String,
+}
+
 /// The full current-state projection for a project.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Projection {
@@ -98,6 +133,12 @@ pub struct Projection {
     pub decisions: Vec<Decision>,
     pub messages: Vec<Message>,
     pub observations: Vec<Observation>,
+    /// Branches in the artifact repo (semantic Git events).
+    pub branches: Vec<Branch>,
+    /// Commits observed on branches (semantic Git events).
+    pub commits: Vec<Commit>,
+    /// Completed merges (semantic Git events).
+    pub merges: Vec<Merge>,
 }
 
 impl Projection {
@@ -203,6 +244,32 @@ impl Projection {
                 to: string_field(e, "to").unwrap_or_else(|| "owner".into()),
                 body: string_field(e, "body").unwrap_or_default(),
             }),
+            EventType::BranchCreated => self.branches.push(Branch {
+                name: e.aggregate.id.clone(),
+                task_id: string_field(e, "task_id"),
+            }),
+            EventType::CommitObserved => self.commits.push(Commit {
+                sha: e.aggregate.id.clone(),
+                branch: string_field(e, "branch").unwrap_or_default(),
+                message: string_field(e, "message").unwrap_or_default(),
+                author: string_field(e, "author").unwrap_or_default(),
+                task_id: string_field(e, "task_id"),
+            }),
+            EventType::MergeCompleted => self.merges.push(Merge {
+                sha: e.aggregate.id.clone(),
+                from_branch: string_field(e, "from_branch").unwrap_or_default(),
+                to_branch: string_field(e, "to_branch").unwrap_or_default(),
+            }),
+            EventType::MergeConflictDetected => {
+                // A merge conflict is an observation-like event — it's recorded
+                // in the event log but doesn't add a persistent entity to the
+                // projection (the PM reacts to it, it doesn't become a board
+                // item). It WILL wake the PM (Tier-1 trigger).
+            }
+            EventType::ChangeSetReady => {
+                // ChangeSetReady is handled in increment 3 (ChangeSet concept).
+                // For now it's a signal event that the PM can react to.
+            }
         }
     }
 }

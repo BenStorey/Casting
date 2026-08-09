@@ -46,6 +46,25 @@ export interface Observation {
   body: string;
 }
 
+export interface Branch {
+  name: string;
+  task_id: string | null;
+}
+
+export interface Commit {
+  sha: string;
+  branch: string;
+  message: string;
+  author: string;
+  task_id: string | null;
+}
+
+export interface Merge {
+  sha: string;
+  from_branch: string;
+  to_branch: string;
+}
+
 export interface Projection {
   project_id: string;
   agents: Agent[];
@@ -54,6 +73,9 @@ export interface Projection {
   decisions: Decision[];
   messages: Message[];
   observations: Observation[];
+  branches: Branch[];
+  commits: Commit[];
+  merges: Merge[];
 }
 
 export interface InboxItem {

@@ -12,6 +12,7 @@
 pub mod actions;
 pub mod cursor;
 pub mod event;
+pub mod git_observer;
 pub mod pm;
 pub mod projection;
 pub mod sqlite_store;
