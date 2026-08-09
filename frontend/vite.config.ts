@@ -16,6 +16,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Allow access via the public dev host (Caddy forwards it). Vite otherwise
+    // blocks requests whose Host isn't localhost/127.0.0.1.
+    allowedHosts: ["dev.benstorey.com"],
     proxy: {
       // Forward API + SSE to the `cast run` server (default 127.0.0.1:8080).
       "/api": {

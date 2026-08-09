@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-09T00:00:00+00:00",
+  "recipe": {
+    "name": "Casting (Rust + Vite)",
+    "kind": "rust",
+    "bootstrap": [],
+    "build": [
+      "cargo build"
+    ],
+    "test": [
+      "cargo test"
+    ],
+    "start": "CAST_ADDR=127.0.0.1:8080 ./target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state",
+    "port": 8080,
+    "readinessPath": "/",
+    "evidence": [
+      "Casting is a Rust (axum) backend + React/Vite frontend",
+      "`cast run` serves the API + embedded SPA on :8080 (CAST_ADDR)",
+      "Workspace kept outside the source tree (D5 ownership boundary)"
+    ]
+  }
+}

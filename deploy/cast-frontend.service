@@ -1,0 +1,18 @@
+[Unit]
+Description=Casting dev frontend (Vite dev server on :5173, proxies /api to cast backend :8080)
+After=network.target cast-backend.service
+Wants=cast-backend.service
+
+[Service]
+Type=simple
+User=ben
+Group=ben
+WorkingDirectory=/home/ben/casting/frontend
+# node + npm are installed under ~/.local/bin (not in systemd's default PATH).
+Environment=PATH=/home/ben/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ben/.local/bin/npm run dev -- --host 127.0.0.1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

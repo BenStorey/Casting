@@ -1,0 +1,16 @@
+[Unit]
+Description=Casting dev backend (cast run web/API server on :8080)
+After=network.target
+
+[Service]
+Type=simple
+User=ben
+Group=ben
+WorkingDirectory=/home/ben/casting
+Environment=CAST_ADDR=127.0.0.1:8080
+ExecStart=/home/ben/casting/target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

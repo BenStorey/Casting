@@ -1,0 +1,18 @@
+# Casting dev-access Caddy block — add to /etc/caddy/Caddyfile alongside the
+# production vhosts. Mirrors what is live on the host (see /etc/caddy/Caddyfile).
+# Public access from phone while traveling. Protected by HTTP Basic Auth (bcrypt)
+# which covers both the SPA and the /api backend.
+#
+# Update the password hash with:
+#   caddy hash-password --algorithm bcrypt --plaintext 'NEWPASS'
+# then paste the bcrypt hash below (it starts with $2a$).
+dev.benstorey.com {
+	basicauth {
+		ben $2a$14$hjUF2HzEsikN.eT.eeZc9eug74evAIKMFt5hpGbvObRMb4F7skMVa
+	}
+
+	reverse_proxy 127.0.0.1:5173 {
+		# Unbuffered so Vite HMR + SSE (/api/_events) stream promptly.
+		flush_interval -1
+	}
+}
