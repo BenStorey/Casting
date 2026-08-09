@@ -8,6 +8,7 @@
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::pm::AppState;
 use crate::projection::{DecisionStatus, Projection};
+use crate::provenance;
 use crate::store::EventStore;
 use axum::extract::State;
 use axum::http::{header, HeaderValue, StatusCode, Uri};
@@ -65,6 +66,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/inbox", get(inbox_handler))
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
+        .route("/api/provenance/commit/:sha", get(provenance_commit_handler))
+        .route("/api/provenance/task/:task_id", get(provenance_task_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
@@ -209,6 +212,29 @@ async fn events_stream(
 
     Sse::new(catchup_stream.chain(live))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
+
+/// GET /api/provenance/commit/:sha — the "why does this code exist?" chain for
+/// a commit: commit → changeSet → task → requirement → decision → owner intent
+/// (ADDENDUM §24–25).
+async fn provenance_commit_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(sha): axum::extract::Path<String>,
+) -> Result<Json<provenance::ProvenanceChain>, StatusCode> {
+    provenance::for_commit(&state.store, &state.project, &sha)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// GET /api/provenance/task/:task_id — the reverse direction: what code,
+/// requirement, and decision did this task produce? (ADDENDUM §25)
+async fn provenance_task_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> Result<Json<provenance::TaskProvenance>, StatusCode> {
+    provenance::for_task(&state.store, &state.project, &task_id)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Serve the embedded SPA. Real files serve directly; unknown paths fall back
