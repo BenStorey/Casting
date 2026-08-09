@@ -174,3 +174,80 @@ fn event_store_lives_in_state_dir_not_the_repo() {
         "event store must not pollute the artifact repo"
     );
 }
+
+#[test]
+fn ensure_repo_initializes_a_git_repo_when_missing() {
+    let (retain, repo, state) = sibling_dirs();
+    let _ = retain;
+    let ws = Workspace::open(&repo, &state, Selfhost::Disabled).unwrap();
+
+    // No .git yet.
+    assert!(!repo.join(".git").exists());
+
+    // ensure_repo creates it.
+    let created = ws.ensure_repo().unwrap();
+    assert!(created, "should report it created the repo");
+    assert!(repo.join(".git").exists(), ".git should now exist");
+
+    // Idempotent: a second call reports it already existed.
+    let again = ws.ensure_repo().unwrap();
+    assert!(!again, "should report the repo already existed");
+}
+
+#[test]
+fn ensure_repo_leaves_existing_repo_untouched() {
+    let (retain, repo, state) = sibling_dirs();
+    let _ = retain;
+    let ws = Workspace::open(&repo, &state, Selfhost::Disabled).unwrap();
+
+    // Pre-create a git repo with a commit.
+    ws.git_command()
+        .arg("init")
+        .output()
+        .unwrap();
+    std::fs::write(repo.join("README.md"), "hello\n").unwrap();
+    ws.git_command()
+        .arg("add")
+        .arg("README.md")
+        .output()
+        .unwrap();
+    ws.git_command()
+        .arg("commit")
+        .arg("-m")
+        .arg("initial")
+        .output()
+        .unwrap();
+    let head_before = ws.head().unwrap();
+
+    // ensure_repo should leave it alone.
+    let created = ws.ensure_repo().unwrap();
+    assert!(!created, "existing repo should not be re-initialized");
+    assert_eq!(ws.head().unwrap(), head_before, "HEAD must not change");
+}
+
+#[test]
+fn head_and_branch_resolve_after_init() {
+    let (retain, repo, state) = sibling_dirs();
+    let _ = retain;
+    let ws = Workspace::open(&repo, &state, Selfhost::Disabled).unwrap();
+    ws.ensure_repo().unwrap();
+
+    // A fresh repo has no commits: head() is None, branch() is None.
+    assert!(ws.head().is_none());
+    assert!(ws.current_branch().is_none());
+
+    // Make a commit, then HEAD and branch should resolve.
+    std::fs::write(repo.join("file.txt"), "content\n").unwrap();
+    ws.git_command().arg("add").arg(".").output().unwrap();
+    ws.git_command()
+        .arg("commit")
+        .arg("-m")
+        .arg("first")
+        .output()
+        .unwrap();
+    assert!(ws.head().is_some(), "HEAD should resolve after a commit");
+    assert!(
+        ws.current_branch().is_some(),
+        "branch should resolve after a commit"
+    );
+}

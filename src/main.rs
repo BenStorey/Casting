@@ -131,13 +131,19 @@ fn parse_run(args: &[String]) -> Result<RunArgs> {
 
 /// Print the preflight banner: the canonical target + detected repo HEAD, so
 /// the operator *sees* what Casting is about to touch before anything mutates.
-fn preflight(ws: &Workspace) {
+fn preflight(ws: &Workspace, repo_created: bool) {
     println!("🎬 Casting workspace");
     println!("   artifact repo: {}", ws.repo.display());
     println!("   state-dir:     {}", ws.state_dir.display());
+    if repo_created {
+        println!("   git:           initialized (repo had no .git)");
+    }
     match ws.head() {
         Some(sha) => println!("   repo HEAD:     {sha}"),
-        None => println!("   repo HEAD:     (no .git yet)"),
+        None => println!("   repo HEAD:     (no commits yet)"),
+    }
+    if let Some(branch) = ws.current_branch() {
+        println!("   branch:        {branch}");
     }
     if ws.selfhost() == Selfhost::Enabled {
         println!("   self-hosting:  enabled (operating on the Casting source repo)");
@@ -149,7 +155,12 @@ fn preflight(ws: &Workspace) {
 /// embedded React UI from one binary.
 fn do_run(run: RunArgs) -> Result<()> {
     let ws = Workspace::open(&run.repo, &run.state_dir, run.selfhost)?;
-    preflight(&ws);
+
+    // Ensure the artifact repo is a real git repo (git-init if missing). This
+    // wires Git into the workspace at startup (Git slice increment 1).
+    let created = ws.ensure_repo().context("ensure git repo")?;
+
+    preflight(&ws, created);
 
     // Casting's internal state lives in the (mandatory, separate) state dir.
     let store = SqliteEventStore::open(ws.state_dir.join("events.db"))?;

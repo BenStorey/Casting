@@ -121,8 +121,9 @@ impl Workspace {
         cmd
     }
 
-    /// The repo's current HEAD (or `None` if it is not yet a git repo). Uses
-    /// the pinned runner, so exercizes the boundary on the correct repo only.
+    /// The repo's current HEAD (or `None` if it is not yet a git repo or has no
+    /// commits yet). Uses the pinned runner, so exercizes the boundary on the
+    /// correct repo only.
     pub fn head(&self) -> Option<String> {
         let out = self
             .git_command()
@@ -133,6 +134,53 @@ impl Workspace {
         if out.status.success() {
             let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
             (!sha.is_empty()).then_some(sha)
+        } else {
+            None
+        }
+    }
+
+    /// Ensure the artifact repo is a real git repository. If it has no `.git`,
+    /// run `git init` (through the pinned runner) so the workspace is ready for
+    /// agent-driven branch/commit workflows. Idempotent: a repo that already
+    /// has a `.git` is left untouched. Returns `true` if a repo was created,
+    /// `false` if one already existed.
+    ///
+    /// This wires Git into the workspace at startup (Git slice increment 1).
+    /// After this call, `head()` will resolve (though it may still be `None`
+    /// if the fresh repo has no commits yet).
+    pub fn ensure_repo(&self) -> Result<bool> {
+        if self.repo.join(".git").exists() {
+            return Ok(false);
+        }
+        let out = self
+            .git_command()
+            .arg("init")
+            .output()
+            .with_context(|| format!("git init in {}", self.repo.display()))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            bail!("git init failed in {}: {stderr}", self.repo.display());
+        }
+        Ok(true)
+    }
+
+    /// The current branch name (or `None` if HEAD is detached or the repo has
+    /// no commits). Uses the pinned runner.
+    pub fn current_branch(&self) -> Option<String> {
+        let out = self
+            .git_command()
+            .arg("rev-parse")
+            .arg("--abbrev-ref")
+            .arg("HEAD")
+            .output()
+            .ok()?;
+        if out.status.success() {
+            let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if name.is_empty() || name == "HEAD" {
+                None
+            } else {
+                Some(name)
+            }
         } else {
             None
         }
