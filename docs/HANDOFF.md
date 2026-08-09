@@ -263,17 +263,27 @@ cargo build                  # re-embeds it
 Run the whole product (single binary — this is the milestone UX):
 
 ```
-./target/debug/cast run --repo .dev/proj --state-dir .dev/state  # -> http://127.0.0.1:8080
+mkdir -p /home/ben/casting-workspace/proj
+./target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state  # -> http://127.0.0.1:8080
 ```
 Open the URL, chat with the PM ("Build me a todo app"), watch the team
 form and tasks move, decide on the database in the Inbox, reload — all
-state persists in `.dev/state/` (kept separate from the artifact repo,
-per the ownership boundary D5 / `docs/OWNERSHIP_BOUNDARY.md`).
+state persists in `/home/ben/casting-workspace/state/` (kept separate from
+the artifact repo, per the ownership boundary D5 / `docs/OWNERSHIP_BOUNDARY.md`).
+
+> **⚠️ Do not use an in-tree workspace** (e.g. `.dev/proj`). The D5
+> self-identity guard refuses any repo inside the embedded source root
+> (`/home/ben/casting`), so `cast run --repo .dev/proj ...` fails at boot
+> unless you pass `--selfhost` (which is the wrong semantic — it records the
+> run as building Casting). The artifact repo and state-dir must live outside
+> the source tree, exactly as `/home/ben/casting-workspace/` is set up. See
+> `docs/DEPLOYMENT.md` + `docs/OWNERSHIP_BOUNDARY.md`.
 
 Frontend dev (hot reload, no rebuild needed — pair two terminals):
 
 ```
-./target/debug/cast run --repo .dev/proj --state-dir .dev/state  # terminal 1: API on :8080
+mkdir -p /home/ben/casting-workspace/proj
+./target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state  # terminal 1: API on :8080
 cd frontend && npm run dev            # terminal 2: Vite on :5173,
                                       #   proxies /api -> :8080
 ```
@@ -456,9 +466,12 @@ further open decisions should be recorded here.
   is gitignored; `package-lock.json` IS committed).
 - Editor: VS Code with rust-analyzer + CodeLLDB + crates + Even Better
   TOML. Open the project root `/home/ben/casting`.
-- The `cast run` dev workspace lives at `.dev/proj` (artifact repo, gitignored)
-  with its state in `.dev/state` (gitignored; kept separate per D5); the smoke
-  workspace at `.tmp-demo/` (gitignored).
+- The `cast run` dev workspace lives at `/home/ben/casting-workspace/`
+  (artifact repo at `proj/`, state in `state/`) — always OUTSIDE the source
+  tree, per D5; the D5 self-identity guard refuses any in-tree repo (`.dev/`
+  is no longer used — do not create one). The smoke workspace stays at
+  `.tmp-demo/` (gitignored; `cast init`/`cast smoke` don't cross the
+  ownership boundary).
 - Known session quirk: if `write_file` starts failing with `ENOENT`, its
   working directory may be stuck on a deleted temp folder — fall back to
   shell-based file creation (`cat > file <<'EOF'`) or restart the session.

@@ -10,5 +10,8 @@ target/
 frontend/node_modules/
 frontend/dist/
 
-# Local dev workspace created by the "Run / Dev" VS Code tasks
+# Local dev workspace. NOTE: the D5 ownership boundary requires the `cast run`
+# workspace OUTSIDE the source tree (see /home/ben/casting-workspace/ and
+# docs/DEPLOYMENT.md). `.dev/` is ignored defensively only, in case a stale
+# in-tree dir exists; it is not the active dev workspace anymore.
 .dev/

@@ -67,18 +67,18 @@
     },
     {
       "label": "Run workspace (cast run)",
-      "description": "Always builds the Rust binary AND the embedded SPA first, then serves the full Casting workspace (API + UI) from ONE binary at http://127.0.0.1:8080. Open that URL to see the app.",
+      "description": "Always builds the Rust binary AND the embedded SPA first, then serves the full Casting workspace (API + UI) from ONE binary at http://127.0.0.1:8080. Open that URL to see the app. The artifact repo + state-dir live OUTSIDE the source tree (per D5 ownership boundary, docs/OWNERSHIP_BOUNDARY.md & DEPLOYMENT.md) — an in-tree workspace like .dev/ is refused by the self-identity guard.",
       "type": "shell",
-      "command": "cargo build && cd frontend && npm run build && cd .. && ./target/debug/cast run --repo .dev/proj --state-dir .dev/state",
+      "command": "mkdir -p /home/ben/casting-workspace/proj && cargo build && cd frontend && npm run build && cd .. && ./target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state",
       "problemMatcher": [],
       "runOptions": { "instanceLimit": 1 },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
     },
     {
       "label": "Dev: API server (cast run)",
-      "description": "Always builds the Rust binary first, then starts ONLY the API at http://127.0.0.1:8080. Pair with 'Dev: Frontend (Vite HMR)' for hot-reload frontend work.",
+      "description": "Always builds the Rust binary first, then starts ONLY the API at http://127.0.0.1:8080. Pair with 'Dev: Frontend (Vite HMR)' for hot-reload frontend work. Workspace lives outside the source tree (D5): /home/ben/casting-workspace/.",
       "type": "shell",
-      "command": "cargo build && ./target/debug/cast run --repo .dev/proj --state-dir .dev/state",
+      "command": "mkdir -p /home/ben/casting-workspace/proj && cargo build && ./target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state",
       "problemMatcher": [],
       "runOptions": { "instanceLimit": 1 },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
