@@ -14,17 +14,26 @@ design itself.
 
 # 1. Quick orientation
 
-> **Status update (2026-08-09):** two slices are built plus the policy-gate
+> **Status update (2026-08-09, updated):** two slices are built plus the policy-gate
 > seam (`src/actions.rs`), the **ownership boundary** (`src/workspace.rs`,
 > D5 / `docs/OWNERSHIP_BOUNDARY.md`), the **policy-gate hardening**
-> (assignee checks), the **SSE catch-up** + **JSON 404** web fixes, and now the
+> (assignee checks), the **SSE catch-up** + **JSON 404** web fixes, and the
 > **complete Git slice** (4 increments: boot-time repo management, semantic Git
 > events + observer, ChangeSet as a first-class concept, and provenance linking).
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 > events; the projection renders ChangeSets; and `/api/provenance/*` answers
-> "why does this code exist?". **45 tests** (6 + 12 + 3 + 10 + 11 + 3), clippy
-> clean, slice suites run in ~0s. Read on.
+> "why does this code exist?". **47 tests** (6 + 12 + 3 + 10 + 11 + 3 + 2),
+> clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
+>
+> **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
+> `:param` syntax while this project runs axum 0.8 — that panicked `cast run` at
+> router build, and the suite missed it because no test constructed the web
+> router. Fixed (`{param}`) and a new `tests/web_boot.rs` boots the router to
+> prevent recurrence. Also: **the dev workspace must live OUTSIDE the source
+> tree** (`/home/ben/casting-workspace/`, per D5) — the old in-tree `.dev/proj`
+> command in this doc and the VS Code tasks is corrected; the D5 guard refuses
+> any repo inside the embedded source root.
 
 Casting is an agent-orchestration platform for building software, framed
 as an **"autonomous software company in a box."**
@@ -244,7 +253,7 @@ npm **10** (needed only for frontend work).
 ```
 cd /home/ben/casting
 cargo build          # builds target/debug/cast
-cargo test           # 6 + 12 + 3 + 10 + 11 + 3 = 45 tests (all pass; slice suites run in ~0s)
+cargo test           # 6 + 12 + 3 + 10 + 11 + 3 + 2 = 47 tests (all pass; slice suites run in ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
