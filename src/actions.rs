@@ -102,6 +102,14 @@ pub enum PolicyError {
     TaskNotFound(String),
     /// Assigning work to an agent who has not been hired.
     AgentNotHired(String),
+    /// Starting/completing/blocking a task that has not been assigned yet.
+    TaskUnassigned(String),
+    /// Starting/completing/blocking a task by someone other than its assignee.
+    NotAssignee {
+        task_id: String,
+        actor: String,
+        assignee: String,
+    },
 }
 
 impl std::fmt::Display for PolicyError {
@@ -114,16 +122,37 @@ impl std::fmt::Display for PolicyError {
                 write!(f, "cannot create task {id}: already exists")
             }
             PolicyError::TaskNotFound(id) => write!(f, "cannot act on task {id}: no such task"),
-            PolicyError::AgentNotHired(id) => write!(f, "cannot assign task to {id}: not hired"),
+            PolicyError::AgentNotHired(id) => {
+                write!(f, "cannot assign task to {id}: not hired")
+            }
+            PolicyError::TaskUnassigned(id) => {
+                write!(f, "cannot act on task {id}: no assignee yet")
+            }
+            PolicyError::NotAssignee {
+                task_id,
+                actor,
+                assignee,
+            } => {
+                write!(
+                    f,
+                    "cannot act on task {task_id}: {actor} is not the assignee ({assignee})"
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for PolicyError {}
 
-/// Validate one action against the current projection. Pure and infallible on
-/// the store — returns `Ok(())` when the action may proceed.
-pub fn validate(action: &PmAction, state: &Projection) -> Result<(), PolicyError> {
+/// Validate one action, performed by `who`, against the current projection.
+/// Pure and infallible on the store — returns `Ok(())` when the action may
+/// proceed.
+///
+/// `who` is the label from a `PlannedAction` ("system", "owner", or an agent
+/// id). StartTask/CompleteTask/BlockTask additionally require that `who` IS
+/// the task's assignee — the gate stops the wrong agent (or an LLM mistake)
+/// from mutating someone else's task.
+pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), PolicyError> {
     match action {
         PmAction::HireAgent { agent_id, .. } => {
             if state.agents.iter().any(|a| a.id == *agent_id) {
@@ -152,22 +181,38 @@ pub fn validate(action: &PmAction, state: &Projection) -> Result<(), PolicyError
             }
             Ok(())
         }
-        PmAction::StartTask { task_id } => task_exists(task_id, state),
-        PmAction::CompleteTask { task_id, .. } => task_exists(task_id, state),
-        PmAction::BlockTask { task_id, .. } => task_exists(task_id, state),
-        // Hires-less, idempotency-neutral or read-only actions pass through;
+        PmAction::StartTask { task_id } => check_assignee(task_id, who, state),
+        PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
+        PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
+        // Hire-less, idempotency-neutral or read-only actions pass through;
         // NoOp, CreateRequirement, CreateObservation, ProposeDecision and
         // SendMessage carry no cross-entity invariant to check at this layer.
         _ => Ok(()),
     }
 }
 
-fn task_exists(task_id: &str, state: &Projection) -> Result<(), PolicyError> {
-    if state.tasks.iter().any(|t| t.id == task_id) {
-        Ok(())
-    } else {
-        Err(PolicyError::TaskNotFound(task_id.to_string()))
+/// For Start/Complete/Block: the task must exist, have an assignee, and the
+/// actor must BE that assignee. `system` may always act (it seeds tasks).
+fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), PolicyError> {
+    let Some(task) = state.tasks.iter().find(|t| t.id == task_id) else {
+        return Err(PolicyError::TaskNotFound(task_id.to_string()));
+    };
+    // `system` is trusted: it seeds initial state and does not bypass a real
+    // assignee in practice. This keeps the scripted onboard plan working.
+    if who == "system" {
+        return Ok(());
     }
+    let Some(assignee) = &task.assignee else {
+        return Err(PolicyError::TaskUnassigned(task_id.to_string()));
+    };
+    if who != assignee {
+        return Err(PolicyError::NotAssignee {
+            task_id: task_id.to_string(),
+            actor: who.to_string(),
+            assignee: assignee.clone(),
+        });
+    }
+    Ok(())
 }
 
 impl PmAction {

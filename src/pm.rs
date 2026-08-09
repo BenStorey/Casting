@@ -172,7 +172,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         if action == PmAction::NoOp {
             continue;
         }
-        match actions::validate(&action, &projection) {
+        match actions::validate(&action, &who, &projection) {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("[pm] policy gate rejected {who} action: {e}");
@@ -370,6 +370,13 @@ fn plan_owner_decision(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
                 id: format!("task-adopt-{decision_id}"),
                 title: format!("Adopt {subject} (owner-approved)"),
                 kind: "feature".into(),
+            },
+        ));
+        out.push((
+            AGENT_PM.into(),
+            PmAction::AssignTask {
+                task_id: format!("task-adopt-{decision_id}"),
+                assignee: AGENT_ENG.into(),
             },
         ));
         out.push((

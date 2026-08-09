@@ -43,7 +43,7 @@ fn cannot_hire_an_agent_twice() {
         role: "engineer".into(),
     };
     assert_eq!(
-        validate(&act, &st),
+        validate(&act, "system", &st),
         Err(PolicyError::AgentAlreadyHired("marcus-reed".into()))
     );
 }
@@ -55,7 +55,7 @@ fn can_hire_a_new_agent() {
         agent_id: "marcus-reed".into(),
         role: "engineer".into(),
     };
-    assert!(validate(&act, &st).is_ok());
+    assert!(validate(&act, "system", &st).is_ok());
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn cannot_assign_a_task_that_does_not_exist() {
         assignee: "marcus-reed".into(),
     };
     assert_eq!(
-        validate(&act, &st),
+        validate(&act, "system", &st),
         Err(PolicyError::TaskNotFound("task-nope".into()))
     );
 }
@@ -80,7 +80,7 @@ fn cannot_assign_work_to_an_unhired_agent() {
         assignee: "ghost-agent".into(),
     };
     assert_eq!(
-        validate(&act, &st),
+        validate(&act, "system", &st),
         Err(PolicyError::AgentNotHired("ghost-agent".into()))
     );
 }
@@ -92,7 +92,7 @@ fn cannot_start_a_missing_task() {
         task_id: "nowhere".into(),
     };
     assert_eq!(
-        validate(&act, &st),
+        validate(&act, "marcus-reed", &st),
         Err(PolicyError::TaskNotFound("nowhere".into()))
     );
 }
@@ -106,7 +106,7 @@ fn cannot_create_duplicate_task_ids() {
         kind: "feature".into(),
     };
     assert_eq!(
-        validate(&act, &st),
+        validate(&act, "system", &st),
         Err(PolicyError::TaskAlreadyExists("task-1".into()))
     );
 }
@@ -121,6 +121,7 @@ fn a_full_valid_sequence_passes() {
             agent_id: "marcus-reed".into(),
             role: "engineer".into(),
         },
+        "system",
         &st
     )
     .is_ok());
@@ -134,6 +135,7 @@ fn a_full_valid_sequence_passes() {
             title: "x".into(),
             kind: "feature".into(),
         },
+        "system",
         &st
     )
     .is_ok());
@@ -149,6 +151,73 @@ fn a_full_valid_sequence_passes() {
             task_id: "task-1".into(),
             assignee: "marcus-reed".into(),
         },
+        "system",
+        &st
+    )
+    .is_ok());
+}
+
+#[test]
+fn cannot_start_a_task_you_dont_own() {
+    // task-1 is assigned to marcus-reed; maya-patel may not start it.
+    let mut st = state_with(&["marcus-reed", "maya-patel"], &["task-1"]);
+    st.tasks[0].assignee = Some("marcus-reed".into());
+    let act = casting::actions::PmAction::StartTask {
+        task_id: "task-1".into(),
+    };
+    assert_eq!(
+        validate(&act, "maya-patel", &st),
+        Err(PolicyError::NotAssignee {
+            task_id: "task-1".into(),
+            actor: "maya-patel".into(),
+            assignee: "marcus-reed".into(),
+        })
+    );
+}
+
+#[test]
+fn assignee_can_start_their_own_task() {
+    let mut st = state_with(&["marcus-reed"], &["task-1"]);
+    st.tasks[0].assignee = Some("marcus-reed".into());
+    let act = casting::actions::PmAction::StartTask {
+        task_id: "task-1".into(),
+    };
+    assert!(validate(&act, "marcus-reed", &st).is_ok());
+}
+
+#[test]
+fn cannot_complete_an_unassigned_task() {
+    // task-1 exists, has no assignee — a non-system actor may not complete it.
+    let st = state_with(&["marcus-reed"], &["task-1"]);
+    let act = casting::actions::PmAction::CompleteTask {
+        task_id: "task-1".into(),
+        result: "done".into(),
+    };
+    assert_eq!(
+        validate(&act, "marcus-reed", &st),
+        Err(PolicyError::TaskUnassigned("task-1".into()))
+    );
+}
+
+#[test]
+fn system_can_act_on_any_task() {
+    // system is trusted and may start/complete/block without being the assignee.
+    let mut st = state_with(&["marcus-reed"], &["task-1"]);
+    st.tasks[0].assignee = Some("marcus-reed".into());
+    assert!(validate(
+        &casting::actions::PmAction::StartTask {
+            task_id: "task-1".into(),
+        },
+        "system",
+        &st
+    )
+    .is_ok());
+    assert!(validate(
+        &casting::actions::PmAction::CompleteTask {
+            task_id: "task-1".into(),
+            result: "done".into(),
+        },
+        "system",
         &st
     )
     .is_ok());
