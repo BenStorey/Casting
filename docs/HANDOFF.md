@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **89 tests** (12+6+11+10+5+12+10+6+4+5+5+3),
+"why does this code exist?". **102 tests** (12+13+6+11+10+5+12+10+6+4+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -143,6 +143,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── cursor.rs                   <- durable per-consumer cursors
 │   ├── projection.rs               <- current-state projections derived from the log (§2.1)
 │   ├── plan.rs                     <- Priority + Project Plan view (derived current plan)
+│   ├── directive.rs                <- Project Directives = governance layer (docs/INTENT.md)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
@@ -287,7 +288,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 12+6+11+10+5+12+10+6+4+5+5+3 = 89 tests (all pass; ~0s)
+cargo test           # 12+13+6+11+10+5+12+10+6+4+5+5+3 = 102 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -460,6 +461,29 @@ event log; projections are derived; snapshots are never a source of truth):
   path builds from snapshot + tail and falls back to a full fold on
   missing/corrupt. `Projection` types now Deserialize/PartialEq. Purely
   computational — the event log stays the only authority.
+
+**Governance layer (Project Directives) — DONE 2026-08-10** (docs/INTENT.md).
+The third pillar of the conceptual model alongside intent and state — *how we
+operate* as first-class, event-sourced state, not prompt text:
+
+- **Directive model** (`src/directive.rs`): `kind` (policy/constraint/
+  principle/practice/preference/objective), `strength`
+  (required>strong>recommended), `status` (active/suspended/superseded/
+  expired), `scope`, and supersession (replaced by another id, history kept).
+- **Lifecycle events** (`ProjectDirectiveCreated/Suspended/Resumed/Superseded/
+  Expired`) reduced into `Projection.directives`.
+- **Authority gate**: only owner/PM/system may change governance; a plain agent
+  can only raise an Observation (propose). Mutations on a missing directive are
+  rejected; supersession requires an existing active target.
+- **Context resolver** `directive::relevant(projection, areas)` surfaces only
+  the ACTIVE directives overlapping an agent's scope, strongest-first (the
+  INTENT "exists once, surfaced per agent" payoff).
+- Surfaced in the plan as `active_directives`; boarding seeds two seed
+  directives (TDD-required; no-backwards-compat).
+
+Draws directly on the delegated-authority machinery: governance edits flow
+through the same validated gate as decisions, and no agent can silently change
+the rules it operates under.
 
 Then, only after the core matures:
 5. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
