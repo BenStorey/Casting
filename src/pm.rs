@@ -263,30 +263,6 @@ fn plan_onboard(
     let mut plan: Vec<PlannedAction> = vec![
         ("system".into(), PmAction::HireAgent { agent_id: AGENT_ENG.into(), role: "Principal Engineer".into() }),
         ("system".into(), PmAction::HireAgent { agent_id: AGENT_QA.into(), role: "QA Consultant".into() }),
-        // Seed governance directives (docs/INTENT.md) so they're first-class
-        // state the agents operate under, not prompt text.
-        (
-            AGENT_PM.into(),
-            PmAction::CreateDirective {
-                id: "directive-tdd".into(),
-                kind: crate::directive::DirectiveKind::Policy,
-                statement: "Test-driven development is required".into(),
-                scope: vec!["engineering".into()],
-                strength: crate::directive::DirectiveStrength::Required,
-                supersedes: None,
-            },
-        ),
-        (
-            AGENT_PM.into(),
-            PmAction::CreateDirective {
-                id: "directive-backcompat".into(),
-                kind: crate::directive::DirectiveKind::Constraint,
-                statement: "Backwards compatibility is not a concern".into(),
-                scope: vec!["architecture".into(), "api".into()],
-                strength: crate::directive::DirectiveStrength::Required,
-                supersedes: None,
-            },
-        ),
         (
             AGENT_PM.into(),
             PmAction::CreateRequirement {
@@ -455,7 +431,6 @@ fn plan_acknowledge(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
 
 /// The owner ruled on a proposed decision — plan the verdict's consequences.
 fn plan_owner_decision(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
-    let _ = state;
     let decision_id = cause.aggregate.id.clone();
     let approved = cause
         .data
@@ -486,6 +461,34 @@ fn plan_owner_decision(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
     )];
 
     if approved {
+        // If this decision was a GovernanceChange (PM proposed a directive
+        // change), applying it is the OWNER's prerogative: only the owner may
+        // author directives. The owner just approved it via DecisionMade, so we
+        // author the directive change AS the owner — the approval is authority.
+        let governance = ApprovedGovernanceChange::from_decision(state, &decision_id);
+        if let Some(gov) = governance {
+            out.push((
+                "owner".into(),
+                PmAction::CreateDirective {
+                    id: gov.directive_id.clone(),
+                    kind: gov.kind,
+                    statement: gov.statement,
+                    scope: gov.scope,
+                    strength: gov.strength,
+                    supersedes: gov.supersedes.clone(),
+                },
+            ));
+            if let Some(superseded) = gov.supersedes {
+                out.push((
+                    "owner".into(),
+                    PmAction::SupersedeDirective {
+                        directive_id: superseded,
+                        by_directive_id: gov.directive_id.clone(),
+                    },
+                ));
+            }
+        }
+
         out.push((
             AGENT_PM.into(),
             PmAction::CreateTask {
@@ -517,6 +520,46 @@ fn plan_owner_decision(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
     }
 
     out
+}
+
+/// A GovernanceChange decision that the owner approved: the directive change to
+/// apply, authored as the owner. Parsed from the DecisionProposed's `options`.
+struct ApprovedGovernanceChange {
+    directive_id: String,
+    kind: crate::directive::DirectiveKind,
+    statement: String,
+    scope: Vec<String>,
+    strength: crate::directive::DirectiveStrength,
+    supersedes: Option<String>,
+}
+
+impl ApprovedGovernanceChange {
+    /// Rebuild the projection, find the decision, and if it's an approved
+    /// GovernanceChange, extract the proposed directive change.
+    fn from_decision(state: &AppState, decision_id: &str) -> Option<Self> {
+        let proj = Projection::build(&state.store, &state.project).ok()?;
+        let dec = proj.decisions.iter().find(|d| d.id == decision_id)?;
+        if dec.class != crate::policy::DecisionClass::GovernanceChange {
+            return None;
+        }
+        let change = dec.options.get("governance_change")?;
+        let kind: crate::directive::DirectiveKind =
+            serde_json::from_value(change.get("kind")?.clone()).ok()?;
+        let strength: crate::directive::DirectiveStrength =
+            serde_json::from_value(change.get("strength")?.clone()).ok()?;
+        let scope: Vec<String> = serde_json::from_value(change.get("scope")?.clone()).ok()?;
+        Some(ApprovedGovernanceChange {
+            directive_id: format!("directive-{decision_id}"),
+            kind,
+            statement: change.get("statement")?.as_str()?.to_string(),
+            scope,
+            strength,
+            supersedes: change
+                .get("supersedes")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        })
+    }
 }
 
 fn fmt_note(note: &str) -> String {

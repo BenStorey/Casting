@@ -119,6 +119,19 @@ pub enum PmAction {
     ExpireDirective {
         directive_id: String,
     },
+    /// Propose a change to governance (docs/INTENT.md). The PM/agents cannot
+    /// author directives directly, but they CAN propose a GovernanceChange
+    /// decision, which routes to the owner (Ask); on approval the change is
+    /// applied on the owner's authority.
+    ProposeDirectiveChange {
+        id: String,
+        subject: String,
+        kind: crate::directive::DirectiveKind,
+        statement: String,
+        scope: Vec<String>,
+        strength: crate::directive::DirectiveStrength,
+        supersedes: Option<String>,
+    },
     /// An agent raises a noticed observation (the feedback loop).
     CreateObservation {
         id: String,
@@ -354,6 +367,10 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
+        // Proposing a governance change needs no directive authority — the PM/
+        // agent is PROPOSING, not authoring. It routes to the owner (Ask) and
+        // is applied only on approval. Encodes the desired change for later.
+        PmAction::ProposeDirectiveChange { .. } => Ok(()),
         // Hire-less, idempotency-neutral or read-only actions pass through;
         // NoOp, CreateRequirement, CreateObservation, and SendMessage carry no
         // cross-entity invariant to check at this layer.
@@ -361,11 +378,13 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
     }
 }
 
-/// Governance is owner-or-PM authority: `who` must be "owner", "system", or an
-/// agent in a governance role (the PM). Plain workers cannot change directives.
+/// Governance is OWNER-only authority: only the owner may create or change
+/// directives. The PM/system and plain agents cannot mutate governance —
+/// governance is the project's constitution, too important to delegate. Any
+/// non-owner actor is rejected (they may still *propose* via an Observation).
 fn check_directive_authority(who: &str) -> Result<(), PolicyError> {
     match who {
-        "owner" | "system" | "pm" => Ok(()),
+        "owner" => Ok(()),
         other => Err(PolicyError::DirectiveAuthority(other.to_string())),
     }
 }
@@ -635,6 +654,37 @@ impl PmAction {
                     "recommendation": recommendation,
                     "class": class,
                     "involvement": involvement,
+                }),
+                meta,
+            )],
+            PmAction::ProposeDirectiveChange {
+                id,
+                subject,
+                kind,
+                statement,
+                scope,
+                strength,
+                supersedes,
+            } => vec![ev(
+                project,
+                actor,
+                id,
+                "decision",
+                EventType::DecisionProposed,
+                json!({
+                    "subject": subject,
+                    "options": serde_json::json!({
+                        "governance_change": {
+                            "kind": kind,
+                            "statement": statement,
+                            "scope": scope,
+                            "strength": strength,
+                            "supersedes": supersedes,
+                        },
+                    }),
+                    "recommendation": format!("Approve governance change: {subject}"),
+                    "class": crate::policy::DecisionClass::GovernanceChange,
+                    "involvement": crate::policy::OwnerInvolvement::Ask,
                 }),
                 meta,
             )],

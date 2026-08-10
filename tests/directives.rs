@@ -4,6 +4,7 @@
 //! constraints, principles, practices, preferences, objectives. Task 1 covers
 //! the model + context resolver; later tasks cover reducers and the gate.
 
+use casting::actions::PmAction;
 use casting::cursor::CursorStore;
 use casting::directive::{self, Directive, DirectiveKind, DirectiveStatus, DirectiveStrength};
 use casting::event::{Actor, Aggregate, Event, EventType};
@@ -308,10 +309,11 @@ fn plain_agent_cannot_change_governance() {
 }
 
 #[test]
-fn pm_and_system_may_change_governance() {
-    use casting::actions::{validate, PmAction};
+fn pm_and_system_cannot_change_governance_now() {
+    use casting::actions::{validate, PmAction, PolicyError};
     let proj = build_projection_with_directives();
 
+    // Governance is OWNER-only: the PM and system cannot author directives.
     for who in ["pm", "system"] {
         let create = PmAction::CreateDirective {
             id: format!("d-{who}"),
@@ -321,11 +323,11 @@ fn pm_and_system_may_change_governance() {
             strength: DirectiveStrength::Strong,
             supersedes: None,
         };
-        assert!(validate(&create, who, &proj).is_ok(), "create by {who}");
-        let suspend = PmAction::SuspendDirective {
-            directive_id: "d-tdd".into(),
-        };
-        assert!(validate(&suspend, who, &proj).is_ok(), "suspend by {who}");
+        let err = validate(&create, who, &proj).expect_err("pm/system cannot set governance");
+        assert!(
+            matches!(err, PolicyError::DirectiveAuthority(_)),
+            "by {who}"
+        );
     }
 }
 
@@ -374,42 +376,131 @@ fn supersede_requires_an_existing_active_target() {
     assert!(matches!(err, PolicyError::DirectiveNotFound(_)));
 }
 
-// --- Task 4: surfaced in plan / seeded on onboarding ---
+// --- Task 4: owner-set directives surfaced in plan ---
+
+#[test]
+fn owner_set_directive_is_surfaced_in_the_plan() {
+    let state = make_state();
+    // The OWNER sets governance (owner-only); the plan surfaces it.
+    state
+        .append(Event::new(
+            "proj-dir",
+            Actor::Owner,
+            EventType::ProjectDirectiveCreated,
+            Aggregate {
+                kind: "directive".into(),
+                id: "directive-tdd".into(),
+            },
+            serde_json::json!({
+                "kind": "policy",
+                "statement": "Test-driven development is required",
+                "scope": ["engineering"],
+                "strength": "required",
+                "created_by": "owner",
+            }),
+        ))
+        .unwrap();
+
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    assert!(proj.directives.iter().any(|d| d.id == "directive-tdd"));
+    let plan = proj.plan();
+    assert!(plan
+        .active_directives
+        .iter()
+        .any(|s| s.contains("Test-driven development")));
+}
+
+// --- Governance change via the decision pipeline ---
 
 #[tokio::test]
-async fn onboarding_seeds_directives_and_plan_surfaces_active_ones() {
+async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
+    // The owner sets an initial directive.
     let state = make_state();
     state
         .append(Event::new(
             "proj-dir",
             Actor::Owner,
-            EventType::MessageSent,
+            EventType::ProjectDirectiveCreated,
             Aggregate {
-                kind: "message".into(),
-                id: "msg-1".into(),
+                kind: "directive".into(),
+                id: "directive-v1".into(),
             },
-            serde_json::json!({ "to": "pm", "body": "Build a thing" }),
+            serde_json::json!({
+                "kind": "policy",
+                "statement": "SQLite everywhere",
+                "scope": ["architecture"],
+                "strength": "strong",
+                "created_by": "owner",
+            }),
         ))
         .unwrap();
+
+    // The PM proposes a governance change (supersede directive-v1).
+    let cause = Event::new(
+        "proj-dir",
+        Actor::Agent { id: "pm".into() },
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "msg-1".into(),
+        },
+        serde_json::json!({ "to": "pm", "body": "review governance" }),
+    );
+    let proposal = PmAction::ProposeDirectiveChange {
+        id: "dg-1".into(),
+        subject: "Move to Postgres".into(),
+        kind: DirectiveKind::Constraint,
+        statement: "Postgres for production".into(),
+        scope: vec!["architecture".into()],
+        strength: DirectiveStrength::Required,
+        supersedes: Some("directive-v1".into()),
+    };
+    for ev in proposal.to_events("proj-dir", "pm", &cause, "corr-1") {
+        state.append(ev).unwrap();
+    }
+
+    // It should appear as an open GovernanceChange decision (owner inbox).
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    let dec = proj.decisions.iter().find(|d| d.id == "dg-1").unwrap();
+    assert_eq!(dec.class, casting::policy::DecisionClass::GovernanceChange);
+    assert_eq!(
+        dec.involvement,
+        casting::policy::OwnerInvolvement::Ask,
+        "governance change must route to the owner"
+    );
+
+    // The owner approves it.
+    state
+        .append(Event::new(
+            "proj-dir",
+            Actor::Owner,
+            EventType::DecisionMade,
+            Aggregate {
+                kind: "decision".into(),
+                id: "dg-1".into(),
+            },
+            serde_json::json!({ "approved": true, "note": "Postgres it is", "subject": "Move to Postgres" }),
+        ))
+        .unwrap();
+
+    // Drive the PM: the approved governance change gets applied as OWNER.
     casting::pm::drive_pm(&state).await.unwrap();
 
     let proj = Projection::build(&state.store, "proj-dir").unwrap();
-    // Boarding seeds two governance directives as first-class state.
-    assert!(proj.directives.iter().any(|d| d.id == "directive-tdd"));
-    assert!(proj
+    // The new directive was created (authored by owner) and supersedes v1.
+    let created = proj
         .directives
         .iter()
-        .any(|d| d.id == "directive-backcompat"));
-
-    // The plan surfaces the ACTIVE directives, ordered by strength.
-    let plan = proj.plan();
-    assert!(plan.active_directives.len() >= 2);
-    assert!(plan
-        .active_directives
+        .find(|d| d.id == "directive-dg-1")
+        .expect("approved governance change creates a directive");
+    assert_eq!(created.created_by, "owner");
+    assert_eq!(created.statement, "Postgres for production");
+    assert_eq!(created.supersedes.as_deref(), Some("directive-v1"));
+    // The old one is superseded.
+    let v1 = proj
+        .directives
         .iter()
-        .any(|s| s.contains("Test-driven development")));
-    assert!(plan
-        .active_directives
-        .iter()
-        .any(|s| s.contains("Backwards compatibility")));
+        .find(|d| d.id == "directive-v1")
+        .unwrap();
+    assert_eq!(v1.status, DirectiveStatus::Superseded);
 }

@@ -92,6 +92,10 @@ pub enum DecisionClass {
     SecurityCritical,
     /// An irreversible action. Default: Ask.
     Irreversible,
+    /// Changing project governance (a directive). Default: Ask — governance is
+    /// owner-only, so the PM proposing a directive change must route to the
+    /// owner for approval before it can be applied.
+    GovernanceChange,
 }
 
 /// The built-in default involvement for each class (brief §5). These are
@@ -104,7 +108,7 @@ pub fn builtin_involvement(class: DecisionClass) -> OwnerInvolvement {
         InternalRename | InternalRefactor => OwnerInvolvement::Never,
         TestingLibrary | AddConsultant | InternalImplementation => OwnerInvolvement::Pm,
         Database | Architecture | ProductRequirement | SpendingThreshold | ProductionDeployment
-        | Irreversible => OwnerInvolvement::Ask,
+        | Irreversible | GovernanceChange => OwnerInvolvement::Ask,
         SecurityCritical => OwnerInvolvement::Notify,
     }
 }

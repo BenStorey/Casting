@@ -65,6 +65,21 @@ struct PolicyIn {
     involvement: crate::policy::OwnerInvolvement,
 }
 
+#[derive(Deserialize)]
+struct DirectiveIn {
+    id: String,
+    kind: crate::directive::DirectiveKind,
+    statement: String,
+    #[serde(default)]
+    scope: Vec<String>,
+    #[serde(default = "default_strength")]
+    strength: crate::directive::DirectiveStrength,
+}
+
+fn default_strength() -> crate::directive::DirectiveStrength {
+    crate::directive::DirectiveStrength::Required
+}
+
 /// Build the full router for a project's runtime state.
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -75,6 +90,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
+        .route("/api/directive", axum::routing::post(directive_handler))
         .route(
             "/api/provenance/commit/{sha}",
             get(provenance_commit_handler),
@@ -218,7 +234,35 @@ async fn policy_handler(
     Ok(Json(stored))
 }
 
-/// GET /api/events/stream — Server-Sent Events: pushes each newly-appended
+/// POST /api/directive — the OWNER sets project governance (docs/INTENT.md).
+/// Only the owner may author directives; this endpoint is the owner's surface
+/// (mirrors /api/policy). Durable `ProjectDirectiveCreated` (actor = Owner).
+async fn directive_handler(
+    State(state): State<AppState>,
+    Json(input): Json<DirectiveIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let ev = Event::new(
+        &state.project,
+        Actor::Owner,
+        EventType::ProjectDirectiveCreated,
+        Aggregate {
+            kind: "directive".into(),
+            id: input.id.clone(),
+        },
+        serde_json::json!({
+            "kind": input.kind,
+            "statement": input.statement,
+            "scope": input.scope,
+            "strength": input.strength,
+            "created_by": "owner",
+            "supersedes": null,
+        }),
+    );
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
 /// event to connected browsers so the board/chat/activity update live (§35).
 ///
 /// Supports catch-up via `?after=N`: missed events since sequence N are

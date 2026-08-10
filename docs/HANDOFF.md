@@ -232,6 +232,9 @@ axum router for a single project (project id is currently fixed at
 - `POST /api/policy` `{class, involvement}` — owner configures a decision
   class's owner-involvement; persists `DecisionPolicyChanged` (actor = Owner),
   the event-sourced autonomy config the gate enforces.
+- `POST /api/directive` `{id, kind, statement, scope, strength}` — owner sets
+  project governance directly; persists `ProjectDirectiveCreated` (actor =
+  Owner). If a strength is omitted it defaults to `required`.
 - SPA serving: `rust-embed` embeds `frontend/dist/`; unknown extensionless
   paths fall back to `index.html` for client-side routing.
 
@@ -478,8 +481,10 @@ operate* as first-class, event-sourced state, not prompt text:
 - **Context resolver** `directive::relevant(projection, areas)` surfaces only
   the ACTIVE directives overlapping an agent's scope, strongest-first (the
   INTENT "exists once, surfaced per agent" payoff).
-- Surfaced in the plan as `active_directives`; boarding seeds two seed
-  directives (TDD-required; no-backwards-compat).
+- Surfaced in the plan as `active_directives`. Governance is owner-only: the
+  owner sets directives directly (`POST /api/directive`) or by approving a
+  PM-proposed `GovernanceChange` decision. The PM/agents may PROPOSE a change
+  (via the decision pipeline) but only the owner authorizes it.
 
 Draws directly on the delegated-authority machinery: governance edits flow
 through the same validated gate as decisions, and no agent can silently change
