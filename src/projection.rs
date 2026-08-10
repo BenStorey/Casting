@@ -183,6 +183,10 @@ pub struct Projection {
     /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
     /// per-class autonomy configuration is durable history, not a default.
     pub policy: crate::policy::DecisionPolicy,
+    /// The derived Project Plan (objective + ranked priorities + open
+    /// decisions). Recomputed at build() from the folded projection — this is
+    /// current state, never stored authoritative (SEMANTIC_EVENTS.md).
+    pub plan: crate::plan::ProjectPlan,
 }
 
 impl Projection {
@@ -197,6 +201,9 @@ impl Projection {
         for e in &events {
             p.apply(e);
         }
+        // Derive the current plan from the folded state (recomputed, never
+        // stored authoritative).
+        p.plan = p.plan();
         Ok(p)
     }
 

@@ -35,7 +35,7 @@ pub struct PlannedItem {
 
 /// The derived, current plan: what we're building, in priority order, and what's
 /// waiting on the owner. Always recomputed from the projection — never stored.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ProjectPlan {
     /// The current objective — the most recent open requirement's title.
     pub objective: Option<String>,
