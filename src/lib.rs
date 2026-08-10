@@ -13,6 +13,7 @@ pub mod actions;
 pub mod cursor;
 pub mod event;
 pub mod git_observer;
+pub mod plan;
 pub mod pm;
 pub mod policy;
 pub mod projection;

@@ -67,6 +67,11 @@ pub enum PmAction {
         task_id: String,
         reason: String,
     },
+    /// Change a task's priority (a plan mutation; reduces to TaskPriorityChanged).
+    SetTaskPriority {
+        task_id: String,
+        priority: crate::plan::Priority,
+    },
     /// An agent raises a noticed observation (the feedback loop).
     CreateObservation {
         id: String,
@@ -216,6 +221,15 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         PmAction::StartTask { task_id } => check_assignee(task_id, who, state),
         PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
+        // Setting a priority is a plan mutation on an existing task.
+        PmAction::SetTaskPriority { task_id, .. } => {
+            let exists = state.tasks.iter().any(|t| t.id == *task_id);
+            if exists {
+                Ok(())
+            } else {
+                Err(PolicyError::TaskNotFound(task_id.clone()))
+            }
+        }
         // A fresh proposal must not under-claim owner involvement for its class
         // (the authority-downgrade guard from policy.rs). The claim is checked
         // against the project's EVENT-SOURCED policy (state.policy, folded from
@@ -346,6 +360,17 @@ impl PmAction {
                 "task",
                 EventType::TaskBlocked,
                 json!({ "reason": reason }),
+                meta,
+            )],
+            PmAction::SetTaskPriority { task_id, priority } => vec![ev(
+                project,
+                actor,
+                task_id,
+                "task",
+                EventType::TaskPriorityChanged,
+                // `from` is omitted here (to_events lacks the projection); the
+                // reducer only needs `to` for current state.
+                json!({ "task_id": task_id, "to": priority }),
                 meta,
             )],
             PmAction::CreateObservation {
