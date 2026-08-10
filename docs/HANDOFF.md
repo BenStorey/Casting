@@ -23,7 +23,8 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **61 tests** (12 + 6 + 11 + 10 + 12 + 3 + 5 + 2),
+"why does this code exist?". **67 tests**
+(12 + 6 + 11 + 10 + 12 + 3 + 5 + 3 + 5),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -225,6 +226,9 @@ axum router for a single project (project id is currently fixed at
   `MessageSent` and wakes the PM.
 - `POST /api/decision` `{decision_id, subject, approved, note}` —
   persists `DecisionMade` (actor = Owner).
+- `POST /api/policy` `{class, involvement}` — owner configures a decision
+  class's owner-involvement; persists `DecisionPolicyChanged` (actor = Owner),
+  the event-sourced autonomy config the gate enforces.
 - SPA serving: `rust-embed` embeds `frontend/dist/`; unknown extensionless
   paths fall back to `index.html` for client-side routing.
 
@@ -263,7 +267,7 @@ npm **10** (needed only for frontend work).
 ```
 cd /home/ben/casting
 cargo build          # builds target/debug/cast
-cargo test           # 12 + 6 + 11 + 10 + 12 + 3 + 5 + 2 = 61 tests (all pass; slice suites run in ~0s)
+cargo test           # 12+6+11+10+12+3+5+5+3 = 67 tests (all pass; slice suites run in ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -394,12 +398,16 @@ Next increments build the deterministic product surface around the seam.
 Concrete candidates, roughly in value order — all deterministic, LLM-free,
 independently testable:
 
-1. **Persist `DecisionPolicy` as domain events.** Today the per-class autonomy
+1. ~~**Persist `DecisionPolicy` as domain events.** Today the per-class autonomy
    map is rebuilt from `DecisionPolicy::defaults()` in-memory; the owner's
    overrides aren't durable. Make policy changes first-class events
    (e.g. `DecisionPolicyChanged`) so delegated authority is *part of the event
    log* — the source of truth — not a hardcoded default. This is the natural
-   completion of the policy engine and unlocks owner-configured autonomy.
+   completion of the policy engine and unlocks owner-configured autonomy.~~
+   **DONE 2026-08-10** — `DecisionPolicyChanged` event (owner-authored via
+   `POST /api/policy`), folded into `Projection.policy`; the gate and PM now
+   derive involvement from the event-sourced policy. Verified live: escalating
+   a class to Ask stops the PM auto-deciding it.
 2. **Decision audit / provenance view.** Surface the full decision lifecycle:
    who proposed it, its class/involvement, who decided it, the owner's note,
    and the chain back to the owner message that caused it (decisions are
@@ -514,7 +522,11 @@ agent identity/persona rendering.
   level (`Never<Pm<Notify<Ask`), defaulting per-class (seeds; owner configures
   later via the spectrum), with an authority-downgrade gate so a producer can
   never under-claim owner involvement. Per-class policy persistence is a future
-  round (owner-configured autonomy knobs).
+  round (owner-configured autonomy knobs). **[UPDATED 2026-08-10]** the policy
+  is now itself event-sourced: `DecisionPolicyChanged` events (owner via
+  `POST /api/policy`) fold into `Projection.policy`, and the gate + PM derive
+  involvement from it — delegated authority is durable history, not a hardcoded
+  default, and is actually enforced.
 
 No decisions are blocking active work. D2's *execution* (scripted → real
 provider) remains open but is deliberately **deferred** behind the product
