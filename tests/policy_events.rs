@@ -158,3 +158,54 @@ fn matching_claim_passes_under_overridden_policy() {
         "matching the configured involvement should pass: {res:?}"
     );
 }
+
+#[tokio::test]
+async fn pm_derives_proposal_involvement_from_configured_policy() {
+    use casting::pm::drive_pm;
+    use casting::projection::DecisionStatus;
+
+    // Owner escalates TestingLibrary to Ask — they now want to be consulted.
+    let state = make_state();
+    state
+        .append(policy_changed(
+            "proj-policy",
+            DecisionClass::TestingLibrary,
+            OwnerInvolvement::Ask,
+        ))
+        .unwrap();
+
+    // Onboarding: the owner also sends the initial request.
+    state
+        .append(Event::new(
+            "proj-policy",
+            Actor::Owner,
+            EventType::MessageSent,
+            casting::event::Aggregate {
+                kind: "message".into(),
+                id: "msg-owner".into(),
+            },
+            serde_json::json!({ "to": "pm", "body": "Build a thing" }),
+        ))
+        .unwrap();
+    drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "proj-policy").unwrap();
+    // Because the owner escalated TestingLibrary to Ask, the PM must NOT
+    // auto-decide it: the decision is Proposed (in the owner's inbox) and has
+    // decided_by None — delegated authority now honours the configured policy.
+    let tl = proj
+        .decisions
+        .iter()
+        .find(|d| d.subject == "Automated-testing library")
+        .expect("TestingLibrary decision exists");
+    assert_eq!(tl.involvement, OwnerInvolvement::Ask);
+    assert_eq!(tl.status, DecisionStatus::Proposed);
+    assert_eq!(tl.decided_by, None);
+
+    // Under the (now-escalated) policy, the PM should not have created the
+    // testing-library follow-up task (it's awaiting the owner).
+    assert!(
+        !proj.tasks.iter().any(|t| t.id == "task-testing-lib"),
+        "PM must not auto-create a task for an Ask-required decision"
+    );
+}
