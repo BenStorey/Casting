@@ -373,3 +373,43 @@ fn supersede_requires_an_existing_active_target() {
     .expect_err("superseding onto a missing directive must be rejected");
     assert!(matches!(err, PolicyError::DirectiveNotFound(_)));
 }
+
+// --- Task 4: surfaced in plan / seeded on onboarding ---
+
+#[tokio::test]
+async fn onboarding_seeds_directives_and_plan_surfaces_active_ones() {
+    let state = make_state();
+    state
+        .append(Event::new(
+            "proj-dir",
+            Actor::Owner,
+            EventType::MessageSent,
+            Aggregate {
+                kind: "message".into(),
+                id: "msg-1".into(),
+            },
+            serde_json::json!({ "to": "pm", "body": "Build a thing" }),
+        ))
+        .unwrap();
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    // Boarding seeds two governance directives as first-class state.
+    assert!(proj.directives.iter().any(|d| d.id == "directive-tdd"));
+    assert!(proj
+        .directives
+        .iter()
+        .any(|d| d.id == "directive-backcompat"));
+
+    // The plan surfaces the ACTIVE directives, ordered by strength.
+    let plan = proj.plan();
+    assert!(plan.active_directives.len() >= 2);
+    assert!(plan
+        .active_directives
+        .iter()
+        .any(|s| s.contains("Test-driven development")));
+    assert!(plan
+        .active_directives
+        .iter()
+        .any(|s| s.contains("Backwards compatibility")));
+}

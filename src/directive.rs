@@ -31,6 +31,20 @@ pub enum DirectiveKind {
     Objective,
 }
 
+impl DirectiveKind {
+    /// Short human label for the kind (used in plan surfacing).
+    pub fn label(&self) -> &'static str {
+        match self {
+            DirectiveKind::Policy => "policy",
+            DirectiveKind::Constraint => "constraint",
+            DirectiveKind::Principle => "principle",
+            DirectiveKind::Practice => "practice",
+            DirectiveKind::Preference => "preference",
+            DirectiveKind::Objective => "objective",
+        }
+    }
+}
+
 /// How much authority a directive carries. Ordering is REVERSE-declaration so
 /// that `derive(Ord)` makes `Required` the GREATEST, because Rust ranks the
 /// first variant as smallest (same trick as `plan::Priority`).

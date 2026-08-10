@@ -45,6 +45,8 @@ pub struct ProjectPlan {
     pub deprioritized: Vec<PlannedItem>,
     /// Subjects of open risks (SEMANTIC_EVENTS §8 semantic objects).
     pub open_risks: Vec<String>,
+    /// The active governing directives (docs/INTENT.md), ordered by strength.
+    pub active_directives: Vec<String>,
     /// Subjects of decisions still awaiting the owner.
     pub open_decisions: Vec<String>,
 }

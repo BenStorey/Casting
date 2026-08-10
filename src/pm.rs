@@ -263,6 +263,30 @@ fn plan_onboard(
     let mut plan: Vec<PlannedAction> = vec![
         ("system".into(), PmAction::HireAgent { agent_id: AGENT_ENG.into(), role: "Principal Engineer".into() }),
         ("system".into(), PmAction::HireAgent { agent_id: AGENT_QA.into(), role: "QA Consultant".into() }),
+        // Seed governance directives (docs/INTENT.md) so they're first-class
+        // state the agents operate under, not prompt text.
+        (
+            AGENT_PM.into(),
+            PmAction::CreateDirective {
+                id: "directive-tdd".into(),
+                kind: crate::directive::DirectiveKind::Policy,
+                statement: "Test-driven development is required".into(),
+                scope: vec!["engineering".into()],
+                strength: crate::directive::DirectiveStrength::Required,
+                supersedes: None,
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::CreateDirective {
+                id: "directive-backcompat".into(),
+                kind: crate::directive::DirectiveKind::Constraint,
+                statement: "Backwards compatibility is not a concern".into(),
+                scope: vec!["architecture".into(), "api".into()],
+                strength: crate::directive::DirectiveStrength::Required,
+                supersedes: None,
+            },
+        ),
         (
             AGENT_PM.into(),
             PmAction::CreateRequirement {

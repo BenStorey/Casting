@@ -596,6 +596,19 @@ impl Projection {
             .map(|r| r.subject.clone())
             .collect();
 
+        // Active governing directives, strongest-first (governance surfaced).
+        use crate::directive::DirectiveStatus;
+        let mut active = self
+            .directives
+            .iter()
+            .filter(|d| d.status == DirectiveStatus::Active)
+            .collect::<Vec<_>>();
+        active.sort_by_key(|d| std::cmp::Reverse(d.strength));
+        let active_directives: Vec<String> = active
+            .iter()
+            .map(|d| format!("[{}] {}", d.kind.label(), d.statement))
+            .collect();
+
         // Deprioritized = the lowest-priority open tasks (Low).
         let deprioritized: Vec<PlannedItem> = tasks
             .iter()
@@ -619,6 +632,7 @@ impl Projection {
                 .collect(),
             deprioritized,
             open_risks,
+            active_directives,
             open_decisions,
         }
     }
