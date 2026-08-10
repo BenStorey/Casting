@@ -372,12 +372,14 @@ is finally wired, it is a **thin client over a complete product**, not a live
 model racing a half-built scaffold. The `--no-llm` / scripted mode remains the
 permanent default; a real provider is an *addition*, never the base.
 
-Next increments build the deterministic product surface around the seam:
+Next increments build the deterministic product surface around the seam.
 
-1. **Auth + multi-project** (brief §2.1/§31, first-run UX) — owner login and
-   per-project workspaces; the owner should not have to understand Casting's
-   internals.
-2. ~~**Decision policy engine** (brief §5) — *delegated authority*: the autonomy
+> **2026-08-10 prioritization (owner):** the **event / decision / state core is
+> the product** — "this is what we live or die by." Focus effort there first and
+> make it as mature as possible. **Auth + multi-project and cost capture are
+> deprioritized** (not urgent; revisit later).
+
+1. ~~**Decision policy engine** (brief §5) — *delegated authority*: the autonomy
    spectrum / decision-class → owner-involvement policy map. Deterministic,
    and it sits directly in front of the LLM seam (when a provider arrives, it
    decides how much the model is allowed to do before asking).~~ **DONE
@@ -386,12 +388,41 @@ Next increments build the deterministic product surface around the seam:
    `DecisionProposed` → `DecisionMade` pair (actor = decider). Scripted PM
    demonstrates both branches: Database (Ask → owner inbox) vs
    testing-library (Pm → PM decides, fully recorded). 61 tests.
-3. **Cost capture** (brief §6) — the metadata shape is already on events;
-   surface spend / budget / forecast in the projection and UI. Deterministic,
-   cheap to land now.
-4. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
-5. **Persona / CV rendering** (brief §2.2) — the friendly identity layer,
+
+### Next: mature the event/decision/state core (priority)
+
+Concrete candidates, roughly in value order — all deterministic, LLM-free,
+independently testable:
+
+1. **Persist `DecisionPolicy` as domain events.** Today the per-class autonomy
+   map is rebuilt from `DecisionPolicy::defaults()` in-memory; the owner's
+   overrides aren't durable. Make policy changes first-class events
+   (e.g. `DecisionPolicyChanged`) so delegated authority is *part of the event
+   log* — the source of truth — not a hardcoded default. This is the natural
+   completion of the policy engine and unlocks owner-configured autonomy.
+2. **Decision audit / provenance view.** Surface the full decision lifecycle:
+   who proposed it, its class/involvement, who decided it, the owner's note,
+   and the chain back to the owner message that caused it (decisions are
+   already in the provenance graph — expose them). "Why does this decision
+   exist, and who is accountable for it?"
+3. **Decision lifecycle maturity / anti-thrash.** Handle open-decision edge
+   cases deliberately: re-planning when a decision is blocked on the owner,
+   superseded/re-opened decisions, and recording *why* a decision was made even
+   when delegated (the `note`), so no decision is silent.
+4. **Event-stream integrity + tooling.** Harden the append-only core:
+   sequence-integrity guarantees, a replay/export command, and invariants
+   ("no gap in sequence", "a DecisionMade always follows a DecisionProposed").
+   Add a `cast` CLI surface for inspecting the raw event log — the foundation
+   everything else builds on.
+
+Then, only after the core matures:
+5. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
+6. **Persona / CV rendering** (brief §2.2) — the friendly identity layer,
    kept as a *pure renderer* of the underlying agent configuration.
+7. ~~**Auth + multi-project** (brief §2.1/§31) — owner login + per-project
+   workspaces.~~ **DEPRIORITIZED** (not urgent).
+8. ~~**Cost capture** (brief §6) — spend/budget/forecast.~~ **DEPRIORITIZED**
+   (not urgent).
 
 Design note: every one of these is LLM-free and independently testable, exactly
 like the Git slice. Keep `EventType` a curated enum and extend it deliberately.
