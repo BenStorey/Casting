@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **123 tests** (6+4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3),
+"why does this code exist?". **129 tests** (6+4+12+3+14+6+11+10+4+5+12+10+6+4+4+5+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -161,7 +161,8 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── policy_gate.rs              <- 12 unit tests (PmAction validation + assignee checks + JSON)
 │   ├── ownership_boundary.rs       <- 10 tests (self-identity guard, sandbox, state-dir, ensure_repo)
 │   ├── git_observer.rs             <- 11 tests (semantic Git events, ChangeSet auto-derive, merge)
-│   └── provenance.rs               <- 3 tests (provenance chain: commit → task → requirement → owner)
+│   ├── provenance.rs               <- 3 tests (provenance chain: commit → task → requirement → owner)
+│   └── task_review.rs              <- 5 tests (review lifecycle: InReview, approved→Done, rejected→rework)
 ├── frontend/                       <- React + Vite + TypeScript SPA (§2.4)
 │   ├── dist/                       <- npm build output; GITIGNORED (build.rs writes a placeholder)
 │   ├── index.html, vite.config.ts, tsconfig.json, package.json
@@ -303,7 +304,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3 = 123 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+10+4+5+12+10+6+4+4+5+5+5+3 = 129 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -516,7 +517,12 @@ the rules it operates under.
   `ProposeConsultant` = PM proposes via the decision pipeline, applied on approval.
 
 Then, only after the core matures:
-5. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
+5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
+   `Task.review` (verdict for provenance); `TaskReadyForReview` / `TaskReviewed`
+   events; `RequestReview` / `ReviewTask` through the gate (assignee submits,
+   reviewer must be hired, only InReview task can be ruled on; rejected -> back
+   to Working for rework). Onboarding runs core work through a real QA review;
+   persona highlights only *verified* (approved) completed work.
 6. ~~**Persona / CV rendering** (brief §2.2)~~ — **DONE 2026-08-10**
    (`Projection::persona_for`, `GET /api/persona/{id}`): the friendly identity
    layer, a pure renderer over the underlying agent configuration.
