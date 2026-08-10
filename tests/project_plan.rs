@@ -216,3 +216,65 @@ fn done_tasks_are_excluded_from_current_priorities() {
         "a done task should not appear in current priorities"
     );
 }
+
+// --- Task 3: SetTaskPriority through the gate ---
+
+#[test]
+fn set_priority_validates_against_existing_task() {
+    use casting::actions::{validate, PolicyError};
+    let state = make_state();
+    create_task(&state, "task-a", "Auth");
+    let proj = Projection::build(&state.store, "proj-plan").unwrap();
+
+    // Setting priority on an existing task passes the gate.
+    let action = casting::actions::PmAction::SetTaskPriority {
+        task_id: "task-a".into(),
+        priority: Priority::High,
+    };
+    assert!(validate(&action, "pm", &proj).is_ok());
+
+    // On a missing task it's rejected.
+    let err = validate(
+        &casting::actions::PmAction::SetTaskPriority {
+            task_id: "task-missing".into(),
+            priority: Priority::Critical,
+        },
+        "pm",
+        &proj,
+    )
+    .expect_err("setting priority on a missing task must be rejected");
+    assert!(matches!(err, PolicyError::TaskNotFound(_)));
+}
+
+#[test]
+fn set_priority_action_emits_task_priority_changed_and_reduces() {
+    let state = make_state();
+    create_task(&state, "task-a", "Auth");
+    // Verify the action -> event mapping + reducer together.
+    let cause = Event::new(
+        "proj-plan",
+        Actor::Agent { id: "pm".into() },
+        EventType::MessageSent,
+        casting::event::Aggregate {
+            kind: "message".into(),
+            id: "msg-1".into(),
+        },
+        serde_json::json!({ "to": "pm", "body": "prioritize auth" }),
+    );
+    let evs = casting::actions::PmAction::SetTaskPriority {
+        task_id: "task-a".into(),
+        priority: Priority::Critical,
+    }
+    .to_events("proj-plan", "pm", &cause, "corr-1");
+    assert_eq!(evs.len(), 1);
+    assert_eq!(evs[0].event_type, EventType::TaskPriorityChanged);
+    assert_eq!(evs[0].data["to"], serde_json::json!("critical"));
+
+    // Append it and confirm the projection reduces to Critical.
+    for e in &evs {
+        state.append(e.clone()).unwrap();
+    }
+    let proj = Projection::build(&state.store, "proj-plan").unwrap();
+    let auth = proj.tasks.iter().find(|t| t.id == "task-a").unwrap();
+    assert_eq!(auth.priority, Priority::Critical);
+}
