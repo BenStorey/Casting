@@ -46,7 +46,15 @@ impl Projection {
             .filter(|t| t.assignee.as_deref() == Some(agent_id) && t.status == TaskStatus::Done)
             .collect();
         let completed_tasks = done.len();
-        let highlights: Vec<String> = done.iter().rev().take(3).map(|t| t.title.clone()).collect();
+        // Highlights = recently completed work that PASSED review (verified,
+        // not just marked done). Unreviewed work still counts toward the tally.
+        let highlights: Vec<String> = done
+            .iter()
+            .rev()
+            .filter(|t| t.review.as_ref().map(|r| r.approved).unwrap_or(false))
+            .take(3)
+            .map(|t| t.title.clone())
+            .collect();
 
         let scopes = self.scopes_for(agent_id);
         let directives_applicable = directive::relevant(self, &scopes)

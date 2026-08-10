@@ -74,6 +74,24 @@ fn complete(state: &AppState, id: &str) {
         .unwrap();
 }
 
+/// Approve a task through review (so it counts as verified Done).
+fn review_approve(state: &AppState, id: &str) {
+    state
+        .append(Event::new(
+            "proj-pers",
+            Actor::Agent {
+                id: "maya-patel".into(),
+            },
+            EventType::TaskReviewed,
+            Aggregate {
+                kind: "task".into(),
+                id: id.into(),
+            },
+            serde_json::json!({ "approved": true, "note": "ok" }),
+        ))
+        .unwrap();
+}
+
 fn owner_directive(state: &AppState, id: &str, statement: &str, scope: &[&str]) {
     state
         .append(Event::new(
@@ -102,6 +120,7 @@ fn persona_reflects_current_and_completed_work() {
     task(&state, "task-a", "Auth", "engineering", "marcus-reed");
     task(&state, "task-b", "Billing", "engineering", "marcus-reed");
     complete(&state, "task-a");
+    review_approve(&state, "task-a");
     owner_directive(&state, "d-tdd", "TDD required", &["engineering"]);
 
     let proj = Projection::build(&state.store, "proj-pers").unwrap();
@@ -128,6 +147,25 @@ fn persona_returns_none_for_unknown_agent() {
     hire(&state, "marcus-reed", "Principal Engineer");
     let proj = Projection::build(&state.store, "proj-pers").unwrap();
     assert!(proj.persona_for("nobody").is_none());
+}
+
+#[test]
+fn unreviewed_done_work_counts_but_is_not_a_highlight() {
+    // Completed but never reviewed: counts toward completed_tasks, but is NOT
+    // showcased as a highlight (only verified work is highlighted).
+    let state = make_state();
+    hire(&state, "marcus-reed", "Principal Engineer");
+    task(&state, "task-a", "Auth", "engineering", "marcus-reed");
+    complete(&state, "task-a"); // no review!
+
+    let proj = Projection::build(&state.store, "proj-pers").unwrap();
+    let persona = proj.persona_for("marcus-reed").unwrap();
+    assert_eq!(persona.completed_tasks, 1);
+    assert_eq!(
+        persona.highlights,
+        Vec::<String>::new(),
+        "unreviewed work is not highlighted"
+    );
 }
 
 #[test]

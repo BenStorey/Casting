@@ -343,6 +343,22 @@ fn plan_onboard(
                 result: format!("Core implementation of {title} done"),
             },
         ),
+        // Marcus submits the core work for review; the PM routes it to QA.
+        (
+            AGENT_ENG.into(),
+            PmAction::RequestReview {
+                task_id: "task-core".into(),
+                reviewer: AGENT_QA.into(),
+            },
+        ),
+        (
+            AGENT_QA.into(),
+            PmAction::ReviewTask {
+                task_id: "task-core".into(),
+                approved: true,
+                note: Some("Core looks solid — marcus integrates and ships".into()),
+            },
+        ),
         (
             AGENT_PM.into(),
             PmAction::CreateTask {
