@@ -217,10 +217,12 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
         // A fresh proposal must not under-claim owner involvement for its class
-        // (the authority-downgrade guard from policy.rs).
+        // (the authority-downgrade guard from policy.rs). The claim is checked
+        // against the project's EVENT-SOURCED policy (state.policy, folded from
+        // DecisionPolicyChanged) — so owner-configured autonomy is enforced.
         PmAction::ProposeDecision {
             class, involvement, ..
-        } => policy::check_proposal(*class, *involvement, &policy::DecisionPolicy::defaults())
+        } => policy::check_proposal(*class, *involvement, &state.policy)
             .map_err(PolicyError::DecisionPolicy),
         // Resolving a decision is the universal decider step; the decision must
         // exist and still be open. The decider (`who`) is whatever the policy

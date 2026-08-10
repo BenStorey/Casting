@@ -176,6 +176,10 @@ pub struct Projection {
     pub merges: Vec<Merge>,
     /// ChangeSets — the unit of agent output (ADDENDUM §21–22).
     pub changesets: Vec<ChangeSet>,
+    /// The project's decision policy (delegated authority, brief §5),
+    /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
+    /// per-class autonomy configuration is durable history, not a default.
+    pub policy: crate::policy::DecisionPolicy,
 }
 
 impl Projection {
@@ -295,6 +299,20 @@ impl Projection {
                 to: string_field(e, "to").unwrap_or_else(|| "owner".into()),
                 body: string_field(e, "body").unwrap_or_default(),
             }),
+            EventType::DecisionPolicyChanged => {
+                // Rebind the owner-involvement for the decision class (brief §5).
+                // Event-sourced: the projection's policy is derived from the log.
+                if let (Some(class), Some(involvement)) = (
+                    e.data
+                        .get("class")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                    e.data
+                        .get("involvement")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                ) {
+                    self.policy.set(class, involvement);
+                }
+            }
             EventType::BranchCreated => {
                 let name = e.aggregate.id.clone();
                 let task_id = string_field(e, "task_id");
