@@ -190,19 +190,13 @@ async fn decision_handler(
     State(state): State<AppState>,
     Json(input): Json<DecisionIn>,
 ) -> Result<Json<Event>, (StatusCode, String)> {
-    let ev = Event::new(
+    // Shape is owned by actions.rs so it can never drift from to_events.
+    let ev = crate::actions::owner_decision_made(
         &state.project,
-        Actor::Owner,
-        EventType::DecisionMade,
-        Aggregate {
-            kind: "decision".into(),
-            id: input.decision_id.clone(),
-        },
-        serde_json::json!({
-            "subject": input.subject,
-            "approved": input.approved,
-            "note": input.note.unwrap_or_default(),
-        }),
+        &input.decision_id,
+        &input.subject,
+        input.approved,
+        input.note.clone(),
     );
     let stored = state
         .append(ev)
@@ -217,19 +211,7 @@ async fn policy_handler(
     State(state): State<AppState>,
     Json(input): Json<PolicyIn>,
 ) -> Result<Json<Event>, (StatusCode, String)> {
-    let ev = Event::new(
-        &state.project,
-        Actor::Owner,
-        EventType::DecisionPolicyChanged,
-        Aggregate {
-            kind: "decision_policy".into(),
-            id: format!("{:?}", input.class),
-        },
-        serde_json::json!({
-            "class": input.class,
-            "involvement": input.involvement,
-        }),
-    );
+    let ev = crate::actions::owner_policy_changed(&state.project, input.class, input.involvement);
     let stored = state
         .append(ev)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -243,22 +225,13 @@ async fn directive_handler(
     State(state): State<AppState>,
     Json(input): Json<DirectiveIn>,
 ) -> Result<Json<Event>, (StatusCode, String)> {
-    let ev = Event::new(
+    let ev = crate::actions::owner_directive_created(
         &state.project,
-        Actor::Owner,
-        EventType::ProjectDirectiveCreated,
-        Aggregate {
-            kind: "directive".into(),
-            id: input.id.clone(),
-        },
-        serde_json::json!({
-            "kind": input.kind,
-            "statement": input.statement,
-            "scope": input.scope,
-            "strength": input.strength,
-            "created_by": "owner",
-            "supersedes": null,
-        }),
+        &input.id,
+        input.kind,
+        &input.statement,
+        input.scope,
+        input.strength,
     );
     let stored = state
         .append(ev)
