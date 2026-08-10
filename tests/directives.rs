@@ -4,8 +4,150 @@
 //! constraints, principles, practices, preferences, objectives. Task 1 covers
 //! the model + context resolver; later tasks cover reducers and the gate.
 
+use casting::cursor::CursorStore;
 use casting::directive::{self, Directive, DirectiveKind, DirectiveStatus, DirectiveStrength};
+use casting::event::{Actor, Aggregate, Event, EventType};
+use casting::pm::AppState;
 use casting::projection::Projection;
+use casting::sqlite_store::SqliteEventStore;
+
+fn make_state() -> AppState {
+    let store = SqliteEventStore::in_memory().unwrap();
+    let cursors = CursorStore::in_memory().unwrap();
+    AppState::new(store, cursors, "proj-dir")
+}
+
+fn append(state: &AppState, event_type: EventType, id: &str, data: serde_json::Value) {
+    state
+        .append(Event::new(
+            "proj-dir",
+            Actor::Owner,
+            event_type,
+            Aggregate {
+                kind: "directive".into(),
+                id: id.into(),
+            },
+            data,
+        ))
+        .unwrap();
+}
+
+// --- Task 2: reducer lifecycle ---
+
+#[test]
+fn directive_created_reduces_to_active() {
+    let state = make_state();
+    append(
+        &state,
+        EventType::ProjectDirectiveCreated,
+        "d-tdd",
+        serde_json::json!({
+            "kind": "policy",
+            "statement": "Use TDD",
+            "scope": ["engineering"],
+            "strength": "required",
+            "created_by": "owner",
+            "supersedes": null,
+        }),
+    );
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    assert_eq!(proj.directives.len(), 1);
+    let d = &proj.directives[0];
+    assert_eq!(d.id, "d-tdd");
+    assert_eq!(d.kind, DirectiveKind::Policy);
+    assert_eq!(d.strength, DirectiveStrength::Required);
+    assert_eq!(d.status, DirectiveStatus::Active);
+    assert_eq!(d.created_by, "owner");
+    assert_eq!(d.scope, vec!["engineering".to_string()]);
+}
+
+#[test]
+fn directive_lifecycle_transitions_status() {
+    let state = make_state();
+    append(
+        &state,
+        EventType::ProjectDirectiveCreated,
+        "d-2",
+        serde_json::json!({
+            "kind": "constraint",
+            "statement": "Budget under 250",
+            "scope": ["finance"],
+            "strength": "strong",
+            "created_by": "owner",
+        }),
+    );
+    append(
+        &state,
+        EventType::ProjectDirectiveSuspended,
+        "d-2",
+        serde_json::json!({}),
+    );
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    assert_eq!(proj.directives[0].status, DirectiveStatus::Suspended);
+
+    append(
+        &state,
+        EventType::ProjectDirectiveResumed,
+        "d-2",
+        serde_json::json!({}),
+    );
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    assert_eq!(proj.directives[0].status, DirectiveStatus::Active);
+
+    append(
+        &state,
+        EventType::ProjectDirectiveExpired,
+        "d-2",
+        serde_json::json!({}),
+    );
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+    assert_eq!(proj.directives[0].status, DirectiveStatus::Expired);
+}
+
+#[test]
+fn directive_superseded_preserves_history_and_marks_superseded() {
+    let state = make_state();
+    append(
+        &state,
+        EventType::ProjectDirectiveCreated,
+        "d-v1",
+        serde_json::json!({
+            "kind": "policy",
+            "statement": "SQLite everywhere",
+            "scope": ["architecture"],
+            "strength": "strong",
+            "created_by": "owner",
+        }),
+    );
+    append(
+        &state,
+        EventType::ProjectDirectiveCreated,
+        "d-v2",
+        serde_json::json!({
+            "kind": "policy",
+            "statement": "Postgres for prod",
+            "scope": ["architecture"],
+            "strength": "required",
+            "created_by": "owner",
+            "supersedes": "d-v1",
+        }),
+    );
+    append(
+        &state,
+        EventType::ProjectDirectiveSuperseded,
+        "d-v1",
+        serde_json::json!({}),
+    );
+    let proj = Projection::build(&state.store, "proj-dir").unwrap();
+
+    // Both are persisted (history preserved).
+    assert_eq!(proj.directives.len(), 2);
+    let v1 = proj.directives.iter().find(|d| d.id == "d-v1").unwrap();
+    assert_eq!(v1.status, DirectiveStatus::Superseded);
+    let v2 = proj.directives.iter().find(|d| d.id == "d-v2").unwrap();
+    assert_eq!(v2.status, DirectiveStatus::Active);
+    assert_eq!(v2.supersedes.as_deref(), Some("d-v1"));
+}
 
 // --- Task 1: model ---
 

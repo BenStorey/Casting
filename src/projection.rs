@@ -349,6 +349,51 @@ impl Projection {
                 body: string_field(e, "body").unwrap_or_default(),
                 recorded_by: actor_name(e),
             }),
+            EventType::ProjectDirectiveCreated => {
+                use crate::directive::{Directive, DirectiveKind, DirectiveStrength};
+                let kind: Option<DirectiveKind> = e
+                    .data
+                    .get("kind")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                let strength: Option<DirectiveStrength> = e
+                    .data
+                    .get("strength")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                let scope: Vec<String> = e
+                    .data
+                    .get("scope")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                self.directives.push(Directive::new(
+                    e.aggregate.id.clone(),
+                    kind.unwrap_or(DirectiveKind::Policy),
+                    string_field(e, "statement").unwrap_or_default(),
+                    scope,
+                    strength.unwrap_or(DirectiveStrength::Recommended),
+                    string_field(e, "created_by").unwrap_or_else(|| actor_name(e)),
+                    string_field(e, "supersedes"),
+                ));
+            }
+            EventType::ProjectDirectiveSuspended => {
+                if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
+                    d.status = crate::directive::DirectiveStatus::Suspended;
+                }
+            }
+            EventType::ProjectDirectiveResumed => {
+                if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
+                    d.status = crate::directive::DirectiveStatus::Active;
+                }
+            }
+            EventType::ProjectDirectiveSuperseded => {
+                if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
+                    d.status = crate::directive::DirectiveStatus::Superseded;
+                }
+            }
+            EventType::ProjectDirectiveExpired => {
+                if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
+                    d.status = crate::directive::DirectiveStatus::Expired;
+                }
+            }
             EventType::DecisionProposed => self.decisions.push(Decision {
                 id: e.aggregate.id.clone(),
                 subject: string_field(e, "subject").unwrap_or_default(),

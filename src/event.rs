@@ -46,6 +46,16 @@ pub enum EventType {
     AssumptionRecorded,
     /// A project constraint was recorded (semantic object).
     ConstraintRecorded,
+    /// A project directive was created (governance layer, docs/INTENT.md).
+    ProjectDirectiveCreated,
+    /// A directive was suspended (no longer governs) — status -> Suspended.
+    ProjectDirectiveSuspended,
+    /// A directive was resumed (governs again) — status -> Active.
+    ProjectDirectiveResumed,
+    /// A directive was replaced by another (history preserved) -> Superseded.
+    ProjectDirectiveSuperseded,
+    /// A directive expired -> Expired.
+    ProjectDirectiveExpired,
     ObservationCreated,
     DecisionProposed,
     /// A decision was resolved — by the OWNER (after being asked) OR by a
