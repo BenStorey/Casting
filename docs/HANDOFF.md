@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **117 tests** (4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3),
+"why does this code exist?". **123 tests** (6+4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -144,6 +144,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── projection.rs               <- current-state projections derived from the log (§2.1)
 │   ├── plan.rs                     <- Priority + Project Plan view (derived current plan)
 │   ├── directive.rs                <- Project Directives = governance layer (docs/INTENT.md)
+│   ├── cast.rs                     <- role catalog + default cast = team composition config
 │   ├── context.rs                  <- per-agent Context Assembler (SEMANTIC_EVENTS §21)
 │   ├── persona.rs                  <- persona/CV rendering (brief §2.2)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
@@ -238,6 +239,8 @@ axum router for a single project (project id is currently fixed at
 - `POST /api/directive` `{id, kind, statement, scope, strength}` — owner sets
   project governance directly; persists `ProjectDirectiveCreated` (actor =
   Owner). If a strength is omitted it defaults to `required`.
+- `POST /api/hire` `{role_id}` — owner adds an agent of a curated catalog role
+  to the cast; persists `AgentHired` (actor = Owner). Unknown role → 400.
 - `GET /api/context/{actor}` — the assembled operating context for an agent
   (or "owner"/"pm"): objective, ranked priorities, their tasks, the governance
   directives that apply to them, risks, and open decisions (Context Assembler).
@@ -300,7 +303,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3 = 117 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3 = 123 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -500,6 +503,17 @@ operate* as first-class, event-sourced state, not prompt text:
 Draws directly on the delegated-authority machinery: governance edits flow
 through the same validated gate as decisions, and no agent can silently change
 the rules it operates under.
+
+**Cast & TeamChange — DONE 2026-08-10** (different CEOs build different casts):
+- `src/cast.rs`: curated `ROLE_CATALOG` (engineer/qa/security/devops, each with a
+  real governance scope — role is the atom, no separate specialization axis) +
+  `DEFAULT_CAST` seed. `plan_onboard` hires the cast by role; `context::scopes_for`
+  derives an agent's governance scope from its catalog role (accurate per-agent
+  governance, replacing string-matching).
+- The "can the PM add a consultant" rule is the owner's one-line policy on the
+  AddConsultant decision class: Pm = PM auto-hires, Ask = surfaces for owner
+  approval. `POST /api/hire {role_id}` = owner adds a role directly;
+  `ProposeConsultant` = PM proposes via the decision pipeline, applied on approval.
 
 Then, only after the core matures:
 5. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
