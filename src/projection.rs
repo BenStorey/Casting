@@ -32,10 +32,20 @@ pub enum TaskStatus {
     Backlog,
     #[serde(rename = "working")]
     Working,
+    #[serde(rename = "in_review")]
+    InReview,
     #[serde(rename = "blocked")]
     Blocked,
     #[serde(rename = "done")]
     Done,
+}
+
+/// A review verdict on a task (recorded when work passes through InReview).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskReview {
+    pub reviewer: String,
+    pub note: String,
+    pub approved: bool,
 }
 
 /// A task. Status is derived from TaskCreated->TaskAssigned->TaskStarted->...->TaskCompleted.
@@ -49,6 +59,8 @@ pub struct Task {
     /// Current priority, reduced from `TaskPriorityChanged` events
     /// (defaults to Medium). Per docs/SEMANTIC_EVENTS.md this is derived state.
     pub priority: crate::plan::Priority,
+    /// The review verdict (some once the task has passed through InReview).
+    pub review: Option<TaskReview>,
 }
 
 /// A recordable decision and its eventual owner verdict.
@@ -285,6 +297,7 @@ impl Projection {
                 status: TaskStatus::Backlog,
                 assignee: None,
                 priority: crate::plan::Priority::default(),
+                review: None,
             }),
             EventType::TaskAssigned => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
@@ -304,6 +317,27 @@ impl Projection {
             EventType::TaskCompleted => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
                     task.status = TaskStatus::Done;
+                }
+            }
+            EventType::TaskReadyForReview => {
+                if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
+                    task.status = TaskStatus::InReview;
+                }
+            }
+            EventType::TaskReviewed => {
+                if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
+                    let approved = bool_field(e, "approved").unwrap_or(false);
+                    task.review = Some(TaskReview {
+                        reviewer: actor_name(e),
+                        note: string_field(e, "note").unwrap_or_default(),
+                        approved,
+                    });
+                    task.status = if approved {
+                        TaskStatus::Done
+                    } else {
+                        // Rejected -> rework: back to Working.
+                        TaskStatus::Working
+                    };
                 }
             }
             EventType::TaskPriorityChanged => {

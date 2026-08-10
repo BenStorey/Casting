@@ -35,6 +35,11 @@ pub enum EventType {
     TaskStarted,
     TaskCompleted,
     TaskBlocked,
+    /// Work is submitted for review; status -> InReview.
+    TaskReadyForReview,
+    /// A reviewer ruled on a task: approved (-> Done, review recorded) or
+    /// rejected (-> Working, rework requested).
+    TaskReviewed,
     /// A task's priority changed (per docs/SEMANTIC_EVENTS.md: a mutation; the
     /// projection reduces it to `task.priority` deterministically).
     TaskPriorityChanged,
