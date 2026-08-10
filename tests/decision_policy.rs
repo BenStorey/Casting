@@ -7,7 +7,8 @@
 //! needs once a real provider is wired in.
 
 use casting::policy::{
-    builtin_involvement, Decider, DecisionClass, DecisionPolicy, OwnerInvolvement,
+    builtin_involvement, check_proposal, Decider, DecisionClass, DecisionPolicy, OwnerInvolvement,
+    PolicyError,
 };
 
 #[test]
@@ -134,4 +135,103 @@ fn enums_round_trip_through_json() {
             serde_json::from_str(&serde_json::to_string(&level).unwrap()).unwrap();
         assert_eq!(back, level);
     }
+}
+
+// --- Task 2: decider routing + authority-downgrade gate ---
+
+#[test]
+fn check_proposal_accepts_claim_at_least_as_restrictive() {
+    let policy = DecisionPolicy::defaults();
+    // Database requires Ask; claiming Ask (equal) is fine.
+    assert!(check_proposal(DecisionClass::Database, OwnerInvolvement::Ask, &policy).is_ok());
+    // Database requires Ask; claiming more-restrictive is still fine (Never/Pm/Notify < Ask,
+    // so those are LESS restrictive — only equal or MORE restrictive passes; Ask is the max,
+    // so equal is the only acceptance here).
+    // InternalRefactor requires Never; claiming anything ≥ Never passes.
+    assert!(check_proposal(
+        DecisionClass::InternalRefactor,
+        OwnerInvolvement::Never,
+        &policy
+    )
+    .is_ok());
+    assert!(check_proposal(
+        DecisionClass::InternalRefactor,
+        OwnerInvolvement::Ask,
+        &policy
+    )
+    .is_ok());
+    // SecurityCritical default Notify; claiming Notify or Ask passes.
+    assert!(check_proposal(
+        DecisionClass::SecurityCritical,
+        OwnerInvolvement::Notify,
+        &policy
+    )
+    .is_ok());
+    assert!(check_proposal(
+        DecisionClass::SecurityCritical,
+        OwnerInvolvement::Ask,
+        &policy
+    )
+    .is_ok());
+}
+
+#[test]
+fn check_proposal_rejects_authority_downgrade() {
+    let policy = DecisionPolicy::defaults();
+    // Database requires Ask; claiming Pm (less restrictive) is a downgrade.
+    let err = check_proposal(DecisionClass::Database, OwnerInvolvement::Pm, &policy)
+        .expect_err("claiming Pm for an Ask-required class must be rejected");
+    assert!(matches!(
+        err,
+        PolicyError::AuthorityDowngrade {
+            class: DecisionClass::Database,
+            required: OwnerInvolvement::Ask,
+            claimed: OwnerInvolvement::Pm,
+        }
+    ));
+    // SecurityCritical requires Notify; claiming Never or Pm is a downgrade.
+    assert!(check_proposal(
+        DecisionClass::SecurityCritical,
+        OwnerInvolvement::Never,
+        &policy
+    )
+    .is_err());
+    assert!(check_proposal(
+        DecisionClass::SecurityCritical,
+        OwnerInvolvement::Pm,
+        &policy
+    )
+    .is_err());
+}
+
+#[test]
+fn downgrade_is_rejected_even_after_owner_override() {
+    // Owner escalates SecurityCritical to Ask; the producer must claim Ask.
+    let mut policy = DecisionPolicy::defaults();
+    policy.set(DecisionClass::SecurityCritical, OwnerInvolvement::Ask);
+    assert!(check_proposal(
+        DecisionClass::SecurityCritical,
+        OwnerInvolvement::Notify,
+        &policy
+    )
+    .is_err());
+    assert!(check_proposal(
+        DecisionClass::SecurityCritical,
+        OwnerInvolvement::Ask,
+        &policy
+    )
+    .is_ok());
+}
+
+#[test]
+fn error_display_is_human_readable() {
+    let err = PolicyError::AuthorityDowngrade {
+        class: DecisionClass::Database,
+        required: OwnerInvolvement::Ask,
+        claimed: OwnerInvolvement::Pm,
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("Database"));
+    assert!(msg.contains("Ask"));
+    assert!(msg.contains("Pm"));
 }
