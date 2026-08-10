@@ -51,11 +51,15 @@ fn main() -> Result<()> {
             let run = parse_run(&args[2..])?;
             do_run(run)
         }
+        "log" => {
+            let log = parse_log(&args[2..])?;
+            do_log(log)
+        }
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company (vertical slice)\n\n\
-                 USAGE:\n  cast init <dir>                 create a Casting project skeleton\n  cast smoke <dir>                append sample events and replay them\n  cast run --repo <dir> --state-dir <path> [--selfhost]\n                                  start the workspace (PM + web UI)\n\n\
-                 --repo <dir>     the artifact repo Casting drives (git)\n  --state-dir <path> Casting's internal state dir (always separate from the repo)\n  --selfhost       operate on the Casting source repo itself (off by default)\n\
+                 USAGE:\n  cast init <dir>                 create a Casting project skeleton\n  cast smoke <dir>                append sample events and replay them\n  cast run --repo <dir> --state-dir <path> [--selfhost]\n                                  start the workspace (PM + web UI)\n  cast log --db <events.db> [--project <id>] [--verify]\n                                  dump / verify the raw event stream\n\n\
+                 --repo <dir>     the artifact repo Casting drives (git)\n  --state-dir <path> Casting's internal state dir (always separate from the repo)\n  --selfhost       operate on the Casting source repo itself (off by default)\n\n\
                  Env:\n  CAST_ADDR   bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_SELFHOST  1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
@@ -199,6 +203,92 @@ fn do_run(run: RunArgs) -> Result<()> {
             .context("axum server error")?;
         Ok(())
     })
+}
+
+/// Flags for `cast log`, parsed by [`parse_log`].
+struct LogArgs {
+    db: PathBuf,
+    project: Option<String>,
+    verify: bool,
+}
+
+fn parse_log(args: &[String]) -> Result<LogArgs> {
+    let mut db = None;
+    let mut project = None;
+    let mut verify = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db" => {
+                db = Some(
+                    args.get(i + 1)
+                        .context("--db requires a path to events.db")?
+                        .into(),
+                );
+                i += 2;
+            }
+            "--project" => {
+                project = Some(
+                    args.get(i + 1)
+                        .context("--project requires an id")?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--verify" => {
+                verify = true;
+                i += 1;
+            }
+            other => anyhow::bail!(
+                "unknown argument {other:?} (tip: cast log --db <events.db> [--project <id>] [--verify])"
+            ),
+        }
+    }
+    Ok(LogArgs {
+        db: db.context("cast log requires --db <events.db>")?,
+        project,
+        verify,
+    })
+}
+
+/// `cast log` — dump the raw event stream and/or verify its invariants.
+fn do_log(log: LogArgs) -> Result<()> {
+    let store = SqliteEventStore::open(&log.db)?;
+
+    // Resolve the project(s): explicit id, or every project in the store.
+    let projects = match &log.project {
+        Some(p) => vec![p.clone()],
+        None => {
+            let all = store.list_projects()?;
+            if all.is_empty() {
+                println!("(no projects in {})", log.db.display());
+                return Ok(());
+            }
+            all
+        }
+    };
+
+    for project in &projects {
+        if projects.len() > 1 {
+            println!("== project: {project} ==");
+        }
+        if log.verify {
+            let problems = casting::replay::verify(&store, project)?;
+            if problems.is_empty() {
+                println!("{}: OK (event stream invariants hold)", project);
+            } else {
+                println!("{}: {} problem(s):", project, problems.len());
+                for p in problems {
+                    println!("  - {p}");
+                }
+            }
+        } else {
+            for line in casting::replay::dump(&store, project)? {
+                println!("{line}");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Idempotently seed a fresh project: ProjectCreated + hire the PM, so the

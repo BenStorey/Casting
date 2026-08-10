@@ -20,4 +20,7 @@ pub trait EventStore: Send + Sync {
 
     /// Highest sequence currently stored for a project (or 0 if empty).
     fn latest_sequence(&self, project_id: &str) -> Result<i64>;
+
+    /// All distinct project ids present in the store, ascending.
+    fn list_projects(&self) -> Result<Vec<String>>;
 }

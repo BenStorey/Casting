@@ -181,6 +181,18 @@ impl EventStore for SqliteEventStore {
             .optional()?;
         Ok(max.unwrap_or(0))
     }
+
+    fn list_projects(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT project_id FROM events ORDER BY project_id ASC")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
 }
 
 // NOTE: `event_type` is stored as its serde string (e.g. "TaskCompleted");
