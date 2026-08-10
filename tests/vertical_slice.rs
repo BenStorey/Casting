@@ -169,10 +169,21 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
     state.append(owner_message("Build a thing")).unwrap();
     casting::pm::drive_pm(&state).await.unwrap();
 
-    // Owner rules on the proposed decision (reject it).
+    // Find the Database decision specifically (it is Ask-class -> owner decides).
     let proj = Projection::build(&state.store, "proj-test").unwrap();
-    let decision_id = proj.decisions[0].id.clone();
-    let subject = proj.decisions[0].subject.clone();
+    let decision_id = proj
+        .decisions
+        .iter()
+        .find(|d| d.subject == "Database choice")
+        .map(|d| d.id.clone())
+        .expect("the Database decision should be proposed to the owner");
+    let subject = proj
+        .decisions
+        .iter()
+        .find(|d| d.subject == "Database choice")
+        .unwrap()
+        .subject
+        .clone();
     state
         .append(Event::new(
             "proj-test",
@@ -192,9 +203,85 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
     let dec = proj.decisions.iter().find(|d| d.id == decision_id).unwrap();
     assert_eq!(dec.status, DecisionStatus::Rejected);
     assert_eq!(dec.owner_verdict.as_deref(), Some("keep it simple"));
+    // Ask-class decision: the OWNER decided it.
+    assert_eq!(dec.decided_by.as_deref(), Some("owner"));
     // PM acknowledged (declined path), so there's a reply to the owner.
     assert!(
         proj.messages.iter().any(|m| m.to == "owner"),
         "PM should acknowledge the decision"
+    );
+}
+
+#[tokio::test]
+async fn ask_class_decision_stays_in_owner_inbox_with_policy_typed() {
+    let state = make_state();
+    state.append(owner_message("Build a thing")).unwrap();
+    casting::pm::drive_pm(&state).await.unwrap();
+    let proj = Projection::build(&state.store, "proj-test").unwrap();
+
+    let db = proj
+        .decisions
+        .iter()
+        .find(|d| d.subject == "Database choice")
+        .expect("Database decision exists");
+    // Database is an Ask-class decision: typed as such, unresolved (Proposed).
+    assert_eq!(db.status, DecisionStatus::Proposed);
+    assert_eq!(db.class, casting::policy::DecisionClass::Database);
+    assert_eq!(db.involvement, casting::policy::OwnerInvolvement::Ask);
+    assert_eq!(db.decided_by, None);
+}
+
+#[tokio::test]
+async fn pm_class_decision_is_delegated_via_universal_pair() {
+    let state = make_state();
+    state.append(owner_message("Build a thing")).unwrap();
+    casting::pm::drive_pm(&state).await.unwrap();
+    let proj = Projection::build(&state.store, "proj-test").unwrap();
+
+    // TestingLibrary is a Pm-class decision: the PM decides it itself via the
+    // SAME event pair (DecisionProposed -> DecisionMade, actor = pm).
+    let tl = proj
+        .decisions
+        .iter()
+        .find(|d| d.subject == "Automated-testing library")
+        .expect("TestingLibrary decision exists");
+    assert_eq!(tl.class, casting::policy::DecisionClass::TestingLibrary);
+    assert_eq!(tl.involvement, casting::policy::OwnerInvolvement::Pm);
+    assert_eq!(tl.status, DecisionStatus::Approved);
+    assert_eq!(tl.decided_by.as_deref(), Some("pm"));
+
+    // It must NOT be in the owner's inbox (inbox = Proposed decisions only).
+    let open: Vec<_> = proj
+        .decisions
+        .iter()
+        .filter(|d| d.status == DecisionStatus::Proposed)
+        .collect();
+    assert!(
+        !open
+            .iter()
+            .any(|d| d.subject == "Automated-testing library"),
+        "a delegated decision should never sit in the owner inbox"
+    );
+
+    // And a follow-up task was created for it.
+    assert!(
+        proj.tasks.iter().any(|t| t.id == "task-testing-lib"),
+        "PM should create a task for the delegated decision"
+    );
+
+    // The full universal pair is recorded in the event log as DecisionMade by
+    // the PM (not the owner) — proving the event type carries the decider.
+    let made_events = state
+        .store
+        .read_since("proj-test", 0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event_type == EventType::DecisionMade)
+        .collect::<Vec<_>>();
+    assert!(
+        made_events
+            .iter()
+            .any(|e| e.actor == Actor::Agent { id: "pm".into() } && e.aggregate.id == tl.id),
+        "the universal DecisionMade should be authored by the delegated PM"
     );
 }
