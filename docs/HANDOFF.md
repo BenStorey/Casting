@@ -34,6 +34,12 @@ design itself.
 > tree** (`/home/ben/casting-workspace/`, per D5) — the old in-tree `.dev/proj`
 > command in this doc and the VS Code tasks is corrected; the D5 guard refuses
 > any repo inside the embedded source root.
+>
+> **2026-08-10 direction:** the owner has decided to **defer real LLM wiring**
+> (D2) and instead build the deterministic product surface *around* the LLM
+> seam — auth/multi-project, the decision policy engine, cost capture, task
+> review, persona rendering. The scripted PM + policy gate remain the base; a
+> provider plugs in later as a thin client over a complete product. See §5.
 
 Casting is an agent-orchestration platform for building software, framed
 as an **"autonomous software company in a box."**
@@ -347,17 +353,40 @@ crates, Even Better TOML.
 The simulated vertical slice is DONE and verified. Next increments, in
 order (aligns with brief §45 priorities):
 
-### Next: real LLM wiring (D2 — the PM becomes an actual LLM control loop)
-**The seam is DONE and proven:** the scripted policy in `pm.rs` already emits
-the typed `PmAction`s through the policy gate in `actions.rs` exactly as a
-provider would. Wiring up is now a thin OpenRouter client (day-1 provider,
-Ben has a key) that returns structured `PmAction` JSON, converted into
-`PlannedAction`s and fed to `run_planned`. The `plan_*` functions in `pm.rs`
-are the only code to replace; the gate, cursor, drain shape, and provenance
-all stay. Validate + reject belongs to the gate already — the model cannot
-mutate state or burn tokens on an invalid action. Keep a `--no-llm`/scripted
-fallback for offline use and `cast smoke`. (Deferred until the gate + tests
-were in, per this handoff's amendment in §6.)
+### Next: build the product around the LLM seam — DEFER REAL LLM WIRING (D2, owner decision 2026-08-10)
+**Owner decision: do NOT wire a real LLM yet.** Build as much of the product
+surface as possible around the seam, and plug a provider in *later*. This
+reverses the earlier "LLM wiring next" priority.
+
+The seam is already done and proven: the typed `PmAction` vocabulary + policy
+gate in `src/actions.rs`, driven by the scripted `plan_*` policy in `pm.rs`
+and fed through `run_planned`. Everything downstream — the durable cursor, the
+drain shape, the event store, provenance — is provider-agnostic and stays.
+The goal is to keep the product 100% deterministic / LLM-free for as long as
+possible, so that when OpenRouter (the agreed day-1 provider; Ben has a key)
+is finally wired, it is a **thin client over a complete product**, not a live
+model racing a half-built scaffold. The `--no-llm` / scripted mode remains the
+permanent default; a real provider is an *addition*, never the base.
+
+Next increments build the deterministic product surface around the seam:
+
+1. **Auth + multi-project** (brief §2.1/§31, first-run UX) — owner login and
+   per-project workspaces; the owner should not have to understand Casting's
+   internals.
+2. **Decision policy engine** (brief §5) — *delegated authority*: the autonomy
+   spectrum / decision-class → owner-involvement policy map. Deterministic,
+   and it sits directly in front of the LLM seam (when a provider arrives, it
+   decides how much the model is allowed to do before asking).
+3. **Cost capture** (brief §6) — the metadata shape is already on events;
+   surface spend / budget / forecast in the projection and UI. Deterministic,
+   cheap to land now.
+4. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
+5. **Persona / CV rendering** (brief §2.2) — the friendly identity layer,
+   kept as a *pure renderer* of the underlying agent configuration.
+
+Design note: every one of these is LLM-free and independently testable, exactly
+like the Git slice. Keep `EventType` a curated enum and extend it deliberately.
+
 
 ### Local Git (addendum §28, 18–27) — COMPLETE (4 increments built)
 All four increments are built, tested, and committed. The Git slice is
@@ -412,13 +441,15 @@ agent identity/persona rendering.
 # 6. Decision log (D1–D5)
 
 - **D1 — Rust toolchain floor: RESOLVED.** 1.97.1 on this box.
-- **D2 — LLM boundary: SCRIPTED FOR NOW (by decision); seam built.** The
+- **D2 — LLM boundary: SCRIPTED, and REAL LLM WIRING DEFERRED (owner decision 2026-08-10).** The
   vertical slice ships a deterministic scripted PM (no provider calls). The
   `PmAction` vocabulary + policy gate in `actions.rs` (built 2026-08-09)
-  are the addendum §16 seam, proven by tests. **Day-1 provider: OpenRouter**
-  (Ben's call; he has a key). LLM wiring is deliberately deferred until the
-  gate/tests were in so any model mistake is rejected before it burns tokens
-  or corrupts state.
+  are the addendum §16 seam, proven by tests. **Day-1 provider (when wired):
+  OpenRouter** (Ben's call; he has a key). As of 2026-08-10 the owner has
+  decided to **defer LLM wiring** and instead build the deterministic product
+  surface around the seam (auth/multi-project, decision policy engine, cost
+  capture, task review, persona rendering — see §5). The provider, when it
+  arrives, is a thin client over a complete product — never the base.
 - **D3 — Frontend approach: RESOLVED — real SPA.** Owner chose React +
   Vite + TypeScript over server-rendered HTML, accepting the build step;
   the SPA is embedded into the binary to preserve the single-artifact
@@ -434,8 +465,10 @@ agent identity/persona rendering.
   commit. Full rules in **docs/OWNERSHIP_BOUNDARY.md** (added 2026-08-09,
   prerequisite for the Git slice).
 
-Only D2's *execution* is genuinely open (scripted → real provider). Any
-further open decisions should be recorded here.
+No decisions are blocking active work. D2's *execution* (scripted → real
+provider) remains open but is deliberately **deferred** behind the product
+surface build-out (see §5); when it is picked up, any new decisions should be
+recorded here.
 
 ---
 

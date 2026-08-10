@@ -92,6 +92,9 @@ exists.
 - D2: LLM boundary — does slice one ship with a scripted PM, or wire one
   real provider behind an env var from day one? (Recommend: scripted loop
   for the harness, leave a thin `Anthropic`/`OpenAI` client stub.)
+  **RESOLVED 2026-08-10 — scripted, and real LLM wiring deliberately
+  DEFERRED.** Product surface is built around the seam first; a provider
+  plugs in later (see HANDOFF.md §5, D2).
 - D3: Frontend approach — server-rendered HTML + tiny JS vs a proper
   SPA build step (the latter costs the "single binary / no build tools"
   promise). Recommend starting server-rendered.
