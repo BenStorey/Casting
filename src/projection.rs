@@ -212,6 +212,8 @@ pub struct Projection {
     pub risks: Vec<Risk>,
     pub assumptions: Vec<Assumption>,
     pub constraints: Vec<Constraint>,
+    /// First-class governance objects (docs/INTENT.md).
+    pub directives: Vec<crate::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
     pub branches: Vec<Branch>,
     /// Commits observed on branches (semantic Git events).
