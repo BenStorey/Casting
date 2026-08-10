@@ -63,6 +63,19 @@ pub enum PmAction {
         task_id: String,
         result: String,
     },
+    /// Submit finished work for review. Produces TaskReadyForReview
+    /// (status -> InReview). The reviewer is who later rules via ReviewTask.
+    RequestReview {
+        task_id: String,
+        reviewer: String,
+    },
+    /// A reviewer rules on a task in review. Produces TaskReviewed: approved
+    /// -> Done (review recorded) or rejected -> Working (rework).
+    ReviewTask {
+        task_id: String,
+        approved: bool,
+        note: Option<String>,
+    },
     BlockTask {
         task_id: String,
         reason: String,
@@ -199,6 +212,8 @@ pub enum PolicyError {
     TaskNotFound(String),
     /// Assigning work to an agent who has not been hired.
     AgentNotHired(String),
+    /// Reviewing a task that isn't currently in review.
+    TaskNotInReview(String),
     /// Starting/completing/blocking a task that has not been assigned yet.
     TaskUnassigned(String),
     /// Starting/completing/blocking a task by someone other than its assignee.
@@ -236,6 +251,9 @@ impl std::fmt::Display for PolicyError {
             PolicyError::TaskNotFound(id) => write!(f, "cannot act on task {id}: no such task"),
             PolicyError::AgentNotHired(id) => {
                 write!(f, "cannot assign task to {id}: not hired")
+            }
+            PolicyError::TaskNotInReview(id) => {
+                write!(f, "cannot review task {id}: it is not in review")
             }
             PolicyError::TaskUnassigned(id) => {
                 write!(f, "cannot act on task {id}: no assignee yet")
@@ -317,6 +335,25 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         PmAction::StartTask { task_id } => check_assignee(task_id, who, state),
         PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
+        // Submitting work for review: the assignee submits their own work, and
+        // the reviewer must be a real agent.
+        PmAction::RequestReview { task_id, reviewer } => {
+            check_assignee(task_id, who, state)?;
+            if !state.agents.iter().any(|a| a.id == *reviewer) {
+                return Err(PolicyError::AgentNotHired(reviewer.clone()));
+            }
+            Ok(())
+        }
+        // Ruling on a review: the task must be currently InReview.
+        PmAction::ReviewTask { task_id, .. } => {
+            let Some(task) = state.tasks.iter().find(|t| t.id == *task_id) else {
+                return Err(PolicyError::TaskNotFound(task_id.clone()));
+            };
+            if task.status != crate::projection::TaskStatus::InReview {
+                return Err(PolicyError::TaskNotInReview(task_id.clone()));
+            }
+            Ok(())
+        }
         // Setting a priority is a plan mutation on an existing task.
         PmAction::SetTaskPriority { task_id, .. } => {
             let exists = state.tasks.iter().any(|t| t.id == *task_id);
@@ -534,6 +571,31 @@ impl PmAction {
                 "task",
                 EventType::TaskCompleted,
                 json!({ "result": result }),
+                meta,
+            )],
+            PmAction::RequestReview { task_id, reviewer } => vec![ev(
+                project,
+                actor,
+                task_id,
+                "task",
+                EventType::TaskReadyForReview,
+                json!({ "reviewer": reviewer }),
+                meta,
+            )],
+            PmAction::ReviewTask {
+                task_id,
+                approved,
+                note,
+            } => vec![ev(
+                project,
+                actor,
+                task_id,
+                "task",
+                EventType::TaskReviewed,
+                json!({
+                    "approved": approved,
+                    "note": note,
+                }),
                 meta,
             )],
             PmAction::BlockTask { task_id, reason } => vec![ev(
