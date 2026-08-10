@@ -286,3 +286,110 @@ fn provenance_returns_empty_chain_for_unknown_commit() {
     assert!(chain.task_id.is_none());
     assert!(chain.chain.is_empty());
 }
+
+// --- Decision audit (state-core maturity step 1) ---
+
+fn make_proj_store() -> (SqliteEventStore, CursorStore) {
+    let store = SqliteEventStore::in_memory().unwrap();
+    let cursors = CursorStore::in_memory().unwrap();
+    (store, cursors)
+}
+
+fn appends_owner_message(store: &SqliteEventStore, body: &str) -> Event {
+    store
+        .append(Event::new(
+            "proj",
+            Actor::Owner,
+            EventType::MessageSent,
+            Aggregate {
+                kind: "message".into(),
+                id: "msg-dependent".into(),
+            },
+            serde_json::json!({ "to": "pm", "body": body }),
+        ))
+        .unwrap()
+}
+
+/// Append a decision proposal causally linked to `cause` (owner message), so
+/// the audit can trace back to it.
+fn append_proposal(store: &SqliteEventStore, id: &str, subject: &str, cause: &Event) -> Event {
+    let meta = Metadata {
+        causation_id: Some(cause.event_id),
+        correlation_id: Some("corr-audit".into()),
+        ..Default::default()
+    };
+    let mut ev = Event::new(
+        "proj",
+        Actor::Agent { id: "pm".into() },
+        EventType::DecisionProposed,
+        Aggregate {
+            kind: "decision".into(),
+            id: id.into(),
+        },
+        serde_json::json!({
+            "subject": subject,
+            "options": serde_json::json!({}),
+            "recommendation": "A",
+            "class": "database",
+            "involvement": "ask",
+        }),
+    );
+    ev.metadata = meta;
+    store.append(ev).unwrap()
+}
+
+#[test]
+fn decision_audit_traces_to_owner_message_when_proposed_only() {
+    let (store, _c) = make_proj_store();
+    let msg = appends_owner_message(&store, "Build a thing");
+    append_proposal(&store, "decision-1", "Database choice", &msg);
+
+    let audit = provenance::for_decision(&store, "proj", "decision-1").unwrap();
+    assert_eq!(audit.subject, "Database choice");
+    assert_eq!(audit.class, casting::policy::DecisionClass::Database);
+    assert_eq!(audit.involvement, casting::policy::OwnerInvolvement::Ask);
+    assert_eq!(audit.status, "proposed");
+    assert_eq!(audit.proposed_by, "pm");
+    assert_eq!(audit.decided_by, None);
+    assert_eq!(audit.owner_message.as_deref(), Some("Build a thing"));
+    // Chain: proposal → owner message.
+    let kinds: Vec<&str> = audit.chain.iter().map(|l| l.entity_kind.as_str()).collect();
+    assert!(kinds.contains(&"decision"));
+    assert!(kinds.contains(&"message"));
+}
+
+#[test]
+fn decision_audit_records_decider_and_note_when_decided() {
+    let (store, _c) = make_proj_store();
+    let msg = appends_owner_message(&store, "Build a thing");
+    append_proposal(&store, "decision-2", "Database choice", &msg);
+
+    // Owner approves it → DecisionMade (actor = Owner, note attached).
+    store
+        .append(Event::new(
+            "proj",
+            Actor::Owner,
+            EventType::DecisionMade,
+            Aggregate {
+                kind: "decision".into(),
+                id: "decision-2".into(),
+            },
+            serde_json::json!({ "approved": true, "note": "Postgres is fine" }),
+        ))
+        .unwrap();
+
+    let audit = provenance::for_decision(&store, "proj", "decision-2").unwrap();
+    assert_eq!(audit.status, "approved");
+    assert_eq!(audit.decided_by.as_deref(), Some("owner"));
+    assert_eq!(audit.note.as_deref(), Some("Postgres is fine"));
+    let kinds: Vec<&str> = audit.chain.iter().map(|l| l.event_type.as_str()).collect();
+    assert!(kinds.contains(&"DecisionMade"));
+}
+
+#[test]
+fn decision_audit_returns_empty_for_unknown_decision() {
+    let (store, _c) = make_proj_store();
+    let audit = provenance::for_decision(&store, "proj", "nope").unwrap();
+    assert_eq!(audit.status, "unknown");
+    assert!(audit.chain.is_empty());
+}

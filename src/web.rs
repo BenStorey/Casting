@@ -83,6 +83,10 @@ pub fn router(state: AppState) -> Router {
             "/api/provenance/task/{task_id}",
             get(provenance_task_handler),
         )
+        .route(
+            "/api/provenance/decision/{decision_id}",
+            get(provenance_decision_handler),
+        )
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
@@ -276,6 +280,17 @@ async fn provenance_task_handler(
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<Json<provenance::TaskProvenance>, StatusCode> {
     provenance::for_task(&state.store, &state.project, &task_id)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// GET /api/provenance/decision/{id} — the audit for a decision: who proposed
+/// it, what class/involvement, who decided it, and why (to the owner's message).
+async fn provenance_decision_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(decision_id): axum::extract::Path<String>,
+) -> Result<Json<provenance::DecisionAudit>, StatusCode> {
+    provenance::for_decision(&state.store, &state.project, &decision_id)
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }

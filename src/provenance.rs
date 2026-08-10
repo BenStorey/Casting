@@ -338,3 +338,168 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
         owner_message,
     })
 }
+
+/// The audit for a single decision: who proposed it, what class/involvement,
+/// who decided it, the owner's note, and why (back to the initiator message).
+#[derive(Debug, Clone, Serialize)]
+pub struct DecisionAudit {
+    pub decision_id: String,
+    pub subject: String,
+    pub class: crate::policy::DecisionClass,
+    pub involvement: crate::policy::OwnerInvolvement,
+    pub status: String,
+    pub proposed_by: String,
+    /// The decider once `DecisionMade` is recorded (owner or agent id).
+    pub decided_by: Option<String>,
+    /// The note attached when the decision was made (often the owner's verdict).
+    pub note: Option<String>,
+    /// The owner's original message that motivated this decision, if traceable.
+    pub owner_message: Option<String>,
+    /// The ordered chain of link events: proposal → decision → owner message.
+    pub chain: Vec<ProvenanceLink>,
+}
+
+/// Build the audit for a decision: walk the log for its proposal and any
+/// resolution, then trace back to the initiating owner message.
+pub fn for_decision<S: EventStore>(
+    store: &S,
+    project: &str,
+    decision_id: &str,
+) -> Result<DecisionAudit> {
+    let events = store.read_since(project, 0)?;
+
+    let Some(proposed) = events
+        .iter()
+        .find(|e| e.event_type == EventType::DecisionProposed && e.aggregate.id == decision_id)
+    else {
+        return Ok(DecisionAudit {
+            decision_id: decision_id.to_string(),
+            subject: String::new(),
+            class: crate::policy::DecisionClass::InternalImplementation,
+            involvement: crate::policy::OwnerInvolvement::Ask,
+            status: "unknown".into(),
+            proposed_by: String::new(),
+            decided_by: None,
+            note: None,
+            owner_message: None,
+            chain: Vec::new(),
+        });
+    };
+
+    let subject = proposed
+        .data
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?")
+        .to_string();
+    let class = proposed
+        .data
+        .get("class")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or(crate::policy::DecisionClass::InternalImplementation);
+    let involvement = proposed
+        .data
+        .get("involvement")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or(crate::policy::OwnerInvolvement::Ask);
+    let proposed_by = actor_label(&proposed.actor);
+
+    // The resolution, if any.
+    let made = events
+        .iter()
+        .find(|e| e.event_type == EventType::DecisionMade && e.aggregate.id == decision_id);
+    let decided_by = made.map(|e| actor_label(&e.actor));
+    let note = made.and_then(|e| {
+        e.data
+            .get("note")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    });
+    let status = match made {
+        None => "proposed".to_string(),
+        Some(e)
+            if e.data
+                .get("approved")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false) =>
+        {
+            "approved".to_string()
+        }
+        Some(_) => "rejected".to_string(),
+    };
+
+    let mut chain = vec![ProvenanceLink {
+        sequence: proposed.sequence,
+        event_type: "DecisionProposed".into(),
+        entity_id: decision_id.to_string(),
+        entity_kind: "decision".into(),
+        description: format!("Decision proposed: {subject}"),
+    }];
+    if let Some(m) = made {
+        chain.push(ProvenanceLink {
+            sequence: m.sequence,
+            event_type: "DecisionMade".into(),
+            entity_id: decision_id.to_string(),
+            entity_kind: "decision".into(),
+            description: format!("Decision made by {:?}", decided_by),
+        });
+    }
+
+    // Trace to the initiating owner message via the proposal's causation chain.
+    let mut owner_message = None;
+    let mut cause_id = proposed.metadata.causation_id;
+    let mut guard = 0;
+    while let Some(cid) = cause_id {
+        guard += 1;
+        if guard > 32 {
+            break;
+        }
+        let Some(cause) = events.iter().find(|e| e.event_id == cid) else {
+            break;
+        };
+        if cause.event_type == EventType::MessageSent && cause.actor == crate::event::Actor::Owner {
+            owner_message = cause
+                .data
+                .get("body")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            chain.push(ProvenanceLink {
+                sequence: cause.sequence,
+                event_type: "MessageSent".into(),
+                entity_id: cause.aggregate.id.clone(),
+                entity_kind: "message".into(),
+                description: format!(
+                    "Owner said: \"{}\"",
+                    cause
+                        .data
+                        .get("body")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?")
+                ),
+            });
+            break;
+        }
+        cause_id = cause.metadata.causation_id;
+    }
+
+    Ok(DecisionAudit {
+        decision_id: decision_id.to_string(),
+        subject,
+        class,
+        involvement,
+        status,
+        proposed_by,
+        decided_by,
+        note,
+        owner_message,
+        chain,
+    })
+}
+
+fn actor_label(a: &crate::event::Actor) -> String {
+    match a {
+        crate::event::Actor::Owner => "owner".into(),
+        crate::event::Actor::Agent { id } => id.clone(),
+        crate::event::Actor::System => "system".into(),
+    }
+}

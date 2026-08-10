@@ -50,6 +50,7 @@ fn provenance_routes_are_mounted_and_answer() {
     for path in [
         "/api/provenance/commit/deadbeef",
         "/api/provenance/task/task-501",
+        "/api/provenance/decision/decision-db",
         "/api/state",
         "/api/inbox",
         "/api/policy",
