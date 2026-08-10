@@ -55,6 +55,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/inbox",
         "/api/policy",
         "/api/directive",
+        "/api/context/owner",
     ] {
         let req = Request::builder().uri(path).body(Body::empty()).unwrap();
         let resp = app

@@ -103,6 +103,7 @@ pub fn router(state: AppState) -> Router {
             "/api/provenance/decision/{decision_id}",
             get(provenance_decision_handler),
         )
+        .route("/api/context/{actor}", get(context_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
@@ -339,6 +340,19 @@ async fn provenance_decision_handler(
     provenance::for_decision(&state.store, &state.project, &decision_id)
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// GET /api/context/{actor} — the assembled operating context for an actor
+/// (agent id, "owner", or "pm"): objective, priorities, their tasks, the
+/// governance directives that apply to them, risks, and open decisions.
+async fn context_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(actor): axum::extract::Path<String>,
+) -> Result<Json<crate::context::AgentContext>, StatusCode> {
+    let proj = state
+        .projection()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(proj.context_for(&actor)))
 }
 
 /// Serve the embedded SPA. Real files serve directly; unknown paths fall back
