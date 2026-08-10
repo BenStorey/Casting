@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **102 tests** (12+13+6+11+10+5+12+10+6+4+5+5+3),
+"why does this code exist?". **110 tests** (12+3+14+6+11+10+5+12+10+6+4+4+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -145,12 +145,13 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── plan.rs                     <- Priority + Project Plan view (derived current plan)
 │   ├── directive.rs                <- Project Directives = governance layer (docs/INTENT.md)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
+│   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
 │   ├── git_observer.rs             <- semantic Git events from raw repo state (Git inc 2)
 │   ├── provenance.rs               <- "why does this code exist?" queries (Git inc 4)
-│   └── main.rs                     <- `cast` CLI (init, smoke, run)
+│   └── main.rs                     <- `cast` CLI (init, smoke, run, log)
 ├── tests/
 │   ├── event_store.rs              <- 6 integration tests (headless core)
 │   ├── vertical_slice.rs           <- 3 integration tests (projection + PM loop)
@@ -291,7 +292,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 12+13+6+11+10+5+12+10+6+4+5+5+3 = 102 tests (all pass; ~0s)
+cargo test           # 12+3+14+6+11+10+5+12+10+6+4+4+5+5+3 = 110 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -438,15 +439,17 @@ independently testable:
    `Projection.plan()` view (objective + ranked priorities + open decisions)
    exposed on `/api/state` (`plan`). First dogfooding artifact: our own roadmap
    could become this state instead of `.md`.
-3. **Decision lifecycle maturity / anti-thrash.** Handle open-decision edge
-   cases deliberately: re-planning when a decision is blocked on the owner,
-   superseded/re-opened decisions, and recording *why* a decision was made even
-   when delegated (the `note`), so no decision is silent.
-4. **Event-stream integrity + tooling.** Harden the append-only core:
-   sequence-integrity guarantees, a replay/export command, and invariants
-   ("no gap in sequence", "a DecisionMade always follows a DecisionProposed").
-   Add a `cast` CLI surface for inspecting the raw event log — the foundation
-   everything else builds on.
+3. ~~**Decision lifecycle maturity / anti-thrash.**~~ **Partial — supersession
+   DONE 2026-08-10.** `DecisionStatus::Superseded` + `Decision.superseded_by`;
+   a decision can be superseded by a newer one (never deleted, history
+   preserved) via `PmAction::SupersedeDecision`; superseded decisions drop out
+   of the plan's open decisions. *Reactive* anti-thrash (the PM deciding *when*
+   to supersede / not re-propose) needs the LLM/PM reasoning (deferred, D2).
+4. **Event-stream integrity + tooling** — **DONE 2026-08-10.** `replay::dump`
+   (raw one-line-per-event history) + `replay::verify` (checks sequence
+   contiguity and "DecisionMade follows DecisionProposed" / "TaskCompleted
+   follows TaskCreated"). CLI: `cast log --db <events.db> [--project <id>]
+   [--verify]`. Advisory, not DB-enforced.
 
 **State-core maturity steps 1–3 — DONE 2026-08-10** (source of truth is the
 event log; projections are derived; snapshots are never a source of truth):
