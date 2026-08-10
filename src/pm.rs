@@ -207,7 +207,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         return Ok(0);
     }
     let correlation = format!("run-{}", cause.sequence);
-    let mut projection = Projection::build(&state.store, &state.project)?;
+    let mut projection = state.projection()?;
     let mut authored = 0u32;
     let mut rejected = 0u32;
 
