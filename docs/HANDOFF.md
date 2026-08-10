@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **110 tests** (12+3+14+6+11+10+5+12+10+6+4+4+5+5+3),
+"why does this code exist?". **117 tests** (4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -144,6 +144,8 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── projection.rs               <- current-state projections derived from the log (§2.1)
 │   ├── plan.rs                     <- Priority + Project Plan view (derived current plan)
 │   ├── directive.rs                <- Project Directives = governance layer (docs/INTENT.md)
+│   ├── context.rs                  <- per-agent Context Assembler (SEMANTIC_EVENTS §21)
+│   ├── persona.rs                  <- persona/CV rendering (brief §2.2)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
@@ -236,6 +238,12 @@ axum router for a single project (project id is currently fixed at
 - `POST /api/directive` `{id, kind, statement, scope, strength}` — owner sets
   project governance directly; persists `ProjectDirectiveCreated` (actor =
   Owner). If a strength is omitted it defaults to `required`.
+- `GET /api/context/{actor}` — the assembled operating context for an agent
+  (or "owner"/"pm"): objective, ranked priorities, their tasks, the governance
+  directives that apply to them, risks, and open decisions (Context Assembler).
+- `GET /api/persona/{agent_id}` — the derived persona/CV card for a hired
+  agent (role, title, current/completed tasks, applicable directives); 404 if
+  the agent isn't hired.
 - SPA serving: `rust-embed` embeds `frontend/dist/`; unknown extensionless
   paths fall back to `index.html` for client-side routing.
 
@@ -292,7 +300,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 12+3+14+6+11+10+5+12+10+6+4+4+5+5+3 = 110 tests (all pass; ~0s)
+cargo test           # 4+12+3+14+6+11+10+3+5+12+10+6+4+4+5+5+3 = 117 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -495,8 +503,9 @@ the rules it operates under.
 
 Then, only after the core matures:
 5. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
-6. **Persona / CV rendering** (brief §2.2) — the friendly identity layer,
-   kept as a *pure renderer* of the underlying agent configuration.
+6. ~~**Persona / CV rendering** (brief §2.2)~~ — **DONE 2026-08-10**
+   (`Projection::persona_for`, `GET /api/persona/{id}`): the friendly identity
+   layer, a pure renderer over the underlying agent configuration.
 7. ~~**Auth + multi-project** (brief §2.1/§31) — owner login + per-project
    workspaces.~~ **DEPRIORITIZED** (not urgent).
 8. ~~**Cost capture** (brief §6) — spend/budget/forecast.~~ **DEPRIORITIZED**
