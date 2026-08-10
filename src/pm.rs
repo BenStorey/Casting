@@ -46,6 +46,11 @@ pub struct AppState {
     pub store: SqliteEventStore,
     pub cursors: CursorStore,
     pub project: String,
+    /// Optional projection snapshot store (SEMANTIC_EVENTS §18). When present,
+    /// projections are built from snapshot + tail (an optimization, never a
+    /// source of truth); when None, the full log is folded. Optional so tests
+    /// and simple runs need no snapshot store.
+    pub snapshots: Option<crate::snapshot::SnapshotStore>,
     /// Pause inserted between appended events so the UI animates the company
     /// working. Zero in tests for speed. (brief §35)
     pub step_delay: Duration,
@@ -59,8 +64,31 @@ impl AppState {
             store,
             cursors,
             project: project.into(),
+            snapshots: None,
             step_delay: Duration::from_millis(220),
             events: Arc::new(tx),
+        }
+    }
+
+    /// Builder-style: enable projection snapshots for this AppState.
+    pub fn with_snapshots(mut self, snapshots: crate::snapshot::SnapshotStore) -> Self {
+        self.snapshots = Some(snapshots);
+        self
+    }
+
+    /// Build the current projection, using the snapshot store when present.
+    /// Reads come from snapshot + tail (or full fold); we also (re)store a
+    /// snapshot as a side effect so the read path stays warm — but the event
+    /// log remains the only authority.
+    pub fn projection(&self) -> anyhow::Result<Projection> {
+        match &self.snapshots {
+            Some(snaps) => {
+                let proj = crate::snapshot::build_from(&self.store, snaps, &self.project)?;
+                let seq = self.store.latest_sequence(&self.project)?;
+                let _ = snaps.save(&self.project, seq, &proj);
+                Ok(proj)
+            }
+            None => Projection::build(&self.store, &self.project),
         }
     }
 
@@ -126,7 +154,7 @@ async fn drain(state: &AppState) -> Result<u32> {
         return Ok(0);
     }
 
-    let projection = Projection::build(&state.store, &state.project)?;
+    let projection = state.projection()?;
     let authored = respond(state, &projection, &new_events).await?;
 
     let latest = state.store.latest_sequence(&state.project)?;

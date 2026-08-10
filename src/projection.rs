@@ -11,14 +11,14 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// A hired consultant/agent.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Agent {
     pub id: String,
     pub role: String,
 }
 
 /// A product requirement the owner / PM agreed on.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Requirement {
     pub id: String,
     pub title: String,
@@ -26,7 +26,7 @@ pub struct Requirement {
 }
 
 /// Where a task sits on the board (a projection of its lifecycle events).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
     #[serde(rename = "backlog")]
     Backlog,
@@ -39,7 +39,7 @@ pub enum TaskStatus {
 }
 
 /// A task. Status is derived from TaskCreated->TaskAssigned->TaskStarted->...->TaskCompleted.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Task {
     pub id: String,
     pub title: String,
@@ -52,7 +52,7 @@ pub struct Task {
 }
 
 /// A recordable decision and its eventual owner verdict.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecisionStatus {
     #[serde(rename = "proposed")]
     Proposed,
@@ -62,7 +62,7 @@ pub enum DecisionStatus {
     Rejected,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Decision {
     pub id: String,
     pub subject: String,
@@ -77,7 +77,7 @@ pub struct Decision {
 }
 
 /// Human-readable message (owner <-> PM, agents). Structured, not real email.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Message {
     pub id: String,
     pub from: String,
@@ -86,7 +86,7 @@ pub struct Message {
 }
 
 /// Something an agent noticed.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Observation {
     pub id: String,
     pub from: String,
@@ -107,7 +107,7 @@ pub enum RiskStatus {
 
 /// A first-class project risk (semantic object). Creation may need the PM/LLM
 /// to *interpret* an observation, but its state transitions are deterministic.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Risk {
     pub id: String,
     pub subject: String,
@@ -117,7 +117,7 @@ pub struct Risk {
 }
 
 /// A recorded project assumption (semantic note, SEMANTIC_EVENTS §8).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Assumption {
     pub id: String,
     pub body: String,
@@ -125,7 +125,7 @@ pub struct Assumption {
 }
 
 /// A recorded project constraint (semantic note, SEMANTIC_EVENTS §8).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Constraint {
     pub id: String,
     pub body: String,
@@ -133,7 +133,7 @@ pub struct Constraint {
 }
 
 /// A branch in the artifact repo (semantic Git event, ADDENDUM §20/§23).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Branch {
     pub name: String,
     /// The task this branch is associated with, if known (ADDENDUM §20).
@@ -143,7 +143,7 @@ pub struct Branch {
 /// A commit observed on a branch (semantic Git event, ADDENDUM §23).
 /// Git remains authoritative for the commit; Casting owns the organizational
 /// association (ADDENDUM §24).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Commit {
     pub sha: String,
     /// The branch this commit was observed on.
@@ -157,7 +157,7 @@ pub struct Commit {
 }
 
 /// A completed merge (semantic Git event, ADDENDUM §23).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Merge {
     /// The merge commit sha.
     pub sha: String,
@@ -168,7 +168,7 @@ pub struct Merge {
 }
 
 /// The status of a ChangeSet (ADDENDUM §22).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChangeSetStatus {
     #[serde(rename = "open")]
     /// Branch exists, commits being produced, not yet ready for review.
@@ -184,7 +184,7 @@ pub enum ChangeSetStatus {
 /// A ChangeSet — the unit of agent output: which task, branch, and commits
 /// produced a batch of work (ADDENDUM §21–22). Git remains authoritative for
 /// the branch and commits; Casting owns the association.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChangeSet {
     pub id: String,
     /// The task this ChangeSet fulfills.
@@ -199,7 +199,7 @@ pub struct ChangeSet {
 }
 
 /// The full current-state projection for a project.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Projection {
     pub project_id: String,
     pub agents: Vec<Agent>,
@@ -249,7 +249,7 @@ impl Projection {
     }
 
     /// Apply a single event to the running projection.
-    pub(crate) fn apply(&mut self, e: &Event) {
+    pub fn apply(&mut self, e: &Event) {
         match e.event_type {
             EventType::ProjectCreated => {}
             EventType::AgentHired => self.agents.push(Agent {

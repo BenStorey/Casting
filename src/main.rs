@@ -166,12 +166,14 @@ fn do_run(run: RunArgs) -> Result<()> {
     // Casting's internal state lives in the (mandatory, separate) state dir.
     let store = SqliteEventStore::open(ws.state_dir.join("events.db"))?;
     let cursors = CursorStore::open(ws.state_dir.join("cursors.db"))?;
+    // Projection snapshots (a pure read optimization, never a source of truth).
+    let snapshots = casting::snapshot::SnapshotStore::open(ws.state_dir.join("snapshots.db"))?;
 
     let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = AppState::new(store, cursors, PROJECT_ID);
+        let state = AppState::new(store, cursors, PROJECT_ID).with_snapshots(snapshots);
 
         // Seed the empty project with its existence + the PM hire.
         seed_project(&state)?;

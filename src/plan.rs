@@ -26,7 +26,7 @@ pub enum Priority {
 }
 
 /// One ranked item in the plan (a task and its current priority).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlannedItem {
     pub task_id: String,
     pub title: String,
@@ -35,7 +35,7 @@ pub struct PlannedItem {
 
 /// The derived, current plan: what we're building, in priority order, and what's
 /// waiting on the owner. Always recomputed from the projection — never stored.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ProjectPlan {
     /// The current objective — the most recent open requirement's title.
     pub objective: Option<String>,

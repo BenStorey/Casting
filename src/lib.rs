@@ -18,6 +18,7 @@ pub mod pm;
 pub mod policy;
 pub mod projection;
 pub mod provenance;
+pub mod snapshot;
 pub mod sqlite_store;
 pub mod store;
 pub mod web;

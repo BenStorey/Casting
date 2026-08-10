@@ -94,7 +94,8 @@ pub fn router(state: AppState) -> Router {
 
 /// GET /api/state — the current projection (agents, tasks, decisions, ...).
 async fn state_handler(State(state): State<AppState>) -> Result<Json<Projection>, StatusCode> {
-    let proj = Projection::build(&state.store, &state.project)
+    let proj = state
+        .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(proj))
 }
@@ -119,7 +120,8 @@ struct EventsQuery {
 
 /// GET /api/inbox — what the owner needs to decide on right now.
 async fn inbox_handler(State(state): State<AppState>) -> Result<Json<Inbox>, StatusCode> {
-    let proj = Projection::build(&state.store, &state.project)
+    let proj = state
+        .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let items: Vec<InboxItem> = proj
         .decisions
