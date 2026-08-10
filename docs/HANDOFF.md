@@ -23,8 +23,8 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **67 tests**
-(12 + 6 + 11 + 10 + 12 + 3 + 5 + 3 + 5),
+"why does this code exist?". **77 tests**
+(10 + 6 + 11 + 10 + 12 + 3 + 5 + 5 + 3 + 12),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -142,6 +142,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── sqlite_store.rs             <- SQLite impl (WAL, append-only, per-project sequences)
 │   ├── cursor.rs                   <- durable per-consumer cursors
 │   ├── projection.rs               <- current-state projections derived from the log (§2.1)
+│   ├── plan.rs                     <- Priority + Project Plan view (derived current plan)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
@@ -285,7 +286,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 12+6+11+10+12+3+5+5+3 = 67 tests (all pass; ~0s)
+cargo test           # 10+6+11+10+12+3+5+5+3+12 = 77 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -421,11 +422,17 @@ independently testable:
    `POST /api/policy`), folded into `Projection.policy`; the gate and PM now
    derive involvement from the event-sourced policy. Verified live: escalating
    a class to Ask stops the PM auto-deciding it.
-2. **Decision audit / provenance view.** Surface the full decision lifecycle:
-   who proposed it, its class/involvement, who decided it, the owner's note,
-   and the chain back to the owner message that caused it (decisions are
-   already in the provenance graph — expose them). "Why does this decision
-   exist, and who is accountable for it?"
+2. ~~**Decision audit / provenance view.**~~ *(deferred; see 2' below)* — instead the
+   **Project Plan + priority reducer** was prioritized as the next state-core piece
+   (below).
+
+2'. **Project Plan projection + priority reducer** — **DONE 2026-08-10**. Added
+   the deterministic current-plan as derived state: `Priority` enum
+   (Critical>High>Medium>Low), `TaskPriorityChanged` event (mutation) reduced to
+   `Task.priority`, `PmAction::SetTaskPriority` through the gate, and a
+   `Projection.plan()` view (objective + ranked priorities + open decisions)
+   exposed on `/api/state` (`plan`). First dogfooding artifact: our own roadmap
+   could become this state instead of `.md`. 77 tests.
 3. **Decision lifecycle maturity / anti-thrash.** Handle open-decision edge
    cases deliberately: re-planning when a decision is blocked on the owner,
    superseded/re-opened decisions, and recording *why* a decision was made even
