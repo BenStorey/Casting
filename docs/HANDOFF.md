@@ -22,8 +22,8 @@ design itself.
 > events + observer, ChangeSet as a first-class concept, and provenance linking).
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
-> events; the projection renders ChangeSets; and `/api/provenance/*` answers
-> "why does this code exist?". **47 tests** (6 + 12 + 3 + 10 + 11 + 3 + 2),
+events; the projection renders ChangeSets; and `/api/provenance/*` answers
+"why does this code exist?". **61 tests** (12 + 6 + 11 + 10 + 12 + 3 + 5 + 2),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -198,11 +198,15 @@ events (brief §9/§14, handoff principle 3).
   it onboards the company, hires Marcus (engineering) + Maya (QA), creates
   requirements/tasks, completes them, posts an informational
   `ObservationCreated` (the feedback loop), then proposes a
-  `DecisionProposed` ("Database choice") and asks the owner via a message.
-  Subsequent owner messages get an acknowledged reply; an
-  `OwnerDecisionRecorded` gets acknowledged and (if approved) drives a
-  follow-up task. Each event carries `correlation_id`/`causation_id`/an
-  agent-run id, so the "why?" chain is already recorded.
+  `DecisionProposed` ("Database choice", an **Ask-class** decision) and asks
+  the owner via a message. It also demonstrates **delegated authority**: the
+  build's testing-library choice is a **Pm-class** decision, so the PM decides
+  it itself via the universal `DecisionProposed` → `DecisionMade` pair (actor =
+  PM) — no owner question, but fully recorded. Subsequent owner messages get
+  an acknowledged reply; an owner-authored `DecisionMade` gets acknowledged and
+  (if approved) drives a follow-up task. Each event carries
+  `correlation_id`/`causation_id`/an agent-run id, so the "why?" chain is
+  already recorded.
 - Events are emitted one at a time with a `step_delay` pause (default
   ~220ms) so the UI animates (brief §35); the delay is configurable and set
   to zero by tests, so the vertical-slice suite runs in ~0s.
@@ -220,7 +224,7 @@ axum router for a single project (project id is currently fixed at
 - `POST /api/message` `{body}` — owner → PM; persists a durable
   `MessageSent` and wakes the PM.
 - `POST /api/decision` `{decision_id, subject, approved, note}` —
-  persists `OwnerDecisionRecorded`.
+  persists `DecisionMade` (actor = Owner).
 - SPA serving: `rust-embed` embeds `frontend/dist/`; unknown extensionless
   paths fall back to `index.html` for client-side routing.
 
@@ -259,7 +263,7 @@ npm **10** (needed only for frontend work).
 ```
 cd /home/ben/casting
 cargo build          # builds target/debug/cast
-cargo test           # 6 + 12 + 3 + 10 + 11 + 3 + 2 = 47 tests (all pass; slice suites run in ~0s)
+cargo test           # 12 + 6 + 11 + 10 + 12 + 3 + 5 + 2 = 61 tests (all pass; slice suites run in ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -373,10 +377,15 @@ Next increments build the deterministic product surface around the seam:
 1. **Auth + multi-project** (brief §2.1/§31, first-run UX) — owner login and
    per-project workspaces; the owner should not have to understand Casting's
    internals.
-2. **Decision policy engine** (brief §5) — *delegated authority*: the autonomy
+2. ~~**Decision policy engine** (brief §5) — *delegated authority*: the autonomy
    spectrum / decision-class → owner-involvement policy map. Deterministic,
    and it sits directly in front of the LLM seam (when a provider arrives, it
-   decides how much the model is allowed to do before asking).
+   decides how much the model is allowed to do before asking).~~ **DONE
+   2026-08-10** — `src/policy.rs` (authority vocabulary + `DecisionPolicy` +
+   downgrade gate), typed `ProposeDecision`, and the universal
+   `DecisionProposed` → `DecisionMade` pair (actor = decider). Scripted PM
+   demonstrates both branches: Database (Ask → owner inbox) vs
+   testing-library (Pm → PM decides, fully recorded). 61 tests.
 3. **Cost capture** (brief §6) — the metadata shape is already on events;
    surface spend / budget / forecast in the projection and UI. Deterministic,
    cheap to land now.
@@ -438,7 +447,7 @@ agent identity/persona rendering.
 
 ---
 
-# 6. Decision log (D1–D5)
+# 6. Decision log (D1–D6)
 
 - **D1 — Rust toolchain floor: RESOLVED.** 1.97.1 on this box.
 - **D2 — LLM boundary: SCRIPTED, and REAL LLM WIRING DEFERRED (owner decision 2026-08-10).** The
@@ -464,6 +473,17 @@ agent identity/persona rendering.
   Casting) is an explicit `CAST_SELFHOST=1` opt-in that records the build
   commit. Full rules in **docs/OWNERSHIP_BOUNDARY.md** (added 2026-08-09,
   prerequisite for the Git slice).
+- **D6 — Decision representation: RESOLVED — universal decision pair + policy
+  engine (owner decision 2026-08-10).** Every decision — whether the owner
+  answers it or a PM/agent decides — is recorded with the SAME event pair:
+  `DecisionProposed` → `DecisionMade`; the only difference is the **actor** on
+  `DecisionMade` (Owner vs the delegated agent). `OwnerDecisionRecorded` is
+  retired. The new `src/policy.rs` decision-policy engine (brief §5) routes by
+  decision class (curated `DecisionClass` taxonomy) to an owner-involvement
+  level (`Never<Pm<Notify<Ask`), defaulting per-class (seeds; owner configures
+  later via the spectrum), with an authority-downgrade gate so a producer can
+  never under-claim owner involvement. Per-class policy persistence is a future
+  round (owner-configured autonomy knobs).
 
 No decisions are blocking active work. D2's *execution* (scripted → real
 provider) remains open but is deliberately **deferred** behind the product

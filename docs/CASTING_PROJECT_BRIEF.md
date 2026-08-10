@@ -1088,7 +1088,7 @@ Go with A.
 This becomes a durable project event such as:
 
 ``` text
-OwnerDecisionRecorded
+DecisionMade (actor = owner)
 ```
 
 The decision becomes part of the permanent project history.
@@ -1815,10 +1815,10 @@ DecisionProposed
 SQLite recommended for this deployment mode
 
 18:33
-OwnerDecisionRequested
+DecisionProposed
 
 18:37
-OwnerDecisionRecorded
+DecisionMade
 Owner approved SQLite
 
 18:38
