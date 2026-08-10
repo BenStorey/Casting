@@ -60,6 +60,8 @@ pub enum DecisionStatus {
     Approved,
     #[serde(rename = "rejected")]
     Rejected,
+    #[serde(rename = "superseded")]
+    Superseded,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -73,6 +75,8 @@ pub struct Decision {
     pub involvement: crate::policy::OwnerInvolvement,
     /// Who decided this (Owner or an agent) once `DecisionMade` is recorded.
     pub decided_by: Option<String>,
+    /// The decision that superseded this one, if any (history preserved).
+    pub superseded_by: Option<String>,
     pub owner_verdict: Option<String>,
 }
 
@@ -415,6 +419,7 @@ impl Projection {
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or(crate::policy::OwnerInvolvement::Ask),
                 decided_by: None,
+                superseded_by: None,
                 owner_verdict: None,
             }),
             EventType::DecisionMade => {
@@ -430,6 +435,12 @@ impl Projection {
                     };
                     dec.decided_by = Some(actor_name(e));
                     dec.owner_verdict = string_field(e, "note");
+                }
+            }
+            EventType::DecisionSuperseded => {
+                if let Some(dec) = self.decisions.iter_mut().find(|d| d.id == e.aggregate.id) {
+                    dec.status = DecisionStatus::Superseded;
+                    dec.superseded_by = string_field(e, "superseded_by");
                 }
             }
             EventType::MessageSent => self.messages.push(Message {

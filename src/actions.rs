@@ -162,6 +162,12 @@ pub enum PmAction {
         approved: bool,
         note: Option<String>,
     },
+    /// Supersede a decision with a newer one (history preserved, never deleted).
+    /// Status -> Superseded; `by_decision_id` links the replacement.
+    SupersedeDecision {
+        decision_id: String,
+        by_decision_id: String,
+    },
     /// A human-readable message to the owner / another agent.
     SendMessage {
         to: String,
@@ -332,6 +338,20 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             };
             if dec.status != crate::projection::DecisionStatus::Proposed {
                 return Err(PolicyError::DecisionNotOpen(decision_id.clone()));
+            }
+            Ok(())
+        }
+        // Superseding requires the decision exists and isn't already superseded,
+        // and the replacing decision must exist.
+        PmAction::SupersedeDecision {
+            decision_id,
+            by_decision_id,
+        } => {
+            if !state.decisions.iter().any(|d| d.id == *decision_id) {
+                return Err(PolicyError::DecisionNotFound(decision_id.clone()));
+            }
+            if !state.decisions.iter().any(|d| d.id == *by_decision_id) {
+                return Err(PolicyError::DecisionNotFound(by_decision_id.clone()));
             }
             Ok(())
         }
@@ -702,6 +722,18 @@ impl PmAction {
                     "approved": approved,
                     "note": note,
                 }),
+                meta,
+            )],
+            PmAction::SupersedeDecision {
+                decision_id,
+                by_decision_id,
+            } => vec![ev(
+                project,
+                actor,
+                decision_id,
+                "decision",
+                EventType::DecisionSuperseded,
+                json!({ "superseded_by": by_decision_id }),
                 meta,
             )],
             PmAction::SendMessage { to, body } => vec![ev(

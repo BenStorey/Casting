@@ -63,6 +63,10 @@ pub enum EventType {
     /// is no separate "owner decision" type; the actor on this event is who
     /// decided (docs/CASTING_PROJECT_BRIEF.md §5, HANDOFF decision log).
     DecisionMade,
+    /// A decision was superseded by another (history preserved, never deleted).
+    /// Status -> Superseded; `superseded_by` links to the replacing decision
+    /// (docs/SEMANTIC_EVENTS.md §22).
+    DecisionSuperseded,
     /// The owner set/changed the owner-involvement required for a decision
     /// class (delegated authority, brief §5). Event-sourced so the autonomy
     /// configuration is durable history, not a hardcoded default.
