@@ -150,7 +150,6 @@ fn directive_superseded_preserves_history_and_marks_superseded() {
 }
 
 // --- Task 1: model ---
-
 #[test]
 fn directive_new_defaults_to_active() {
     let d = Directive::new(
@@ -241,4 +240,136 @@ fn relevant_filters_by_scope_and_status_and_orders_by_strength() {
     // A context with no overlap: nothing.
     let none = directive::relevant(&proj, &["finance"]);
     assert!(none.is_empty());
+}
+
+// --- Task 3: authority gate ---
+
+fn build_projection_with_directives() -> Projection {
+    let mut proj = Projection::default();
+    proj.directives.push(Directive::new(
+        "d-tdd".into(),
+        DirectiveKind::Policy,
+        "TDD required".into(),
+        vec!["engineering".into()],
+        DirectiveStrength::Required,
+        "owner".into(),
+        None,
+    ));
+    proj.directives.push(Directive::new(
+        "d-v2".into(),
+        DirectiveKind::Policy,
+        "Postgres".into(),
+        vec!["architecture".into()],
+        DirectiveStrength::Required,
+        "owner".into(),
+        None,
+    ));
+    proj
+}
+
+#[test]
+fn owner_can_create_and_suspend_directives() {
+    use casting::actions::{validate, PmAction};
+    let proj = Projection::default();
+    let create = PmAction::CreateDirective {
+        id: "d-1".into(),
+        kind: DirectiveKind::Constraint,
+        statement: "Budget under 250".into(),
+        scope: vec!["finance".into()],
+        strength: DirectiveStrength::Strong,
+        supersedes: None,
+    };
+    assert!(validate(&create, "owner", &proj).is_ok());
+}
+
+#[test]
+fn plain_agent_cannot_change_governance() {
+    use casting::actions::{validate, PmAction, PolicyError};
+    let proj = build_projection_with_directives();
+
+    let create = PmAction::CreateDirective {
+        id: "d-agent".into(),
+        kind: DirectiveKind::Preference,
+        statement: "I'd like X".into(),
+        scope: vec!["engineering".into()],
+        strength: DirectiveStrength::Recommended,
+        supersedes: None,
+    };
+    let err = validate(&create, "marcus-reed", &proj)
+        .expect_err("a plain engineer agent must not change governance");
+    assert!(matches!(err, PolicyError::DirectiveAuthority(_)));
+
+    let suspend = PmAction::SuspendDirective {
+        directive_id: "d-tdd".into(),
+    };
+    let err = validate(&suspend, "maya-patel", &proj)
+        .expect_err("a plain QA agent must not change governance");
+    assert!(matches!(err, PolicyError::DirectiveAuthority(_)));
+}
+
+#[test]
+fn pm_and_system_may_change_governance() {
+    use casting::actions::{validate, PmAction};
+    let proj = build_projection_with_directives();
+
+    for who in ["pm", "system"] {
+        let create = PmAction::CreateDirective {
+            id: format!("d-{who}"),
+            kind: DirectiveKind::Policy,
+            statement: "Some rule".into(),
+            scope: vec!["engineering".into()],
+            strength: DirectiveStrength::Strong,
+            supersedes: None,
+        };
+        assert!(validate(&create, who, &proj).is_ok(), "create by {who}");
+        let suspend = PmAction::SuspendDirective {
+            directive_id: "d-tdd".into(),
+        };
+        assert!(validate(&suspend, who, &proj).is_ok(), "suspend by {who}");
+    }
+}
+
+#[test]
+fn suspending_a_missing_directive_is_rejected() {
+    use casting::actions::{validate, PmAction, PolicyError};
+    let proj = build_projection_with_directives();
+    let err = validate(
+        &PmAction::SuspendDirective {
+            directive_id: "d-nope".into(),
+        },
+        "owner",
+        &proj,
+    )
+    .expect_err("suspending a missing directive must be rejected");
+    assert!(matches!(err, PolicyError::DirectiveNotFound(_)));
+}
+
+#[test]
+fn supersede_requires_an_existing_active_target() {
+    use casting::actions::{validate, PmAction, PolicyError};
+    let proj = build_projection_with_directives();
+
+    // Valid: d-tdd (exists, active) superseded by d-v2 (exists, active) — but
+    // for the Supersede action `by` is the *target*, d-v2. This is allowed.
+    let ok = validate(
+        &PmAction::SupersedeDirective {
+            directive_id: "d-tdd".into(),
+            by_directive_id: "d-v2".into(),
+        },
+        "owner",
+        &proj,
+    );
+    assert!(ok.is_ok());
+
+    // Invalid: `by` doesn't exist.
+    let err = validate(
+        &PmAction::SupersedeDirective {
+            directive_id: "d-tdd".into(),
+            by_directive_id: "d-missing".into(),
+        },
+        "owner",
+        &proj,
+    )
+    .expect_err("superseding onto a missing directive must be rejected");
+    assert!(matches!(err, PolicyError::DirectiveNotFound(_)));
 }

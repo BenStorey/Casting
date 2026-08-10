@@ -93,6 +93,32 @@ pub enum PmAction {
         id: String,
         body: String,
     },
+    /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
+    CreateDirective {
+        id: String,
+        kind: crate::directive::DirectiveKind,
+        statement: String,
+        scope: Vec<String>,
+        strength: crate::directive::DirectiveStrength,
+        supersedes: Option<String>,
+    },
+    /// Suspend a directive (stop it governing) — authority-gated.
+    SuspendDirective {
+        directive_id: String,
+    },
+    /// Resume a suspended directive — authority-gated.
+    ResumeDirective {
+        directive_id: String,
+    },
+    /// Replace a directive with another (supersession) — authority-gated.
+    SupersedeDirective {
+        directive_id: String,
+        by_directive_id: String,
+    },
+    /// Expire a directive — authority-gated.
+    ExpireDirective {
+        directive_id: String,
+    },
     /// An agent raises a noticed observation (the feedback loop).
     CreateObservation {
         id: String,
@@ -160,6 +186,10 @@ pub enum PolicyError {
     DecisionNotOpen(String),
     /// Resolving/updating a risk that does not exist.
     RiskNotFound(String),
+    /// Acting on a directive that does not exist.
+    DirectiveNotFound(String),
+    /// A plain agent (not owner/PM/system) trying to change governance.
+    DirectiveAuthority(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -199,6 +229,15 @@ impl std::fmt::Display for PolicyError {
                 )
             }
             PolicyError::RiskNotFound(id) => write!(f, "cannot resolve risk {id}: no such risk"),
+            PolicyError::DirectiveNotFound(id) => {
+                write!(f, "cannot act on directive {id}: no such directive")
+            }
+            PolicyError::DirectiveAuthority(who) => {
+                write!(
+                    f,
+                    "{who} lacks authority to change project governance (directives)"
+                )
+            }
         }
     }
 }
@@ -283,10 +322,59 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
+        // Governance (directives) is owner/PM-authority. A plain agent can only
+        // raise an Observation (propose); it may not change directive state.
+        PmAction::CreateDirective { .. } => check_directive_authority(who),
+        PmAction::SuspendDirective { directive_id } => {
+            check_directive_authority(who)?;
+            check_directive_exists(directive_id, state)
+        }
+        PmAction::ResumeDirective { directive_id } => {
+            check_directive_authority(who)?;
+            check_directive_exists(directive_id, state)
+        }
+        PmAction::ExpireDirective { directive_id } => {
+            check_directive_authority(who)?;
+            check_directive_exists(directive_id, state)
+        }
+        PmAction::SupersedeDirective {
+            directive_id,
+            by_directive_id,
+        } => {
+            check_directive_authority(who)?;
+            check_directive_exists(directive_id, state)?;
+            // The replacing directive must land on an existing, ACTIVE target.
+            // (A create may reference it via `supersedes`; for the Supersede
+            // action `by` must already exist and be active.)
+            let Some(by) = state.directives.iter().find(|d| d.id == *by_directive_id) else {
+                return Err(PolicyError::DirectiveNotFound(by_directive_id.clone()));
+            };
+            if by.status != crate::directive::DirectiveStatus::Active {
+                return Err(PolicyError::DirectiveNotFound(by_directive_id.clone()));
+            }
+            Ok(())
+        }
         // Hire-less, idempotency-neutral or read-only actions pass through;
         // NoOp, CreateRequirement, CreateObservation, and SendMessage carry no
         // cross-entity invariant to check at this layer.
         _ => Ok(()),
+    }
+}
+
+/// Governance is owner-or-PM authority: `who` must be "owner", "system", or an
+/// agent in a governance role (the PM). Plain workers cannot change directives.
+fn check_directive_authority(who: &str) -> Result<(), PolicyError> {
+    match who {
+        "owner" | "system" | "pm" => Ok(()),
+        other => Err(PolicyError::DirectiveAuthority(other.to_string())),
+    }
+}
+
+fn check_directive_exists(directive_id: &str, state: &Projection) -> Result<(), PolicyError> {
+    if state.directives.iter().any(|d| d.id == directive_id) {
+        Ok(())
+    } else {
+        Err(PolicyError::DirectiveNotFound(directive_id.to_string()))
     }
 }
 
@@ -444,6 +532,68 @@ impl PmAction {
                 "constraint",
                 EventType::ConstraintRecorded,
                 json!({ "body": body }),
+                meta,
+            )],
+            PmAction::CreateDirective {
+                id,
+                kind,
+                statement,
+                scope,
+                strength,
+                supersedes,
+            } => vec![ev(
+                project,
+                actor,
+                id,
+                "directive",
+                EventType::ProjectDirectiveCreated,
+                json!({
+                    "kind": kind,
+                    "statement": statement,
+                    "scope": scope,
+                    "strength": strength,
+                    "created_by": null, // derived from the event actor by the reducer
+                    "supersedes": supersedes,
+                }),
+                meta,
+            )],
+            PmAction::SuspendDirective { directive_id } => vec![ev(
+                project,
+                actor,
+                directive_id,
+                "directive",
+                EventType::ProjectDirectiveSuspended,
+                json!({}),
+                meta,
+            )],
+            PmAction::ResumeDirective { directive_id } => vec![ev(
+                project,
+                actor,
+                directive_id,
+                "directive",
+                EventType::ProjectDirectiveResumed,
+                json!({}),
+                meta,
+            )],
+            PmAction::ExpireDirective { directive_id } => vec![ev(
+                project,
+                actor,
+                directive_id,
+                "directive",
+                EventType::ProjectDirectiveExpired,
+                json!({}),
+                meta,
+            )],
+            PmAction::SupersedeDirective {
+                directive_id,
+                by_directive_id,
+            } => vec![ev(
+                project,
+                actor,
+                directive_id,
+                "directive",
+                EventType::ProjectDirectiveSuperseded,
+                json!({ "superseded_by": by_directive_id }),
                 meta,
             )],
             PmAction::CreateObservation {
