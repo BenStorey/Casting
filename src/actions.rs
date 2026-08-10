@@ -19,6 +19,7 @@
 //! run in front of an arbitrary untrusted producer.
 
 use crate::event::{Actor, Aggregate, Event, EventType, Metadata};
+use crate::policy::{self, DecisionClass, OwnerInvolvement};
 use crate::projection::Projection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -80,7 +81,21 @@ pub enum PmAction {
         subject: String,
         options: Value,
         recommendation: String,
-        owner_involvement: String,
+        /// The decision's class — drives which owner involvement the policy
+        /// engine requires (and thus who the decision-maker is).
+        class: DecisionClass,
+        /// The resolved owner involvement claimed by the producer. `validate`
+        /// rejects this if it undercuts what the policy requires for `class`
+        /// (authority-downgrade guard).
+        involvement: OwnerInvolvement,
+    },
+    /// Resolve a decision. The universal decision-maker step: the actor is who
+    /// decided — `Owner` after being asked, or a delegated PM/agent (per policy).
+    /// Produces `DecisionMade`; there is no separate owner-decision event.
+    MakeDecision {
+        decision_id: String,
+        approved: bool,
+        note: Option<String>,
     },
     /// A human-readable message to the owner / another agent.
     SendMessage {
@@ -110,6 +125,13 @@ pub enum PolicyError {
         actor: String,
         assignee: String,
     },
+    /// The authority-downgrade guard fired: a decision was proposed with less
+    /// owner involvement than its class's policy requires (from `policy.rs`).
+    DecisionPolicy(policy::PolicyError),
+    /// Making a decision (resolving it) on one that does not exist.
+    DecisionNotFound(String),
+    /// Making a decision on one not yet proposed / already decided.
+    DecisionNotOpen(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -136,6 +158,16 @@ impl std::fmt::Display for PolicyError {
                 write!(
                     f,
                     "cannot act on task {task_id}: {actor} is not the assignee ({assignee})"
+                )
+            }
+            PolicyError::DecisionPolicy(e) => write!(f, "{e}"),
+            PolicyError::DecisionNotFound(id) => {
+                write!(f, "cannot resolve decision {id}: no such decision")
+            }
+            PolicyError::DecisionNotOpen(id) => {
+                write!(
+                    f,
+                    "cannot resolve decision {id}: not open (proposed, unresolved)"
                 )
             }
         }
@@ -184,9 +216,27 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         PmAction::StartTask { task_id } => check_assignee(task_id, who, state),
         PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
+        // A fresh proposal must not under-claim owner involvement for its class
+        // (the authority-downgrade guard from policy.rs).
+        PmAction::ProposeDecision {
+            class, involvement, ..
+        } => policy::check_proposal(*class, *involvement, &policy::DecisionPolicy::defaults())
+            .map_err(PolicyError::DecisionPolicy),
+        // Resolving a decision is the universal decider step; the decision must
+        // exist and still be open. The decider (`who`) is whatever the policy
+        // routed it to — the actor label is what distinguishes Owner vs agent.
+        PmAction::MakeDecision { decision_id, .. } => {
+            let Some(dec) = state.decisions.iter().find(|d| d.id == *decision_id) else {
+                return Err(PolicyError::DecisionNotFound(decision_id.clone()));
+            };
+            if dec.status != crate::projection::DecisionStatus::Proposed {
+                return Err(PolicyError::DecisionNotOpen(decision_id.clone()));
+            }
+            Ok(())
+        }
         // Hire-less, idempotency-neutral or read-only actions pass through;
-        // NoOp, CreateRequirement, CreateObservation, ProposeDecision and
-        // SendMessage carry no cross-entity invariant to check at this layer.
+        // NoOp, CreateRequirement, CreateObservation, and SendMessage carry no
+        // cross-entity invariant to check at this layer.
         _ => Ok(()),
     }
 }
@@ -321,7 +371,8 @@ impl PmAction {
                 subject,
                 options,
                 recommendation,
-                owner_involvement,
+                class,
+                involvement,
             } => vec![ev(
                 project,
                 actor,
@@ -332,7 +383,24 @@ impl PmAction {
                     "subject": subject,
                     "options": options,
                     "recommendation": recommendation,
-                    "owner_involvement": owner_involvement,
+                    "class": class,
+                    "involvement": involvement,
+                }),
+                meta,
+            )],
+            PmAction::MakeDecision {
+                decision_id,
+                approved,
+                note,
+            } => vec![ev(
+                project,
+                actor,
+                decision_id,
+                "decision",
+                EventType::DecisionMade,
+                json!({
+                    "approved": approved,
+                    "note": note,
                 }),
                 meta,
             )],

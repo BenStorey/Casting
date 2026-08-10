@@ -16,6 +16,7 @@
 use crate::actions::{self, PmAction};
 use crate::cursor::CursorStore;
 use crate::event::{Actor, Event, EventType};
+use crate::policy::{DecisionClass, OwnerInvolvement};
 use crate::projection::Projection;
 use crate::sqlite_store::SqliteEventStore;
 use crate::store::EventStore;
@@ -154,7 +155,10 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             } else {
                 plan_acknowledge(state, e)
             }
-        } else if e.event_type == EventType::OwnerDecisionRecorded {
+        } else if e.event_type == EventType::DecisionMade && e.actor == Actor::Owner {
+            // Only an OWNER's decision needs a PM reaction. A PM-authored
+            // DecisionMade (a delegated Pm/Never decision) was already handled
+            // inline by the plan that made it — reacting again would duplicate.
             plan_owner_decision(state, e)
         } else {
             Vec::new()
@@ -312,7 +316,10 @@ fn plan_onboard(_state: &AppState, cause: &Event, body: &str) -> Vec<PlannedActi
                     "B": "SQLite — dead simple, zero infra, approx $9"
                 }),
                 recommendation: "A".into(),
-                owner_involvement: "Required".into(),
+                // Database is an Ask-class decision: the policy engine routes
+                // it to the OWNER (it stays in the owner inbox).
+                class: DecisionClass::Database,
+                involvement: OwnerInvolvement::Ask,
             },
         ),
         (
@@ -320,6 +327,39 @@ fn plan_onboard(_state: &AppState, cause: &Event, body: &str) -> Vec<PlannedActi
             PmAction::SendMessage {
                 to: "owner".into(),
                 body: "We need one call from you: which database for this build? I recommend A (PostgreSQL) for headroom, but B (SQLite) is zero-infra and cheaper.".into(),
+            },
+        ),
+        // Delegated authority demo: choosing the testing library is a Pm-class
+        // decision, so the PM decides it itself — DecisionProposed then
+        // DecisionMade (actor = PM), no owner question, but fully recorded.
+        (
+            AGENT_PM.into(),
+            PmAction::ProposeDecision {
+                id: "decision-testing-lib".into(),
+                subject: "Automated-testing library".into(),
+                options: serde_json::json!({
+                    "A": "pytest — batteries included",
+                    "B": "cargo test — keep it in Rust"
+                }),
+                recommendation: "B".into(),
+                class: DecisionClass::TestingLibrary,
+                involvement: OwnerInvolvement::Pm,
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::MakeDecision {
+                decision_id: "decision-testing-lib".into(),
+                approved: true,
+                note: Some("PM: choosing cargo test, keep the toolchain single-language".into()),
+            },
+        ),
+        (
+            AGENT_PM.into(),
+            PmAction::CreateTask {
+                id: "task-testing-lib".into(),
+                title: "Set up testing library (cargo test)".into(),
+                kind: "feature".into(),
             },
         ),
     ]

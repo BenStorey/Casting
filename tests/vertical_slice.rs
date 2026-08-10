@@ -177,7 +177,7 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
         .append(Event::new(
             "proj-test",
             Actor::Owner,
-            EventType::OwnerDecisionRecorded,
+            EventType::DecisionMade,
             casting::event::Aggregate {
                 kind: "decision".into(),
                 id: decision_id.clone(),

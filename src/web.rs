@@ -35,6 +35,8 @@ struct InboxItem {
     subject: String,
     recommendation: Option<String>,
     options: serde_json::Value,
+    class: String,
+    involvement: String,
 }
 
 #[derive(Serialize)]
@@ -117,6 +119,8 @@ async fn inbox_handler(State(state): State<AppState>) -> Result<Json<Inbox>, Sta
             subject: d.subject.clone(),
             recommendation: d.recommendation.clone(),
             options: d.options.clone(),
+            class: format!("{:?}", d.class).to_lowercase(),
+            involvement: format!("{:?}", d.involvement).to_lowercase(),
         })
         .collect();
     let unread = items.len();
@@ -150,7 +154,7 @@ async fn message_handler(
 }
 
 /// POST /api/decision — the owner records a verdict on a proposed decision.
-/// Durable `OwnerDecisionRecorded`; the PM loop reacts and drives follow-up.
+/// Durable `DecisionMade` (actor = Owner); the PM loop reacts and drives follow-up.
 async fn decision_handler(
     State(state): State<AppState>,
     Json(input): Json<DecisionIn>,
@@ -158,7 +162,7 @@ async fn decision_handler(
     let ev = Event::new(
         &state.project,
         Actor::Owner,
-        EventType::OwnerDecisionRecorded,
+        EventType::DecisionMade,
         Aggregate {
             kind: "decision".into(),
             id: input.decision_id.clone(),
