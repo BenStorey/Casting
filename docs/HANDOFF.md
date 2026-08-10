@@ -23,8 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **77 tests**
-(10 + 6 + 11 + 10 + 12 + 3 + 5 + 5 + 3 + 12),
+"why does this code exist?". **89 tests** (12+6+11+10+5+12+10+6+4+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -121,8 +120,9 @@ of §1. They are:
    - **Provenance linking** (`src/provenance.rs`): pure query functions that
      walk the event log to answer "why does this code exist?" — the chain
      `commit → changeSet → task → requirement → decision → owner intent`
-     (ADDENDUM §24–25). Two API endpoints: `GET /api/provenance/commit/:sha`
-     and `GET /api/provenance/task/:task_id`.
+     (ADDENDUM §24–25). Three API endpoints: `GET /api/provenance/commit/:sha`,
+     `GET /api/provenance/task/:task_id`, and `GET /api/provenance/decision/:id`
+     (decision audit: who proposed, class/involvement, who decided, why).
 
 The product milestone (§46) is nearly met: run it, meet the PM, tell it
 what you want, watch requirements/tasks/agents appear, make a decision,
@@ -143,6 +143,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── cursor.rs                   <- durable per-consumer cursors
 │   ├── projection.rs               <- current-state projections derived from the log (§2.1)
 │   ├── plan.rs                     <- Priority + Project Plan view (derived current plan)
+│   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
@@ -286,7 +287,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 10+6+11+10+12+3+5+5+3+12 = 77 tests (all pass; ~0s)
+cargo test           # 12+6+11+10+5+12+10+6+4+5+5+3 = 89 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -432,7 +433,7 @@ independently testable:
    `Task.priority`, `PmAction::SetTaskPriority` through the gate, and a
    `Projection.plan()` view (objective + ranked priorities + open decisions)
    exposed on `/api/state` (`plan`). First dogfooding artifact: our own roadmap
-   could become this state instead of `.md`. 77 tests.
+   could become this state instead of `.md`.
 3. **Decision lifecycle maturity / anti-thrash.** Handle open-decision edge
    cases deliberately: re-planning when a decision is blocked on the owner,
    superseded/re-opened decisions, and recording *why* a decision was made even
@@ -442,6 +443,23 @@ independently testable:
    ("no gap in sequence", "a DecisionMade always follows a DecisionProposed").
    Add a `cast` CLI surface for inspecting the raw event log — the foundation
    everything else builds on.
+
+**State-core maturity steps 1–3 — DONE 2026-08-10** (source of truth is the
+event log; projections are derived; snapshots are never a source of truth):
+
+- **1. Decision audit / provenance view.** `provenance::for_decision` answers
+  who proposed a decision, its class/involvement, status, who decided it, the
+  owner's note, and the chain back to the initiating owner message. Exposed at
+  `GET /api/provenance/decision/{id}`.
+- **2. Semantic state objects (SEMANTIC_EVENTS §8).** First-class `Risk`
+  (full lifecycle: RiskRaised → RiskUpdated open/materialized/resolved, via
+  RaiseRisk/ResolveRisk through the gate) + `Assumption` + `Constraint`
+  (record-only notes). Flattened into the projection and surfaced in the plan
+  (`open_risks`). "Agents interpret, the system records."
+- **3. Snapshots.** SQLite-backed `SnapshotStore`s (`snapshots.db`); the READ
+  path builds from snapshot + tail and falls back to a full fold on
+  missing/corrupt. `Projection` types now Deserialize/PartialEq. Purely
+  computational — the event log stays the only authority.
 
 Then, only after the core matures:
 5. **Task `review` status** — add the review lifecycle to tasks / ChangeSets.
