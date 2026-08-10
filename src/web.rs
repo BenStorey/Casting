@@ -59,6 +59,12 @@ struct DecisionIn {
     note: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct PolicyIn {
+    class: crate::policy::DecisionClass,
+    involvement: crate::policy::OwnerInvolvement,
+}
+
 /// Build the full router for a project's runtime state.
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -68,6 +74,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/inbox", get(inbox_handler))
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
+        .route("/api/policy", axum::routing::post(policy_handler))
         .route(
             "/api/provenance/commit/{sha}",
             get(provenance_commit_handler),
@@ -171,6 +178,32 @@ async fn decision_handler(
             "subject": input.subject,
             "approved": input.approved,
             "note": input.note.unwrap_or_default(),
+        }),
+    );
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
+
+/// POST /api/policy — the owner sets the owner-involvement for a decision
+/// class (delegated authority, brief §5). Durable `DecisionPolicyChanged`; the
+/// projection folds it into the event-sourced policy that the gate enforces.
+async fn policy_handler(
+    State(state): State<AppState>,
+    Json(input): Json<PolicyIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let ev = Event::new(
+        &state.project,
+        Actor::Owner,
+        EventType::DecisionPolicyChanged,
+        Aggregate {
+            kind: "decision_policy".into(),
+            id: format!("{:?}", input.class),
+        },
+        serde_json::json!({
+            "class": input.class,
+            "involvement": input.involvement,
         }),
     );
     let stored = state

@@ -13,6 +13,8 @@
 
 use casting::cursor::CursorStore;
 use casting::pm::AppState;
+use casting::policy::{DecisionClass, OwnerInvolvement};
+use casting::projection::Projection;
 use casting::sqlite_store::SqliteEventStore;
 
 use axum::body::Body;
@@ -50,6 +52,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/provenance/task/task-501",
         "/api/state",
         "/api/inbox",
+        "/api/policy",
     ] {
         let req = Request::builder().uri(path).body(Body::empty()).unwrap();
         let resp = app
@@ -69,4 +72,54 @@ fn provenance_routes_are_mounted_and_answer() {
             "route {path} should be mounted (got 404)"
         );
     }
+}
+
+#[test]
+fn policy_endpoint_records_and_folds_an_owner_policy_change() {
+    let state = boot_state();
+    let app = casting::web::router(state.clone());
+
+    // Owner escalates SecurityCritical to Ask via the endpoint.
+    let body = serde_json::json!({
+        "class": "security_critical",
+        "involvement": "ask",
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/policy")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app
+        .clone()
+        .oneshot(req)
+        .now_or_never()
+        .expect("dispatch should not block")
+        .expect("infallible");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // The event is durable and the projection's policy reflects it.
+    let proj = Projection::build(&state.store, "proj-boot").unwrap();
+    assert_eq!(
+        proj.policy.resolve(DecisionClass::SecurityCritical),
+        OwnerInvolvement::Ask
+    );
+
+    // And the gate now rejects an under-claiming proposal for that class.
+    use casting::actions::validate;
+    use casting::actions::PolicyError;
+    let err = validate(
+        &casting::actions::PmAction::ProposeDecision {
+            id: "d".into(),
+            subject: "security".into(),
+            options: serde_json::json!({}),
+            recommendation: "x".into(),
+            class: DecisionClass::SecurityCritical,
+            involvement: OwnerInvolvement::Notify,
+        },
+        "pm",
+        &proj,
+    )
+    .expect_err("under-claiming a class the owner escalated to Ask must be rejected");
+    assert!(matches!(err, PolicyError::DecisionPolicy(_)));
 }
