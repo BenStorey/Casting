@@ -104,6 +104,7 @@ pub fn router(state: AppState) -> Router {
             get(provenance_decision_handler),
         )
         .route("/api/context/{actor}", get(context_handler))
+        .route("/api/persona/{agent_id}", get(persona_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
@@ -353,6 +354,20 @@ async fn context_handler(
         .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(proj.context_for(&actor)))
+}
+
+/// GET /api/persona/{agent_id} — the derived persona/CV card for a hired agent.
+async fn persona_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(agent_id): axum::extract::Path<String>,
+) -> Result<Json<crate::persona::Persona>, StatusCode> {
+    let proj = state
+        .projection()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    match proj.persona_for(&agent_id) {
+        Some(p) => Ok(Json(p)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
 }
 
 /// Serve the embedded SPA. Real files serve directly; unknown paths fall back

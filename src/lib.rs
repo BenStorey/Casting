@@ -15,6 +15,7 @@ pub mod cursor;
 pub mod directive;
 pub mod event;
 pub mod git_observer;
+pub mod persona;
 pub mod plan;
 pub mod pm;
 pub mod policy;
