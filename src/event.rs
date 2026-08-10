@@ -37,7 +37,15 @@ pub enum EventType {
     TaskBlocked,
     ObservationCreated,
     DecisionProposed,
-    OwnerDecisionRecorded,
+    /// A decision was resolved — by the OWNER (after being asked) OR by a
+    /// delegated PM/agent. This is the universal decision-maker event: there
+    /// is no separate "owner decision" type; the actor on this event is who
+    /// decided (docs/CASTING_PROJECT_BRIEF.md §5, HANDOFF decision log).
+    DecisionMade,
+    /// The owner set/changed the owner-involvement required for a decision
+    /// class (delegated authority, brief §5). Event-sourced so the autonomy
+    /// configuration is durable history, not a hardcoded default.
+    DecisionPolicyChanged,
     MessageSent,
 
     // --- Semantic Git events (ADDENDUM §23) ---

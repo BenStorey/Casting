@@ -16,6 +16,7 @@
 use crate::actions::{self, PmAction};
 use crate::cursor::CursorStore;
 use crate::event::{Actor, Event, EventType};
+use crate::policy::DecisionClass;
 use crate::projection::Projection;
 use crate::sqlite_store::SqliteEventStore;
 use crate::store::EventStore;
@@ -150,11 +151,14 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
 
         let planned: Vec<PlannedAction> = if is_owner_message {
             if projection.requirements.is_empty() {
-                plan_onboard(state, e, body)
+                plan_onboard(state, e, body, &projection.policy)
             } else {
                 plan_acknowledge(state, e)
             }
-        } else if e.event_type == EventType::OwnerDecisionRecorded {
+        } else if e.event_type == EventType::DecisionMade && e.actor == Actor::Owner {
+            // Only an OWNER's decision needs a PM reaction. A PM-authored
+            // DecisionMade (a delegated Pm/Never decision) was already handled
+            // inline by the plan that made it — reacting again would duplicate.
             plan_owner_decision(state, e)
         } else {
             Vec::new()
@@ -210,14 +214,25 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
 /// First owner message: onboard the company and kick off a build. Plans the
 /// whole sequence as actions; the gate lets each through as the projection
 /// grows.
-fn plan_onboard(_state: &AppState, cause: &Event, body: &str) -> Vec<PlannedAction> {
+fn plan_onboard(
+    _state: &AppState,
+    cause: &Event,
+    body: &str,
+    policy: &crate::policy::DecisionPolicy,
+) -> Vec<PlannedAction> {
     let title = if body.trim().is_empty() {
         "the product".to_string()
     } else {
         body.trim().to_string()
     };
 
-    vec![
+    // The testing-library decision is auto-decided by the PM ONLY when the
+    // (event-sourced) policy routes it to the agent. If the owner has
+    // escalated it to Ask, the PM proposes it and leaves it in the owner's
+    // inbox — no auto-decision, no follow-up task.
+    let testing_lib_decider = policy.resolve(DecisionClass::TestingLibrary).decider();
+
+    let mut plan: Vec<PlannedAction> = vec![
         ("system".into(), PmAction::HireAgent { agent_id: AGENT_ENG.into(), role: "Principal Engineer".into() }),
         ("system".into(), PmAction::HireAgent { agent_id: AGENT_QA.into(), role: "QA Consultant".into() }),
         (
@@ -312,7 +327,10 @@ fn plan_onboard(_state: &AppState, cause: &Event, body: &str) -> Vec<PlannedActi
                     "B": "SQLite — dead simple, zero infra, approx $9"
                 }),
                 recommendation: "A".into(),
-                owner_involvement: "Required".into(),
+                // Resolve the involvement from the configured (event-sourced)
+                // policy; Database defaults to Ask -> routes to the OWNER.
+                class: DecisionClass::Database,
+                involvement: policy.resolve(DecisionClass::Database),
             },
         ),
         (
@@ -322,7 +340,48 @@ fn plan_onboard(_state: &AppState, cause: &Event, body: &str) -> Vec<PlannedActi
                 body: "We need one call from you: which database for this build? I recommend A (PostgreSQL) for headroom, but B (SQLite) is zero-infra and cheaper.".into(),
             },
         ),
-    ]
+        // Delegated authority demo: choosing the testing library is a Pm-class
+        // decision, so the PM decides it itself — DecisionProposed then
+        // DecisionMade (actor = PM), no owner question, but fully recorded.
+        (
+            AGENT_PM.into(),
+            PmAction::ProposeDecision {
+                id: "decision-testing-lib".into(),
+                subject: "Automated-testing library".into(),
+                options: serde_json::json!({
+                    "A": "pytest — batteries included",
+                    "B": "cargo test — keep it in Rust"
+                }),
+                recommendation: "B".into(),
+                class: DecisionClass::TestingLibrary,
+                involvement: policy.resolve(DecisionClass::TestingLibrary),
+            },
+        ),
+    ];
+
+    // Auto-decide the testing-library decision ONLY when the policy routes it
+    // to the agent. If the owner escalated it to Ask, leave it open in their
+    // inbox (Proposed) with no follow-up until they rule.
+    if testing_lib_decider == crate::policy::Decider::Agent {
+        plan.push((
+            AGENT_PM.into(),
+            PmAction::MakeDecision {
+                decision_id: "decision-testing-lib".into(),
+                approved: true,
+                note: Some("PM: choosing cargo test, keep the toolchain single-language".into()),
+            },
+        ));
+        plan.push((
+            AGENT_PM.into(),
+            PmAction::CreateTask {
+                id: "task-testing-lib".into(),
+                title: "Set up testing library (cargo test)".into(),
+                kind: "feature".into(),
+            },
+        ));
+    }
+
+    plan
 }
 
 /// Owner just messaged but we already have requirements — acknowledge politely.

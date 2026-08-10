@@ -32,7 +32,7 @@ All triggers are cheap checks; none invoke an LLM by themselves.
 Rare, high-value, must not wait:
 
 - OwnerMessageReceived
-- OwnerDecisionRecorded
+- DecisionMade (owner-authored — a delegated PM decision is already handled inline)
 - RequirementChanged
 - IncidentDetected
 - Budget threshold reached

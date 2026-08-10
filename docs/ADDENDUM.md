@@ -210,7 +210,7 @@ The owner sends a message or makes a decision.
 
 ```text
 OwnerMessageReceived
-OwnerDecisionRecorded
+DecisionMade (owner-authored)
 RequirementChanged
 ```
 
@@ -830,7 +830,7 @@ Required
 If the owner approves:
 
 ```text
-OwnerDecisionRecorded
+DecisionMade (universal event; actor = who decided — the owner if asked, or a delegated PM/agent)
 ```
 
 The resulting state should be durable and explainable.

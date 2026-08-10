@@ -58,7 +58,7 @@ Port of ch 36, no real LLM required. A single Rust binary that:
 2. Appends domain events with a per-project monotonic sequence +
    causation/correlation ids. Minimal set: ProjectCreated, AgentHired,
    RequirementCreated, TaskCreated, TaskAssigned, TaskStarted,
-   TaskCompleted, ObservationCreated, DecisionProposed, OwnerDecisionRecorded,
+   TaskCompleted, ObservationCreated, DecisionProposed, DecisionMade,
    MessageSent. (Keep telemetry OUT; only domain events.)
 3. Maintains current-state projections (tasks, agents, messages, decisions)
    rebuilt on demand from the log (idempotent, fine for slice one; do not
@@ -70,8 +70,9 @@ Port of ch 36, no real LLM required. A single Rust binary that:
 5. Serves a minimal web page (owner <-> PM chat + task list + activity
    stream + decisions) rendered from projections; realtime can be a simple
    poll or SSE — do NOT reach for a message broker.
-6. Persists an owner decision as a durable OwnerDecisionRecorded event
-   and updates the projection.
+6. Persists a decision (universal DecisionProposed → DecisionMade pair) and
+   updates the projection; the actor on DecisionMade is who decided (owner or
+   delegated agent).
 
 Success test (from ch 46, trimmed): run `cast run`, see the workspace,
 tell the PM what you want, watch tasks appear and move, make a decision,

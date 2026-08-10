@@ -66,6 +66,10 @@ pub struct Decision {
     pub options: serde_json::Value,
     pub recommendation: Option<String>,
     pub status: DecisionStatus,
+    pub class: crate::policy::DecisionClass,
+    pub involvement: crate::policy::OwnerInvolvement,
+    /// Who decided this (Owner or an agent) once `DecisionMade` is recorded.
+    pub decided_by: Option<String>,
     pub owner_verdict: Option<String>,
 }
 
@@ -172,6 +176,10 @@ pub struct Projection {
     pub merges: Vec<Merge>,
     /// ChangeSets — the unit of agent output (ADDENDUM §21–22).
     pub changesets: Vec<ChangeSet>,
+    /// The project's decision policy (delegated authority, brief §5),
+    /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
+    /// per-class autonomy configuration is durable history, not a default.
+    pub policy: crate::policy::DecisionPolicy,
 }
 
 impl Projection {
@@ -257,10 +265,23 @@ impl Projection {
                     .unwrap_or(serde_json::json!({})),
                 recommendation: string_field(e, "recommendation"),
                 status: DecisionStatus::Proposed,
+                class: e
+                    .data
+                    .get("class")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or(crate::policy::DecisionClass::InternalImplementation),
+                involvement: e
+                    .data
+                    .get("involvement")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or(crate::policy::OwnerInvolvement::Ask),
+                decided_by: None,
                 owner_verdict: None,
             }),
-            EventType::OwnerDecisionRecorded => {
-                // The aggregate id is the decision being ruled on.
+            EventType::DecisionMade => {
+                // The aggregate id is the decision being ruled on. `DecisionMade`
+                // is the universal decision-maker event: the actor is who decided
+                // (Owner after being asked, or a delegated PM/agent).
                 if let Some(dec) = self.decisions.iter_mut().find(|d| d.id == e.aggregate.id) {
                     let approved = bool_field(e, "approved").unwrap_or(false);
                     dec.status = if approved {
@@ -268,6 +289,7 @@ impl Projection {
                     } else {
                         DecisionStatus::Rejected
                     };
+                    dec.decided_by = Some(actor_name(e));
                     dec.owner_verdict = string_field(e, "note");
                 }
             }
@@ -277,6 +299,20 @@ impl Projection {
                 to: string_field(e, "to").unwrap_or_else(|| "owner".into()),
                 body: string_field(e, "body").unwrap_or_default(),
             }),
+            EventType::DecisionPolicyChanged => {
+                // Rebind the owner-involvement for the decision class (brief §5).
+                // Event-sourced: the projection's policy is derived from the log.
+                if let (Some(class), Some(involvement)) = (
+                    e.data
+                        .get("class")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                    e.data
+                        .get("involvement")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                ) {
+                    self.policy.set(class, involvement);
+                }
+            }
             EventType::BranchCreated => {
                 let name = e.aggregate.id.clone();
                 let task_id = string_field(e, "task_id");
