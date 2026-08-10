@@ -46,6 +46,9 @@ pub struct Task {
     pub kind: String,
     pub status: TaskStatus,
     pub assignee: Option<String>,
+    /// Current priority, reduced from `TaskPriorityChanged` events
+    /// (defaults to Medium). Per docs/SEMANTIC_EVENTS.md this is derived state.
+    pub priority: crate::plan::Priority,
 }
 
 /// A recordable decision and its eventual owner verdict.
@@ -227,6 +230,7 @@ impl Projection {
                 kind: string_field(e, "kind").unwrap_or_else(|| "feature".into()),
                 status: TaskStatus::Backlog,
                 assignee: None,
+                priority: crate::plan::Priority::default(),
             }),
             EventType::TaskAssigned => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
@@ -246,6 +250,18 @@ impl Projection {
             EventType::TaskCompleted => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
                     task.status = TaskStatus::Done;
+                }
+            }
+            EventType::TaskPriorityChanged => {
+                // Deterministic reducer: only `to` matters for current state.
+                // (`from` is kept in the event for history richness.)
+                if let (Some(task), Some(to)) = (
+                    self.tasks.iter_mut().find(|t| t.id == e.aggregate.id),
+                    e.data
+                        .get("to")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                ) {
+                    task.priority = to;
                 }
             }
             EventType::ObservationCreated => self.observations.push(Observation {
@@ -419,6 +435,59 @@ impl Projection {
                 // projection (the PM reacts to it, it doesn't become a board
                 // item). It WILL wake the PM (Tier-1 trigger).
             }
+        }
+    }
+}
+
+/// Derived Project Plan — the deterministic "current state" of what we're
+/// building (docs/SEMANTIC_EVENTS.md §9): objective, tasks ranked by priority,
+/// deprioritized, and decisions awaiting the owner. Recomputed from the
+/// projection; never stored authoritative.
+impl Projection {
+    pub fn plan(&self) -> crate::plan::ProjectPlan {
+        use crate::plan::{PlannedItem, Priority};
+
+        let objective = self.requirements.last().map(|r| r.title.clone());
+
+        // Current work: open (not done/blocked) tasks with an assigned priority,
+        // ranked critical..low. Ties broken by insertion order (stable).
+        let mut tasks: Vec<&Task> = self
+            .tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Backlog || t.status == TaskStatus::Working)
+            .collect();
+        tasks.sort_by_key(|t| std::cmp::Reverse(t.priority));
+
+        let open_decisions: Vec<String> = self
+            .decisions
+            .iter()
+            .filter(|d| d.status == DecisionStatus::Proposed)
+            .map(|d| d.subject.clone())
+            .collect();
+
+        // Deprioritized = the lowest-priority open tasks (Low).
+        let deprioritized: Vec<PlannedItem> = tasks
+            .iter()
+            .filter(|t| t.priority == Priority::Low)
+            .map(|t| PlannedItem {
+                task_id: t.id.clone(),
+                title: t.title.clone(),
+                priority: t.priority,
+            })
+            .collect();
+
+        crate::plan::ProjectPlan {
+            objective,
+            priorities: tasks
+                .iter()
+                .map(|t| PlannedItem {
+                    task_id: t.id.clone(),
+                    title: t.title.clone(),
+                    priority: t.priority,
+                })
+                .collect(),
+            deprioritized,
+            open_decisions,
         }
     }
 }

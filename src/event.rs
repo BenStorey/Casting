@@ -35,6 +35,9 @@ pub enum EventType {
     TaskStarted,
     TaskCompleted,
     TaskBlocked,
+    /// A task's priority changed (per docs/SEMANTIC_EVENTS.md: a mutation; the
+    /// projection reduces it to `task.priority` deterministically).
+    TaskPriorityChanged,
     ObservationCreated,
     DecisionProposed,
     /// A decision was resolved — by the OWNER (after being asked) OR by a

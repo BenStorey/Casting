@@ -29,6 +29,7 @@ fn state_with(agents: &[&str], tasks: &[&str]) -> Projection {
                 kind: "feature".into(),
                 status: casting::projection::TaskStatus::Backlog,
                 assignee: None,
+                priority: casting::plan::Priority::default(),
             })
             .collect(),
         ..Default::default()
@@ -145,6 +146,7 @@ fn a_full_valid_sequence_passes() {
         kind: "feature".into(),
         status: casting::projection::TaskStatus::Backlog,
         assignee: None,
+        priority: casting::plan::Priority::default(),
     });
     assert!(validate(
         &casting::actions::PmAction::AssignTask {
