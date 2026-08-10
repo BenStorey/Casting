@@ -43,6 +43,8 @@ pub struct ProjectPlan {
     pub priorities: Vec<PlannedItem>,
     /// The tasks currently at the lowest priority (deprioritized).
     pub deprioritized: Vec<PlannedItem>,
+    /// Subjects of open risks (SEMANTIC_EVENTS §8 semantic objects).
+    pub open_risks: Vec<String>,
     /// Subjects of decisions still awaiting the owner.
     pub open_decisions: Vec<String>,
 }

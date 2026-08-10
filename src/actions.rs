@@ -72,6 +72,27 @@ pub enum PmAction {
         task_id: String,
         priority: crate::plan::Priority,
     },
+    /// Raise a first-class risk (semantic object, SEMANTIC_EVENTS §8).
+    RaiseRisk {
+        id: String,
+        subject: String,
+        severity: String,
+    },
+    /// Resolve (or mark materialized) a risk.
+    ResolveRisk {
+        risk_id: String,
+        status: crate::projection::RiskStatus,
+    },
+    /// Record a project assumption (semantic note).
+    RecordAssumption {
+        id: String,
+        body: String,
+    },
+    /// Record a project constraint (semantic note).
+    RecordConstraint {
+        id: String,
+        body: String,
+    },
     /// An agent raises a noticed observation (the feedback loop).
     CreateObservation {
         id: String,
@@ -137,6 +158,8 @@ pub enum PolicyError {
     DecisionNotFound(String),
     /// Making a decision on one not yet proposed / already decided.
     DecisionNotOpen(String),
+    /// Resolving/updating a risk that does not exist.
+    RiskNotFound(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -175,6 +198,7 @@ impl std::fmt::Display for PolicyError {
                     "cannot resolve decision {id}: not open (proposed, unresolved)"
                 )
             }
+            PolicyError::RiskNotFound(id) => write!(f, "cannot resolve risk {id}: no such risk"),
         }
     }
 }
@@ -228,6 +252,15 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
                 Ok(())
             } else {
                 Err(PolicyError::TaskNotFound(task_id.clone()))
+            }
+        }
+        // Resolving a risk requires it to exist.
+        PmAction::ResolveRisk { risk_id, .. } => {
+            let exists = state.risks.iter().any(|r| r.id == *risk_id);
+            if exists {
+                Ok(())
+            } else {
+                Err(PolicyError::RiskNotFound(risk_id.clone()))
             }
         }
         // A fresh proposal must not under-claim owner involvement for its class
@@ -371,6 +404,46 @@ impl PmAction {
                 // `from` is omitted here (to_events lacks the projection); the
                 // reducer only needs `to` for current state.
                 json!({ "task_id": task_id, "to": priority }),
+                meta,
+            )],
+            PmAction::RaiseRisk {
+                id,
+                subject,
+                severity,
+            } => vec![ev(
+                project,
+                actor,
+                id,
+                "risk",
+                EventType::RiskRaised,
+                json!({ "subject": subject, "severity": severity }),
+                meta,
+            )],
+            PmAction::ResolveRisk { risk_id, status } => vec![ev(
+                project,
+                actor,
+                risk_id,
+                "risk",
+                EventType::RiskUpdated,
+                json!({ "status": status }),
+                meta,
+            )],
+            PmAction::RecordAssumption { id, body } => vec![ev(
+                project,
+                actor,
+                id,
+                "assumption",
+                EventType::AssumptionRecorded,
+                json!({ "body": body }),
+                meta,
+            )],
+            PmAction::RecordConstraint { id, body } => vec![ev(
+                project,
+                actor,
+                id,
+                "constraint",
+                EventType::ConstraintRecorded,
+                json!({ "body": body }),
                 meta,
             )],
             PmAction::CreateObservation {

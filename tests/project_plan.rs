@@ -185,6 +185,7 @@ fn plan_item_and_plan_are_serializable() {
         objective: Some("objective".into()),
         priorities: vec![item],
         deprioritized: vec![],
+        open_risks: vec![],
         open_decisions: vec![],
     };
     let json = serde_json::to_string(&plan).unwrap();

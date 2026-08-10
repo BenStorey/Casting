@@ -38,6 +38,14 @@ pub enum EventType {
     /// A task's priority changed (per docs/SEMANTIC_EVENTS.md: a mutation; the
     /// projection reduces it to `task.priority` deterministically).
     TaskPriorityChanged,
+    /// A risk was raised (a first-class semantic object, SEMANTIC_EVENTS §8).
+    RiskRaised,
+    /// A risk's status changed (resolved / materialized).
+    RiskUpdated,
+    /// A project assumption was recorded (semantic object).
+    AssumptionRecorded,
+    /// A project constraint was recorded (semantic object).
+    ConstraintRecorded,
     ObservationCreated,
     DecisionProposed,
     /// A decision was resolved — by the OWNER (after being asked) OR by a

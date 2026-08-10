@@ -8,7 +8,7 @@
 use crate::event::{Event, EventType};
 use crate::store::EventStore;
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A hired consultant/agent.
 #[derive(Debug, Clone, Serialize)]
@@ -95,6 +95,43 @@ pub struct Observation {
     pub body: String,
 }
 
+/// Lifecycle of a first-class Risk object (SEMANTIC_EVENTS §8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RiskStatus {
+    Open,
+    /// The risk came to pass; now a problem being handled.
+    Materialized,
+    Resolved,
+}
+
+/// A first-class project risk (semantic object). Creation may need the PM/LLM
+/// to *interpret* an observation, but its state transitions are deterministic.
+#[derive(Debug, Clone, Serialize)]
+pub struct Risk {
+    pub id: String,
+    pub subject: String,
+    pub severity: String,
+    pub status: RiskStatus,
+    pub discovered_by: String,
+}
+
+/// A recorded project assumption (semantic note, SEMANTIC_EVENTS §8).
+#[derive(Debug, Clone, Serialize)]
+pub struct Assumption {
+    pub id: String,
+    pub body: String,
+    pub recorded_by: String,
+}
+
+/// A recorded project constraint (semantic note, SEMANTIC_EVENTS §8).
+#[derive(Debug, Clone, Serialize)]
+pub struct Constraint {
+    pub id: String,
+    pub body: String,
+    pub recorded_by: String,
+}
+
 /// A branch in the artifact repo (semantic Git event, ADDENDUM §20/§23).
 #[derive(Debug, Clone, Serialize)]
 pub struct Branch {
@@ -171,6 +208,10 @@ pub struct Projection {
     pub decisions: Vec<Decision>,
     pub messages: Vec<Message>,
     pub observations: Vec<Observation>,
+    /// First-class semantic objects (SEMANTIC_EVENTS §8).
+    pub risks: Vec<Risk>,
+    pub assumptions: Vec<Assumption>,
+    pub constraints: Vec<Constraint>,
     /// Branches in the artifact repo (semantic Git events).
     pub branches: Vec<Branch>,
     /// Commits observed on branches (semantic Git events).
@@ -277,6 +318,34 @@ impl Projection {
                 severity: string_field(e, "severity").unwrap_or_else(|| "info".into()),
                 subject: string_field(e, "subject").unwrap_or_default(),
                 body: string_field(e, "body").unwrap_or_default(),
+            }),
+            EventType::RiskRaised => self.risks.push(Risk {
+                id: e.aggregate.id.clone(),
+                subject: string_field(e, "subject").unwrap_or_default(),
+                severity: string_field(e, "severity").unwrap_or_else(|| "medium".into()),
+                status: RiskStatus::Open,
+                discovered_by: actor_name(e),
+            }),
+            EventType::RiskUpdated => {
+                if let Some(risk) = self.risks.iter_mut().find(|r| r.id == e.aggregate.id) {
+                    if let Some(status) = e
+                        .data
+                        .get("status")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    {
+                        risk.status = status;
+                    }
+                }
+            }
+            EventType::AssumptionRecorded => self.assumptions.push(Assumption {
+                id: e.aggregate.id.clone(),
+                body: string_field(e, "body").unwrap_or_default(),
+                recorded_by: actor_name(e),
+            }),
+            EventType::ConstraintRecorded => self.constraints.push(Constraint {
+                id: e.aggregate.id.clone(),
+                body: string_field(e, "body").unwrap_or_default(),
+                recorded_by: actor_name(e),
             }),
             EventType::DecisionProposed => self.decisions.push(Decision {
                 id: e.aggregate.id.clone(),
@@ -472,6 +541,14 @@ impl Projection {
             .map(|d| d.subject.clone())
             .collect();
 
+        // Open risks (not yet resolved) — semantic objects surfaced in the plan.
+        let open_risks: Vec<String> = self
+            .risks
+            .iter()
+            .filter(|r| r.status == crate::projection::RiskStatus::Open)
+            .map(|r| r.subject.clone())
+            .collect();
+
         // Deprioritized = the lowest-priority open tasks (Low).
         let deprioritized: Vec<PlannedItem> = tasks
             .iter()
@@ -494,6 +571,7 @@ impl Projection {
                 })
                 .collect(),
             deprioritized,
+            open_risks,
             open_decisions,
         }
     }
