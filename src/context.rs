@@ -67,7 +67,7 @@ impl crate::projection::Projection {
     }
 
     /// The governance areas an actor operates in: their task kinds (as scope
-    /// tokens) plus a per-role default. Owner/PM see everything.
+    /// tokens) plus the scope of their catalog role. Owner/PM see everything.
     pub fn scopes_for(&self, actor: &str) -> Vec<&str> {
         if actor == "owner" || actor == "pm" || actor == "system" {
             return vec!["engineering", "qa", "architecture", "finance", "product"];
@@ -78,18 +78,17 @@ impl crate::projection::Projection {
             .filter(|t| t.assignee.as_deref() == Some(actor))
             .map(|t| t.kind.as_str())
             .collect();
-        // Role default falls back to a broad-but-safe area.
+        // Role default comes from the catalog (the agent's role title maps to a
+        // real scope), falling back to a broad-but-safe area.
         if scopes.is_empty() {
-            scopes.push(role_default(actor));
+            let role_scope = self
+                .agents
+                .iter()
+                .find(|a| a.id == actor)
+                .and_then(|a| crate::cast::role_by_title(&a.role))
+                .map(|r| r.scope);
+            scopes.push(role_scope.unwrap_or("engineering"));
         }
         scopes
-    }
-}
-
-fn role_default(actor: &str) -> &'static str {
-    match actor {
-        a if a.starts_with("marcus") || a.contains("engineer") => "engineering",
-        a if a.starts_with("maya") || a.contains("qa") => "qa",
-        _ => "engineering",
     }
 }

@@ -260,9 +260,24 @@ fn plan_onboard(
     // inbox — no auto-decision, no follow-up task.
     let testing_lib_decider = policy.resolve(DecisionClass::TestingLibrary).decider();
 
+    // Onboard the default cast: hire each member by role. The PM is hired
+    // separately at seed, so the cast here is the working team.
+    let cast_hires: Vec<PlannedAction> = crate::cast::DEFAULT_CAST
+        .iter()
+        .map(|m| {
+            let role = crate::cast::role_by_id(m.role_id)
+                .unwrap_or_else(|| panic!("default cast role {} missing from catalog", m.role_id));
+            (
+                "system".into(),
+                PmAction::HireAgent {
+                    agent_id: m.agent_id.into(),
+                    role: role.title.into(),
+                },
+            )
+        })
+        .collect();
+
     let mut plan: Vec<PlannedAction> = vec![
-        ("system".into(), PmAction::HireAgent { agent_id: AGENT_ENG.into(), role: "Principal Engineer".into() }),
-        ("system".into(), PmAction::HireAgent { agent_id: AGENT_QA.into(), role: "QA Consultant".into() }),
         (
             AGENT_PM.into(),
             PmAction::CreateRequirement {
@@ -386,6 +401,8 @@ fn plan_onboard(
             },
         ),
     ];
+    // Hire the default cast first, before any work is planned.
+    plan.splice(0..0, cast_hires);
 
     // Auto-decide the testing-library decision ONLY when the policy routes it
     // to the agent. If the owner escalated it to Ask, leave it open in their
