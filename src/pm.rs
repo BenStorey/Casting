@@ -506,6 +506,21 @@ fn plan_owner_decision(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
             }
         }
 
+        // A PM-proposed consultant hire (AddConsultant class) is applied on
+        // owner approval: the owner said yes, so the hire proceeds.
+        let consultant = approved_consultant_role(state, &decision_id);
+        if let Some(role_id) = consultant {
+            out.push((
+                "system".into(),
+                PmAction::HireAgent {
+                    agent_id: format!("{role_id}-1"),
+                    role: crate::cast::role_by_id(&role_id)
+                        .map(|r| r.title.to_string())
+                        .unwrap_or_else(|| role_id.clone()),
+                },
+            ));
+        }
+
         out.push((
             AGENT_PM.into(),
             PmAction::CreateTask {
@@ -585,4 +600,19 @@ fn fmt_note(note: &str) -> String {
     } else {
         format!(" (\u{201c}{note}\u{201d})")
     }
+}
+
+/// An AddConsultant decision that the owner approved: the role to hire.
+/// Parsed from the DecisionProposed's `options`.
+fn approved_consultant_role(state: &AppState, decision_id: &str) -> Option<String> {
+    let proj = Projection::build(&state.store, &state.project).ok()?;
+    let dec = proj.decisions.iter().find(|d| d.id == decision_id)?;
+    if dec.class != crate::policy::DecisionClass::AddConsultant {
+        return None;
+    }
+    dec.options
+        .get("consultant")?
+        .get("role_id")?
+        .as_str()
+        .map(str::to_string)
 }

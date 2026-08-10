@@ -154,6 +154,17 @@ pub enum PmAction {
         /// (authority-downgrade guard).
         involvement: OwnerInvolvement,
     },
+    /// The PM proposes bringing a new consultant into the cast. Routes through
+    /// the AddConsultant decision class: if the policy routes it to Pm, the PM
+    /// auto-decides and hires; if the owner escalated it to Ask, it surfaces to
+    /// the owner's inbox and is applied on approval.
+    ProposeConsultant {
+        id: String,
+        subject: String,
+        role_id: String,
+        /// Resolved owner-involvement for the AddConsultant class (from policy).
+        involvement: OwnerInvolvement,
+    },
     /// Resolve a decision. The universal decision-maker step: the actor is who
     /// decided — `Owner` after being asked, or a delegated PM/agent (per policy).
     /// Produces `DecisionMade`; there is no separate owner-decision event.
@@ -209,6 +220,8 @@ pub enum PolicyError {
     DirectiveNotFound(String),
     /// A plain agent (not owner/PM/system) trying to change governance.
     DirectiveAuthority(String),
+    /// Hiring/proposing a role that isn't in the catalog.
+    UnknownRole(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -257,6 +270,7 @@ impl std::fmt::Display for PolicyError {
                     "{who} lacks authority to change project governance (directives)"
                 )
             }
+            PolicyError::UnknownRole(role) => write!(f, "unknown role in the cast catalog: {role}"),
         }
     }
 }
@@ -391,6 +405,15 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // agent is PROPOSING, not authoring. It routes to the owner (Ask) and
         // is applied only on approval. Encodes the desired change for later.
         PmAction::ProposeDirectiveChange { .. } => Ok(()),
+        // Proposing a consultant hire is a proposal, not the hire — the team
+        // change happens on owner approval (or PM auto-decision per policy).
+        // The role must exist in the catalog so a bad role is rejected early.
+        PmAction::ProposeConsultant { role_id, .. } => {
+            if crate::cast::role_by_id(role_id).is_none() {
+                return Err(PolicyError::UnknownRole(role_id.clone()));
+            }
+            Ok(())
+        }
         // Hire-less, idempotency-neutral or read-only actions pass through;
         // NoOp, CreateRequirement, CreateObservation, and SendMessage carry no
         // cross-entity invariant to check at this layer.
@@ -734,6 +757,28 @@ impl PmAction {
                 "decision",
                 EventType::DecisionSuperseded,
                 json!({ "superseded_by": by_decision_id }),
+                meta,
+            )],
+            PmAction::ProposeConsultant {
+                id,
+                subject,
+                role_id,
+                involvement,
+            } => vec![ev(
+                project,
+                actor,
+                id,
+                "decision",
+                EventType::DecisionProposed,
+                json!({
+                    "subject": subject,
+                    "options": serde_json::json!({
+                        "consultant": { "role_id": role_id },
+                    }),
+                    "recommendation": format!("Approve adding a consultant: {subject}"),
+                    "class": DecisionClass::AddConsultant,
+                    "involvement": involvement,
+                }),
                 meta,
             )],
             PmAction::SendMessage { to, body } => vec![ev(

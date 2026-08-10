@@ -80,6 +80,13 @@ fn default_strength() -> crate::directive::DirectiveStrength {
     crate::directive::DirectiveStrength::Required
 }
 
+/// POST /api/hire — the OWNER adds an agent of a curated role to the cast.
+#[derive(Deserialize)]
+struct HireIn {
+    /// A role id from the role catalog (e.g. "security", "devops").
+    role_id: String,
+}
+
 /// Build the full router for a project's runtime state.
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -91,6 +98,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
+        .route("/api/hire", axum::routing::post(hire_handler))
         .route(
             "/api/provenance/commit/{sha}",
             get(provenance_commit_handler),
@@ -237,6 +245,69 @@ async fn directive_handler(
         .append(ev)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(stored))
+}
+
+/// POST /api/hire — the OWNER adds an agent of a curated role to the cast
+/// (delegated authority: the CEO grows the team). Validates the role exists in
+/// the catalog, generates a unique agent id, and persists `AgentHired` (actor =
+/// Owner) via the validated `HireAgent` action.
+async fn hire_handler(
+    State(state): State<AppState>,
+    Json(input): Json<HireIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    // The role must be a real catalog role.
+    let role = crate::cast::role_by_id(&input.role_id).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("unknown role {:?}", input.role_id),
+        )
+    })?;
+
+    // Unique agent id: role id + a monotonic counter of existing agents.
+    let proj = state
+        .projection()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let taken = proj
+        .agents
+        .iter()
+        .map(|a| a.id.as_str())
+        .collect::<Vec<_>>();
+    let mut n = 1;
+    let agent_id = loop {
+        let candidate = format!("{}-{n}", input.role_id);
+        if !taken.contains(&candidate.as_str()) {
+            break candidate;
+        }
+        n += 1;
+    };
+
+    // Route through the validated HireAgent action (owner authority).
+    let action = crate::actions::PmAction::HireAgent {
+        agent_id: agent_id.clone(),
+        role: role.title.to_string(),
+    };
+    if let Err(e) = crate::actions::validate(&action, "owner", &proj) {
+        return Err((StatusCode::CONFLICT, e.to_string()));
+    }
+    let cause = Event::new(
+        &state.project,
+        crate::event::Actor::Owner,
+        crate::event::EventType::MessageSent,
+        crate::event::Aggregate {
+            kind: "message".into(),
+            id: format!("msg-hire-{agent_id}"),
+        },
+        serde_json::json!({ "to": "pm", "body": "hiring" }),
+    );
+    let last = action
+        .to_events(&state.project, "owner", &cause, "hire")
+        .into_iter()
+        .map(|e| state.append(e))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .pop()
+        .expect("HireAgent always produces one event");
+    Ok(Json(last))
 }
 /// event to connected browsers so the board/chat/activity update live (§35).
 ///
