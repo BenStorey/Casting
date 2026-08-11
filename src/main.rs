@@ -177,7 +177,9 @@ fn do_run(run: RunArgs) -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = AppState::new(store, cursors, PROJECT_ID).with_snapshots(snapshots);
+        let state = AppState::new(store, cursors, PROJECT_ID)
+            .with_snapshots(snapshots)
+            .with_integrity();
 
         // Seed the empty project with its existence + the PM hire.
         seed_project(&state)?;

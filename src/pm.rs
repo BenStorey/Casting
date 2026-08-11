@@ -58,6 +58,10 @@ pub struct AppState {
     /// through it (instead of the scripted plan) — the LLM seam. **Off by
     /// default**: the real provider stays unplugged until the owner enables it.
     pub orchestrator: Option<Arc<dyn crate::orchestrator::Orchestrator>>,
+    /// When true, `append` enforces write-time stream integrity (events can't
+    /// be appended without their precondition). Opt-in so fixtures/tests that
+    /// hand-append bare events keep working.
+    pub enforce_integrity: bool,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -71,6 +75,7 @@ impl AppState {
             snapshots: None,
             step_delay: Duration::from_millis(220),
             orchestrator: None,
+            enforce_integrity: false,
             events: Arc::new(tx),
         }
     }
@@ -87,6 +92,12 @@ impl AppState {
         orchestrator: Arc<dyn crate::orchestrator::Orchestrator>,
     ) -> Self {
         self.orchestrator = Some(orchestrator);
+        self
+    }
+
+    /// Builder-style: enforce write-time stream integrity on append.
+    pub fn with_integrity(mut self) -> Self {
+        self.enforce_integrity = true;
         self
     }
 
@@ -126,6 +137,10 @@ impl AppState {
     /// Append an event to the store, assign its sequence, then broadcast it to
     /// subscribers (a wake hint for the PM, a realtime push for the UI).
     pub fn append(&self, event: Event) -> Result<Event> {
+        if self.enforce_integrity {
+            let proj = Projection::build(&self.store, &self.project)?;
+            crate::integrity::check_append(&proj, &event)?;
+        }
         let stored = self.store.append(event)?;
         // Ignore send errors: nobody listening just means no one cares yet.
         let _ = self.events.send(stored.clone());
