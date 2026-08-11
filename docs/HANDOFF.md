@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **178 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6),
+"why does this code exist?". **181 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -149,6 +149,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── directive.rs                <- Project Directives = governance layer (docs/INTENT.md)
 │   ├── cast.rs                     <- role catalog + default cast = team composition config
 │   ├── context.rs                  <- per-agent Context Assembler (SEMANTIC_EVENTS §21)
+│   ├── mental.rs                   <- operating picture: "what the models are seeing" (/api/model)
 │   ├── persona.rs                  <- persona/CV rendering (brief §2.2)
 │   ├── orchestrator.rs             <- D2 seam: Orchestrator trait + MockOrchestrator (real LLM off)
 │   ├── integrity.rs                <- write-time event-stream precondition enforcement
@@ -268,6 +269,13 @@ axum router for a single project (project id is currently fixed at
 - `GET /api/persona/{agent_id}` — the derived persona/CV card for a hired
   agent (role, title, current/completed tasks, applicable directives); 404 if
   the agent isn't hired.
+- `GET /api/model` — the **operating picture** ("what the models are seeing"):
+  objective, ranked priorities, governance (active directives + decision policy
+  + open decisions), knowledge (active opinions + superseded-opinion audit +
+  facts + assumptions + constraints), context (open risks/requirements, task
+  counts, active agents), the per-actor operating contexts each model is handed,
+  and mechanical `drift_signals`. The owner's debug surface for "why is it
+  prioritizing that way?" (pure derivation, no LLM).
 - SPA serving: `rust-embed` embeds `frontend/dist/`; unknown extensionless
   paths fall back to `index.html` for client-side routing.
 
@@ -347,7 +355,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6 = 178 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3 = 181 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -665,6 +673,20 @@ re-ranking):
 - The D2 seam later supplies the *smart* "what truly conflicts" judgment; the
   skeleton does the mechanically-obvious cleanup deterministically and
   idempotently.
+
+**Operating picture — DONE 2026-08-10** (owner need: a single surface to dump
+what the PM/agents currently believe and prioritize — for debugging a
+wrong-priority PM AND for users):
+- `GET /api/model` (`src/mental.rs`, `Projection::operating_model()`): the
+  curated read-model — objective + ranked priorities, governance (active
+  directives + decision policy + open decisions), knowledge (active opinions by
+  subject + superseded-opinion audit + facts + assumptions + constraints),
+  context (open risks/requirements, task counts, active agents), the per-actor
+  operating contexts each model is handed (`context_for`), and mechanical
+  `drift_signals`.
+- Pure derivation, no LLM. The `drift_signals` field reuses the same-subject
+  Active-contradiction detection as the reconciler, surfacing it to the owner
+  BEFORE the reconciler's next pass.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
