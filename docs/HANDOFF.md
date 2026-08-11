@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **159 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7),
+"why does this code exist?". **164 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -156,6 +156,8 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
 │   ├── registry.rs                 <- home-dir project registry (~/.casting/projects.json)
+│   ├── backend.rs                  <- storage backend factory (sqlite | postgres)
+│   ├── postgres_store.rs           <- PostgresBackend (EventStore+CursorStore+SnapshotStore)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
@@ -289,7 +291,9 @@ registry is the launcher; per-project *state* lives collocated in
 (git is the sharing surface; each owner runs their own setup).
 
 - `cast` (no args) / `cast list` — list registered projects.
-- `cast add <name> <repo-path>` / `cast remove <name>` — register / unregister.
+- `cast add <name> <repo-path> [--db <selector>]` / `cast remove <name>` —
+  register / unregister. `--db` selects the storage backend: `sqlite` (default)
+  or a libpq Postgres string (hosted).
 - `cast init <project-dir> [--interactive] [--name=..] [--objective=..]
   [--cast=engineer,qa] [--owner-token=..] [--directive=stmt|scope]` — the
   setup wizard/engine (owner decision: CLI + first-run UI share ONE engine, no
@@ -342,7 +346,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7 = 159 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5 = 164 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -611,6 +615,21 @@ future first-run UI share ONE engine, never two):
 - **Web first-run wizard DONE**: `/api/setup/status` + `/api/setup` + the SPA's
   `SetupWizard.tsx` drive the same engine — name, objective, role picker, owner
   token. Phone-testable.
+
+**Postgres storage backend — DONE 2026-08-10** (owner principle: every store
+read/write goes through the abstraction; Postgres is a freely-swappable
+backend, we do NOT carry two concrete paths in AppState):
+- `CursorStore`/`SnapshotStore` are now traits (like `EventStore`); `AppState`
+  holds `Arc<dyn ...>`. SQLite = `SqliteCursorStore`/`SqliteSnapshotStore`;
+  Postgres = one `PostgresBackend` implementing all three.
+- `src/postgres_store.rs`: drives tokio-postgres on a dedicated background
+  thread (its own runtime + connection), so the sync traits work from any
+  thread incl. our tokio server (the sync `postgres` crate's nested-runtime
+  limitation made this necessary).
+- Runtime selection: registry project `db` field (`cast add <name> <repo>
+  --db <selector>`) or `CAST_DB`. Verified against real Postgres (docker).
+- `deploy/docker-compose.postgres.yml`; integration tests
+  `tests/postgres_backend.rs` (real PG round-trip, full company boot+onboard).
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
