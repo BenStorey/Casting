@@ -19,6 +19,11 @@ use std::path::{Path, PathBuf};
 pub struct ProjectEntry {
     pub name: String,
     pub repo: PathBuf,
+    /// Storage backend selector: `sqlite` (default) or a libpq Postgres string.
+    /// `None` = `sqlite`. Per-project, so a company can be hosted on Postgres
+    /// while others stay on local SQLite.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub db: Option<String>,
 }
 
 /// The default home-directory registry file.
@@ -68,13 +73,22 @@ impl Registry {
 
     /// Register (or update, by name) a project. Returns whether it was new.
     pub fn register(&mut self, name: String, repo: PathBuf) -> bool {
+        self.register_db(name, repo, None)
+    }
+
+    /// Register (or update, by name) a project with a storage backend
+    /// selector. Returns whether it was new.
+    pub fn register_db(&mut self, name: String, repo: PathBuf, db: Option<String>) -> bool {
         match self.projects.iter_mut().find(|p| p.name == name) {
             Some(existing) => {
                 existing.repo = repo;
+                if db.is_some() {
+                    existing.db = db;
+                }
                 false
             }
             None => {
-                self.projects.push(ProjectEntry { name, repo });
+                self.projects.push(ProjectEntry { name, repo, db });
                 true
             }
         }

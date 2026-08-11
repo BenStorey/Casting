@@ -74,6 +74,7 @@ fn project_entry_serde_shape() {
         ProjectEntry {
             name: "demo".into(),
             repo: "/tmp/demo".into(),
+            db: None,
         }
     );
 }

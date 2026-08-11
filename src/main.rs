@@ -40,9 +40,18 @@ fn main() -> Result<()> {
         // `cast` with no args, or `cast list`: list registered projects.
         "list" | "projects" => do_list(),
         "add" => {
-            let name = args.get(2).context("usage: cast add <name> <repo-path>")?;
-            let repo = args.get(3).context("usage: cast add <name> <repo-path>")?;
-            do_add(name, repo)
+            let name = args
+                .get(2)
+                .context("usage: cast add <name> <repo-path> [--db <selector>]")?;
+            let repo = args
+                .get(3)
+                .context("usage: cast add <name> <repo-path> [--db <selector>]")?;
+            let db = args
+                .windows(2)
+                .find(|w| w[0] == "--db")
+                .and_then(|w| w.get(1))
+                .map(String::as_str);
+            do_add(name, repo, db)
         }
         "remove" => {
             let name = args.get(2).context("usage: cast remove <name>")?;
@@ -58,9 +67,14 @@ fn main() -> Result<()> {
             do_smoke(dir)
         }
         // `cast run <project-name>` — resolve the repo via the registry.
-        "run" => do_run(get_run_name(
-            args.get(2).context("usage: cast run <project-name>")?,
-        )?),
+        "run" => {
+            let name = args.get(2).context("usage: cast run <project-name>")?;
+            let reg = casting::registry::Registry::load(None)?;
+            let entry = reg.lookup(name).with_context(|| {
+                format!("no project named {name:?} (add it with `cast add {name} <repo-path>`); pass --db to set the storage backend")
+            })?;
+            do_run(entry.repo.clone(), entry.db.clone())
+        }
         "log" => {
             let log = parse_log(&args[2..])?;
             do_log(log)
@@ -78,15 +92,6 @@ fn main() -> Result<()> {
     }
 }
 
-/// Resolve a project name to its repo path via the home-dir registry.
-fn get_run_name(name: &str) -> Result<std::path::PathBuf> {
-    let reg = casting::registry::Registry::load(None)?;
-    let entry = reg.lookup(name).with_context(|| {
-        format!("no project named {name:?} (add it with `cast add {name} <repo-path>`)")
-    })?;
-    Ok(entry.repo.clone())
-}
-
 fn do_list() -> Result<()> {
     let reg = casting::registry::Registry::load(None)?;
     if reg.projects.is_empty() {
@@ -100,14 +105,19 @@ fn do_list() -> Result<()> {
     Ok(())
 }
 
-fn do_add(name: &str, repo: &str) -> Result<()> {
+fn do_add(name: &str, repo: &str, db: Option<&str>) -> Result<()> {
     let mut reg = casting::registry::Registry::load(None)?;
-    let new = reg.register(name.to_string(), repo.into());
+    let new = reg.register_db(name.to_string(), repo.into(), db.map(str::to_string));
     reg.save(None)?;
+    let db_note = match db {
+        Some("sqlite") | None => " (sqlite)".to_string(),
+        Some(d) => format!(" (postgres: {d})"),
+    };
     println!(
-        "{} project {name:?} -> {}",
+        "{} project {name:?} -> {}{}",
         if new { "registered" } else { "updated" },
-        repo
+        repo,
+        db_note
     );
     Ok(())
 }
@@ -351,7 +361,7 @@ fn preflight(ws: &Workspace, repo_created: bool) {
 /// `cast run` — boot the whole workspace: enforce the ownership boundary, seed
 /// the project, start the simulated PM control loop, and serve the API +
 /// embedded React UI from one binary.
-fn do_run(project: std::path::PathBuf) -> Result<()> {
+fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
     let ws = Workspace::open(&project, Selfhost::Disabled)?;
 
     // Ensure the artifact repo is a real git repo (git-init if missing). This
@@ -365,20 +375,28 @@ fn do_run(project: std::path::PathBuf) -> Result<()> {
 
     preflight(&ws, created);
 
-    let store = SqliteEventStore::open(ws.casting_dir().join("events.db"))?;
-    let cursors = casting::cursor::SqliteCursorStore::open(ws.casting_dir().join("cursors.db"))?;
-    // Projection snapshots (a pure read optimization, never a source of truth).
-    let snapshots =
-        casting::snapshot::SqliteSnapshotStore::open(ws.casting_dir().join("snapshots.db"))?;
+    // Open the storage backend: per-project config (registry `db`), else the
+    // CAST_DB env var, else SQLite (the default). Postgres is swappable behind
+    // the same traits.
+    let backend = {
+        let selector = db
+            .or_else(|| std::env::var("CAST_DB").ok())
+            .unwrap_or_else(|| "sqlite".to_string());
+        casting::backend::from_selector(&selector, ws.casting_dir())?
+    };
+    let store = backend.events();
+    let cursors = backend.cursors();
+    let snapshots = backend.snapshots();
 
     let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = AppState::new(store, cursors, PROJECT_ID)
-            .with_snapshots(snapshots)
-            .with_integrity()
-            .with_state_dir(ws.casting_dir().to_path_buf());
+        let mut state = AppState::new(store, cursors, PROJECT_ID).with_integrity();
+        if let Some(snaps) = snapshots {
+            state = state.with_snapshots(snaps);
+        }
+        let state = state.with_state_dir(ws.casting_dir().to_path_buf());
         // Owner auth: the token comes from the persisted setup config.json
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:

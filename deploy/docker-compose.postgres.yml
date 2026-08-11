@@ -1,0 +1,21 @@
+# Dev/test Postgres for the Casting Postgres backend (optional; SQLite remains
+# the default). To use:
+#   docker compose -f docker-compose.postgres.yml up -d
+# Then register a project on Postgres, e.g.:
+#   cast add <name> <repo> --db "host=127.0.0.1 port=55432 user=casting password=castpw dbname=casting"
+# Integration tests (tests/postgres_backend.rs) use this by default.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cast-pg-test
+    environment:
+      POSTGRES_USER: casting
+      POSTGRES_PASSWORD: castpw
+      POSTGRES_DB: casting
+    ports:
+      - "55432:5432"
+    volumes:
+      - cast-pg-data:/var/lib/postgresql/data
+
+volumes:
+  cast-pg-data:

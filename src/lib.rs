@@ -11,6 +11,7 @@
 
 pub mod actions;
 pub mod auth;
+pub mod backend;
 pub mod cast;
 pub mod context;
 pub mod cursor;
@@ -23,6 +24,7 @@ pub mod persona;
 pub mod plan;
 pub mod pm;
 pub mod policy;
+pub mod postgres_store;
 pub mod projection;
 pub mod provenance;
 pub mod registry;
