@@ -10,6 +10,7 @@
 //! docs/PM_INVOCATION_TRIGGERS.md (wake/act) for the surrounding design.
 
 pub mod actions;
+pub mod auth;
 pub mod cast;
 pub mod context;
 pub mod cursor;

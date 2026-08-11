@@ -62,6 +62,10 @@ pub struct AppState {
     /// be appended without their precondition). Opt-in so fixtures/tests that
     /// hand-append bare events keep working.
     pub enforce_integrity: bool,
+    /// Owner bearer token guarding the owner-mutating API endpoints. `None` =
+    /// auth disabled (backward compatible with tests / local runs). Enabled via
+    /// `with_owner_auth` / the `CAST_OWNER_TOKEN` env var.
+    pub auth_token: Option<Arc<str>>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -76,6 +80,7 @@ impl AppState {
             step_delay: Duration::from_millis(220),
             orchestrator: None,
             enforce_integrity: false,
+            auth_token: None,
             events: Arc::new(tx),
         }
     }
@@ -98,6 +103,13 @@ impl AppState {
     /// Builder-style: enforce write-time stream integrity on append.
     pub fn with_integrity(mut self) -> Self {
         self.enforce_integrity = true;
+        self
+    }
+
+    /// Builder-style: enable owner auth with a bearer token. The owner-mutating
+    /// API endpoints then require `Authorization: Bearer <token>`.
+    pub fn with_owner_auth(mut self, token: impl Into<String>) -> Self {
+        self.auth_token = Some(Arc::from(token.into()));
         self
     }
 

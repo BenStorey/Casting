@@ -10,8 +10,9 @@ use crate::pm::AppState;
 use crate::projection::{DecisionStatus, Projection};
 use crate::provenance;
 use crate::store::EventStore;
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
+use axum::middleware::Next;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -89,16 +90,26 @@ struct HireIn {
 
 /// Build the full router for a project's runtime state.
 pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/api/state", get(state_handler))
-        .route("/api/events", get(events_handler))
-        .route("/api/events/stream", get(events_stream))
-        .route("/api/inbox", get(inbox_handler))
+    // Owner-mutating endpoints are bearer-guarded when auth is enabled (the
+    // middleware consults AppState.auth_token; no-op when it's None).
+    let guarded = Router::new()
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
         .route("/api/hire", axum::routing::post(hire_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_auth,
+        ));
+
+    Router::new()
+        .route("/api/login", axum::routing::post(login_handler))
+        .route("/api/state", get(state_handler))
+        .route("/api/events", get(events_handler))
+        .route("/api/events/stream", get(events_stream))
+        .route("/api/inbox", get(inbox_handler))
+        .merge(guarded)
         .route(
             "/api/provenance/commit/{sha}",
             get(provenance_commit_handler),
@@ -116,6 +127,50 @@ pub fn router(state: AppState) -> Router {
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
+}
+
+/// Auth middleware for owner-mutating endpoints: when `AppState.auth_token` is
+/// set, require `Authorization: Bearer <token>`; otherwise pass through (auth
+/// disabled, backward compatible with tests / local runs).
+async fn require_auth(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if let Some(expected) = state.auth_token.clone() {
+        if !crate::auth::authorized(req.headers(), &expected) {
+            return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        }
+    }
+    next.run(req).await
+}
+
+#[derive(Deserialize)]
+struct LoginIn {
+    token: String,
+}
+
+/// POST /api/login {token} — verify an owner token (200 ok) or not (401). Lets a
+/// UI validate the token the user pasted before using it for mutations.
+async fn login_handler(
+    State(state): State<AppState>,
+    Json(input): Json<LoginIn>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match state.auth_token.as_deref() {
+        Some(expected) if crate::auth::authorized(&fake_headers_with(&input.token), expected) => {
+            Ok(Json(serde_json::json!({ "ok": true })))
+        }
+        // If auth is disabled entirely, any token is accepted (nothing to guard).
+        None => Ok(Json(serde_json::json!({ "ok": true }))),
+        Some(_) => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+/// Build a single-header map carrying a bearer token (used by login, which gets
+/// the token in the body rather than the header).
+fn fake_headers_with(token: &str) -> axum::http::HeaderMap {
+    use axum::http::header::AUTHORIZATION;
+    let mut m = axum::http::HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(&format!("Bearer {token}")) {
+        m.insert(AUTHORIZATION, v);
+    }
+    m
 }
 
 /// GET /api/state — the current projection (agents, tasks, decisions, ...).
