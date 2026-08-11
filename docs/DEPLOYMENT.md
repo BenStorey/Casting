@@ -74,6 +74,31 @@ cd /home/ben/casting/frontend && npm run dev -- --host 127.0.0.1   # separately
 
 ---
 
+## Docker (optional — for users who prefer a container)
+
+A container is just an alternative way to run the same single binary. It is
+**optional**; the binary + local `cast run` remain the primary path.
+
+Build and run (from the repo root):
+
+```bash
+docker build -t casting .                             # multi-stage: node SPA → rust binary → slim runtime
+docker run --rm -p 8080:8080 \                        # serve on :8080
+  -v "$HOME/.casting:/home/casting/.casting" \        # registry (name → repo)
+  -v "/path/to/project:/home/casting/projects/demo" \ # your project repo(s)
+  casting run my-project
+docker run --rm casting --help                        # explore the CLI
+```
+
+- `~/.casting/` (the registry) and each project repo must be **mounted** so the
+  container sees the same projects as a host run; per-project state stays
+  collocated in `<repo>/.casting/` and persists in the mounted repo.
+- The image runs as a non-root user (`casting`, uid 1000) and ships `ca-certificates`
+  + `git` (needed by the workspace git runner).
+- Internally `CAST_ADDR=0.0.0.0:8080` so the container binds the exposed port.
+
+---
+
 ## Caddy
 
 Config: `/etc/caddy/Caddyfile`. The `dev.benstorey.com` block:

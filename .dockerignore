@@ -1,0 +1,8 @@
+# Docker build context exclusions — keep context small and builds reproducible.
+.git
+.gitignore
+target
+frontend/node_modules
+frontend/dist
+.hermes
+*.md
