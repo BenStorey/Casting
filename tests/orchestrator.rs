@@ -4,7 +4,7 @@
 //! MockOrchestrator proves the seam end-to-end: context -> PmActions -> gate ->
 //! events, with zero live model.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::orchestrator::MockOrchestrator;
 use casting::pm::AppState;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-orch")
 }
 

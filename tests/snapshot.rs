@@ -4,17 +4,17 @@
 //! snapshot + tail events must equal building from the full log, and a
 //! missing/corrupt snapshot must fall back cleanly.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::snapshot::{self, SnapshotStore};
+use casting::snapshot::{self, SnapshotStore, SqliteSnapshotStore};
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-snap")
 }
 
@@ -43,7 +43,7 @@ fn snapshot_then_tail_equals_full_fold() {
     let full = Projection::build(&state.store, "proj-snap").unwrap();
 
     // Snapshot at sequence 2 (after both hires), then one more event.
-    let snapshots = SnapshotStore::in_memory().unwrap();
+    let snapshots = SqliteSnapshotStore::in_memory().unwrap();
     let seq = state.store.latest_sequence("proj-snap").unwrap();
     snapshots.save("proj-snap", seq, &full).unwrap();
     hire_engineer(&state, "james-wilson");
@@ -64,7 +64,7 @@ fn build_from_falls_back_to_full_fold_without_a_snapshot() {
     let state = make_state();
     hire_engineer(&state, "marcus-reed");
     hire_engineer(&state, "maya-patel");
-    let snapshots = SnapshotStore::in_memory().unwrap(); // empty
+    let snapshots = SqliteSnapshotStore::in_memory().unwrap(); // empty
 
     let proj = snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents.len(), 2);
@@ -82,7 +82,7 @@ fn corrupt_snapshot_is_discarded_and_falls_back() {
     // A file-backed snapshot store we can corrupt from a second connection.
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("snapshots.db");
-    let snapshots = SnapshotStore::open(&path).unwrap();
+    let snapshots = SqliteSnapshotStore::open(&path).unwrap();
 
     // Inject a corrupt row directly.
     let conn = rusqlite::Connection::open(&path).unwrap();
@@ -111,7 +111,7 @@ fn snapshot_round_trips_through_the_store() {
     hire_engineer(&state, "maya-patel");
     hire_engineer(&state, "james-wilson");
 
-    let snapshots = SnapshotStore::in_memory().unwrap();
+    let snapshots = SqliteSnapshotStore::in_memory().unwrap();
     let full = Projection::build(&state.store, "proj-snap").unwrap();
     let seq = state.store.latest_sequence("proj-snap").unwrap();
     snapshots.save("proj-snap", seq, &full).unwrap();
@@ -129,9 +129,9 @@ fn app_state_with_snapshots_serves_a_correct_projection() {
     // End-to-end on the real read path: with snapshots enabled, the AppState
     // projection (what /api/state serves) must equal a plain full-log build.
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     let state = AppState::new(store.clone(), cursors, "proj-snap")
-        .with_snapshots(SnapshotStore::in_memory().unwrap());
+        .with_snapshots(SqliteSnapshotStore::in_memory().unwrap());
 
     hire_engineer(&state, "marcus-reed");
     hire_engineer(&state, "maya-patel");

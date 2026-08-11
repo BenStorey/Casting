@@ -11,7 +11,7 @@
 //! Building the router is itself the assertion that the route table is valid;
 //! the `oneshot` requests verify the endpoints actually answer.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::pm::AppState;
 use casting::policy::{DecisionClass, OwnerInvolvement};
 use casting::projection::Projection;
@@ -24,7 +24,7 @@ use tower::ServiceExt;
 
 fn boot_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-boot")
 }
 

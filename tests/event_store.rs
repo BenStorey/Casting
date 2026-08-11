@@ -1,7 +1,7 @@
 //! Integration tests for the headless core: event store + cursor.
 //! These exercise the real SQLite backend end-to-end.
 
-use casting::cursor::CursorStore;
+use casting::cursor::{CursorStore, SqliteCursorStore};
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
@@ -107,14 +107,14 @@ fn cursor_starts_zero_and_advances_durably() {
     let cursor_path = dir.path().join("cursors.db");
 
     {
-        let cursors = CursorStore::open(&cursor_path).unwrap();
+        let cursors = SqliteCursorStore::open(&cursor_path).unwrap();
         let init = cursors.get("proj", "pm").unwrap();
         assert_eq!(init.last_seen, 0);
         cursors.advance("proj", "pm", 1842).unwrap();
     }
 
     // Reopen: the position persisted.
-    let cursors = CursorStore::open(&cursor_path).unwrap();
+    let cursors = SqliteCursorStore::open(&cursor_path).unwrap();
     let after = cursors.get("proj", "pm").unwrap();
     assert_eq!(after.last_seen, 1842);
 

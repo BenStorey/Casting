@@ -14,11 +14,9 @@
 //! advances the cursor — it never reasons per-event (docs/PM_INVOCATION_TRIGGERS.md).
 
 use crate::actions::{self, PmAction};
-use crate::cursor::CursorStore;
 use crate::event::{Actor, Event, EventType};
 use crate::policy::DecisionClass;
 use crate::projection::Projection;
-use crate::sqlite_store::SqliteEventStore;
 use crate::store::EventStore;
 use anyhow::Result;
 use std::sync::Arc;
@@ -43,14 +41,14 @@ pub type PlannedAction = (String, PmAction);
 /// truth (brief §17).
 #[derive(Clone)]
 pub struct AppState {
-    pub store: SqliteEventStore,
-    pub cursors: CursorStore,
+    pub store: Arc<dyn crate::store::EventStore>,
+    pub cursors: Arc<dyn crate::cursor::CursorStore>,
     pub project: String,
     /// Optional projection snapshot store (SEMANTIC_EVENTS §18). When present,
     /// projections are built from snapshot + tail (an optimization, never a
     /// source of truth); when None, the full log is folded. Optional so tests
     /// and simple runs need no snapshot store.
-    pub snapshots: Option<crate::snapshot::SnapshotStore>,
+    pub snapshots: Option<Arc<dyn crate::snapshot::SnapshotStore>>,
     /// Pause inserted between appended events so the UI animates the company
     /// working. Zero in tests for speed. (brief §35)
     pub step_delay: Duration,
@@ -73,11 +71,15 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(store: SqliteEventStore, cursors: CursorStore, project: impl Into<String>) -> Self {
+    pub fn new<S, C>(store: S, cursors: C, project: impl Into<String>) -> Self
+    where
+        S: crate::store::EventStore + 'static,
+        C: crate::cursor::CursorStore + 'static,
+    {
         let (tx, _) = broadcast::channel(1024);
         AppState {
-            store,
-            cursors,
+            store: Arc::new(store),
+            cursors: Arc::new(cursors),
             project: project.into(),
             snapshots: None,
             step_delay: Duration::from_millis(220),
@@ -90,8 +92,11 @@ impl AppState {
     }
 
     /// Builder-style: enable projection snapshots for this AppState.
-    pub fn with_snapshots(mut self, snapshots: crate::snapshot::SnapshotStore) -> Self {
-        self.snapshots = Some(snapshots);
+    pub fn with_snapshots<T: crate::snapshot::SnapshotStore + 'static>(
+        mut self,
+        snapshots: T,
+    ) -> Self {
+        self.snapshots = Some(Arc::new(snapshots));
         self
     }
 

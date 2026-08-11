@@ -5,7 +5,7 @@
 //! replacement. History is preserved.
 
 use casting::actions::{validate, PmAction, PolicyError};
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::{DecisionStatus, Projection};
@@ -13,7 +13,7 @@ use casting::sqlite_store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-dec")
 }
 

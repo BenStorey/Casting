@@ -5,14 +5,14 @@
 //! TaskCompleted with no prior TaskCreated). Opt-in, so bare-event fixtures
 //! still work when off.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::sqlite_store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-int")
 }
 

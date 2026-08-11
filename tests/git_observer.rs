@@ -7,7 +7,7 @@
 //!
 //! All repos are throwaway tempdirs; none ever touch the product repo.
 
-use casting::cursor::CursorStore;
+use casting::cursor::{CursorStore, SqliteCursorStore};
 use casting::event::EventType;
 use casting::git_observer;
 use casting::projection::Projection;
@@ -16,7 +16,12 @@ use casting::store::EventStore;
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo, ready for observer tests.
-fn ws_with_repo() -> (tempfile::TempDir, Workspace, SqliteEventStore, CursorStore) {
+fn ws_with_repo() -> (
+    tempfile::TempDir,
+    Workspace,
+    SqliteEventStore,
+    SqliteCursorStore,
+) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -25,7 +30,7 @@ fn ws_with_repo() -> (tempfile::TempDir, Workspace, SqliteEventStore, CursorStor
     ws.ensure_repo().unwrap();
 
     let store = SqliteEventStore::open(ws.state_dir.join("events.db")).unwrap();
-    let cursors = CursorStore::open(ws.state_dir.join("cursors.db")).unwrap();
+    let cursors = SqliteCursorStore::open(ws.state_dir.join("cursors.db")).unwrap();
 
     (tmp, ws, store, cursors)
 }

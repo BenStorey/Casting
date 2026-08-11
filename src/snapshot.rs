@@ -11,6 +11,38 @@
 
 use crate::projection::Projection;
 use anyhow::Result;
+
+/// The projection-snapshot abstraction (pure optimization, never authoritative).
+/// Concrete backends (SQLite, Postgres) implement this; callers never touch a
+/// concrete type directly (owner principle: every store read/write goes
+/// through the abstraction).
+pub trait SnapshotStore: Send + Sync {
+    /// Persist a snapshot of the projection folded up to `sequence`.
+    fn save(&self, project_id: &str, sequence: i64, projection: &Projection) -> Result<()>;
+
+    /// Load the latest snapshot: `(sequence, projection)` or `None` if absent /
+    /// unreadable. A deserialization failure returns `None` so the caller falls
+    /// back to a full fold (snapshots are disposable).
+    fn load(&self, project_id: &str) -> Option<(i64, Projection)>;
+
+    /// Drop this project's snapshot (e.g. on a full replay). Never required.
+    fn clear(&self, project_id: &str) -> Result<()>;
+}
+
+/// Allow `Arc<dyn SnapshotStore>` (what `AppState` holds) to act as a
+/// `SnapshotStore` — the backend is behind the trait.
+impl SnapshotStore for std::sync::Arc<dyn SnapshotStore> {
+    fn save(&self, project_id: &str, sequence: i64, projection: &Projection) -> Result<()> {
+        (**self).save(project_id, sequence, projection)
+    }
+    fn load(&self, project_id: &str) -> Option<(i64, Projection)> {
+        (**self).load(project_id)
+    }
+    fn clear(&self, project_id: &str) -> Result<()> {
+        (**self).clear(project_id)
+    }
+}
+
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -26,11 +58,11 @@ CREATE TABLE IF NOT EXISTS projections (
 /// SQLite-backed snapshot store. Opened on the same DB file as the event store
 /// so a project's state is one file (brief §29), mirroring the cursor store.
 #[derive(Clone)]
-pub struct SnapshotStore {
+pub struct SqliteSnapshotStore {
     conn: Arc<Mutex<Connection>>,
 }
 
-impl SnapshotStore {
+impl SqliteSnapshotStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         if let Some(parent) = path.as_ref().parent() {
             if !parent.as_os_str().is_empty() {
@@ -39,7 +71,7 @@ impl SnapshotStore {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(SNAPSHOT_SCHEMA)?;
-        Ok(SnapshotStore {
+        Ok(SqliteSnapshotStore {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
@@ -47,13 +79,14 @@ impl SnapshotStore {
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SNAPSHOT_SCHEMA)?;
-        Ok(SnapshotStore {
+        Ok(SqliteSnapshotStore {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
+}
 
-    /// Persist a snapshot of the projection folded up to `sequence`.
-    pub fn save(&self, project_id: &str, sequence: i64, projection: &Projection) -> Result<()> {
+impl crate::snapshot::SnapshotStore for SqliteSnapshotStore {
+    fn save(&self, project_id: &str, sequence: i64, projection: &Projection) -> Result<()> {
         let json = serde_json::to_string(projection)?;
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -66,10 +99,7 @@ impl SnapshotStore {
         Ok(())
     }
 
-    /// Load the latest snapshot: `(sequence, projection)` or `None` if absent /
-    /// unreadable. A deserialization failure returns `None` so the caller falls
-    /// back to a full fold (snapshots are disposable).
-    pub fn load(&self, project_id: &str) -> Option<(i64, Projection)> {
+    fn load(&self, project_id: &str) -> Option<(i64, Projection)> {
         let conn = self.conn.lock().unwrap();
         let row: Option<(i64, String)> = conn
             .query_row(
@@ -83,8 +113,7 @@ impl SnapshotStore {
         serde_json::from_str(&json).ok().map(|p| (seq, p))
     }
 
-    /// Drop this project's snapshot (e.g. on a full replay). Never required.
-    pub fn clear(&self, project_id: &str) -> Result<()> {
+    fn clear(&self, project_id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM projections WHERE project_id = ?1",
@@ -99,9 +128,9 @@ impl SnapshotStore {
 /// the *result* — only how it was computed. If the snapshot is unusable we fall
 /// back to `Projection::build`. This helper does NOT write new snapshots (writes
 /// are the caller's choice), so the read path can stay snapshot-agnostic.
-pub fn build_from<'a, S: crate::store::EventStore + 'a>(
-    store: &'a S,
-    snapshots: &'a SnapshotStore,
+pub fn build_from<S: crate::store::EventStore>(
+    store: &S,
+    snapshots: &dyn SnapshotStore,
     project_id: &str,
 ) -> Result<Projection> {
     match snapshots.load(project_id) {

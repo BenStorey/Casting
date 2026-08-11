@@ -3,7 +3,7 @@
 //! /api/setup hires the cast (idempotently), persists the owner token, and fires
 //! the objective message so onboarding kicks off.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::pm::AppState;
 use casting::sqlite_store::SqliteEventStore;
 
@@ -16,7 +16,7 @@ fn boot_api(auth: Option<&str>) -> axum::Router {
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::store::EventStore;
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     let mut state = AppState::new(store, cursors, "proj-web");
     if let Some(tok) = auth {
         state = state.with_owner_auth(tok);
@@ -154,7 +154,7 @@ async fn setup_rejects_unknown_role() {
 async fn setup_is_idempotent_and_persists_token() {
     use casting::event::{Actor, Aggregate, Event, EventType};
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     let state = AppState::new(store.clone(), cursors, "proj-web");
     state
         .append(Event::new(

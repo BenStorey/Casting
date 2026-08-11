@@ -167,11 +167,11 @@ async fn setup_then_onboard_does_not_double_hire() {
 
     // Boot an AppState over the setup state dir and drive the PM with the
     // owner's first message (which triggers plan_onboard).
-    use casting::cursor::CursorStore;
+    use casting::cursor::SqliteCursorStore;
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
     let store = casting::setup::open_store(tmp.path()).unwrap();
-    let cursors = CursorStore::open(tmp.path().join("cursors.db")).unwrap();
+    let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
     let state = AppState::new(store, cursors, "project-demo");
 
     state
@@ -210,11 +210,11 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
     .unwrap();
     plan.apply(tmp.path()).unwrap();
 
-    use casting::cursor::CursorStore;
+    use casting::cursor::SqliteCursorStore;
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
     let store = casting::setup::open_store(tmp.path()).unwrap();
-    let cursors = CursorStore::open(tmp.path().join("cursors.db")).unwrap();
+    let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
     let state = AppState::new(store, cursors, "project-demo");
     state
         .append(Event::new(

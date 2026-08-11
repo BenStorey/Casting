@@ -40,14 +40,14 @@ fn default_cast_members_have_catalog_roles() {
 
 #[tokio::test]
 async fn owner_hire_adds_an_agent_of_a_catalog_role() {
-    use casting::cursor::CursorStore;
+    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
     use casting::sqlite_store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
-        let cursors = CursorStore::in_memory().unwrap();
+        let cursors = SqliteCursorStore::in_memory().unwrap();
         AppState::new(store, cursors, "proj-cast")
     };
     state
@@ -97,14 +97,14 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
 #[tokio::test]
 async fn pm_propose_consultant_and_owner_approval_hire() {
     use casting::actions::validate;
-    use casting::cursor::CursorStore;
+    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
     use casting::sqlite_store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
-        let cursors = CursorStore::in_memory().unwrap();
+        let cursors = SqliteCursorStore::in_memory().unwrap();
         AppState::new(store, cursors, "proj-cast")
     };
     state
@@ -185,14 +185,14 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
 #[tokio::test]
 async fn unknown_role_proposal_is_rejected() {
     use casting::actions::{validate, PmAction, PolicyError};
-    use casting::cursor::CursorStore;
+    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
     use casting::sqlite_store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
-        let cursors = CursorStore::in_memory().unwrap();
+        let cursors = SqliteCursorStore::in_memory().unwrap();
         AppState::new(store, cursors, "proj-cast")
     };
     let proj = Projection::build(&state.store, "proj-cast").unwrap();

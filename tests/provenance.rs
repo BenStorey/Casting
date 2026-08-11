@@ -6,7 +6,7 @@
 //! → PM creates requirement + task → git branch + commit observed) and verify
 //! the provenance query functions can walk it in both directions.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType, Metadata};
 use casting::git_observer;
 use casting::projection::Projection;
@@ -16,7 +16,12 @@ use casting::store::EventStore;
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo + an event store.
-fn ws_with_repo() -> (tempfile::TempDir, Workspace, SqliteEventStore, CursorStore) {
+fn ws_with_repo() -> (
+    tempfile::TempDir,
+    Workspace,
+    SqliteEventStore,
+    SqliteCursorStore,
+) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -25,7 +30,7 @@ fn ws_with_repo() -> (tempfile::TempDir, Workspace, SqliteEventStore, CursorStor
     ws.ensure_repo().unwrap();
 
     let store = SqliteEventStore::open(ws.state_dir.join("events.db")).unwrap();
-    let cursors = CursorStore::open(ws.state_dir.join("cursors.db")).unwrap();
+    let cursors = SqliteCursorStore::open(ws.state_dir.join("cursors.db")).unwrap();
 
     (tmp, ws, store, cursors)
 }
@@ -288,9 +293,9 @@ fn provenance_returns_empty_chain_for_unknown_commit() {
 
 // --- Decision audit (state-core maturity step 1) ---
 
-fn make_proj_store() -> (SqliteEventStore, CursorStore) {
+fn make_proj_store() -> (SqliteEventStore, SqliteCursorStore) {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     (store, cursors)
 }
 

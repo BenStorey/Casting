@@ -4,7 +4,7 @@
 //! configured auth is a no-op (backward compatible); when enabled, mutations
 //! require `Authorization: Bearer <token>`.
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::pm::AppState;
 use casting::sqlite_store::SqliteEventStore;
 
@@ -14,7 +14,7 @@ use tower::ServiceExt;
 
 fn boot_api(auth: Option<&str>) -> axum::Router {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     let mut state = AppState::new(store, cursors, "proj-auth");
     if let Some(tok) = auth {
         state = state.with_owner_auth(tok);

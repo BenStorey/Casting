@@ -2,7 +2,7 @@
 //! Exercises the real SQLite backend, the derived current-state projection, and
 //! the scripted PM control loop (owner message -> requirements/tasks/decisions).
 
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Event, EventType};
 use casting::pm::{AppState, PM_CONSUMER};
 use casting::projection::{DecisionStatus, Projection, TaskStatus};
@@ -12,7 +12,7 @@ use std::time::Duration;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-test").with_step_delay(Duration::ZERO)
 }
 

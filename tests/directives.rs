@@ -5,7 +5,7 @@
 //! the model + context resolver; later tasks cover reducers and the gate.
 
 use casting::actions::PmAction;
-use casting::cursor::CursorStore;
+use casting::cursor::SqliteCursorStore;
 use casting::directive::{self, Directive, DirectiveKind, DirectiveStatus, DirectiveStrength};
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
@@ -14,7 +14,7 @@ use casting::sqlite_store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = CursorStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-dir")
 }
 

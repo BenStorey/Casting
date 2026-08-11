@@ -21,6 +21,28 @@ pub struct Cursor {
     pub last_seen: i64,
 }
 
+/// The cursor-storage abstraction. Concrete backends (SQLite, Postgres)
+/// implement this; callers never touch a concrete type directly (owner
+/// principle: every store read/write goes through the abstraction).
+pub trait CursorStore: Send + Sync {
+    /// Current position for a consumer, or `last_seen = 0` if never seen.
+    fn get(&self, project_id: &str, consumer: &str) -> Result<Cursor>;
+
+    /// Advance a consumer to the given sequence (idempotent update).
+    fn advance(&self, project_id: &str, consumer: &str, to: i64) -> Result<()>;
+}
+
+/// Allow `Arc<dyn CursorStore>` (what `AppState` holds) to act as a
+/// `CursorStore` — the backend is behind the trait.
+impl CursorStore for std::sync::Arc<dyn CursorStore> {
+    fn get(&self, project_id: &str, consumer: &str) -> Result<Cursor> {
+        (**self).get(project_id, consumer)
+    }
+    fn advance(&self, project_id: &str, consumer: &str, to: i64) -> Result<()> {
+        (**self).advance(project_id, consumer, to)
+    }
+}
+
 const CURSOR_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS cursors (
     project_id  TEXT NOT NULL,
@@ -34,11 +56,11 @@ CREATE TABLE IF NOT EXISTS cursors (
 /// the event store so cursors and history live together (a project's whole
 /// state can be copied/backed up as one file — docs/CASTING_PROJECT_BRIEF.md §29).
 #[derive(Clone)]
-pub struct CursorStore {
+pub struct SqliteCursorStore {
     conn: Arc<Mutex<Connection>>,
 }
 
-impl CursorStore {
+impl SqliteCursorStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         if let Some(parent) = path.as_ref().parent() {
             if !parent.as_os_str().is_empty() {
@@ -47,7 +69,7 @@ impl CursorStore {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(CURSOR_SCHEMA)?;
-        Ok(CursorStore {
+        Ok(SqliteCursorStore {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
@@ -55,13 +77,14 @@ impl CursorStore {
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(CURSOR_SCHEMA)?;
-        Ok(CursorStore {
+        Ok(SqliteCursorStore {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
+}
 
-    /// Current position for a consumer, or `last_seen = 0` if never seen.
-    pub fn get(&self, project_id: &str, consumer: &str) -> Result<Cursor> {
+impl crate::cursor::CursorStore for SqliteCursorStore {
+    fn get(&self, project_id: &str, consumer: &str) -> Result<Cursor> {
         let conn = self.conn.lock().unwrap();
         let last_seen: Option<i64> = conn
             .query_row(
@@ -77,8 +100,7 @@ impl CursorStore {
         })
     }
 
-    /// Advance a consumer to the given sequence (idempotent update).
-    pub fn advance(&self, project_id: &str, consumer: &str, to: i64) -> Result<()> {
+    fn advance(&self, project_id: &str, consumer: &str, to: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO cursors (project_id, consumer, last_seen)

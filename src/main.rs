@@ -366,9 +366,10 @@ fn do_run(project: std::path::PathBuf) -> Result<()> {
     preflight(&ws, created);
 
     let store = SqliteEventStore::open(ws.casting_dir().join("events.db"))?;
-    let cursors = CursorStore::open(ws.casting_dir().join("cursors.db"))?;
+    let cursors = casting::cursor::SqliteCursorStore::open(ws.casting_dir().join("cursors.db"))?;
     // Projection snapshots (a pure read optimization, never a source of truth).
-    let snapshots = casting::snapshot::SnapshotStore::open(ws.casting_dir().join("snapshots.db"))?;
+    let snapshots =
+        casting::snapshot::SqliteSnapshotStore::open(ws.casting_dir().join("snapshots.db"))?;
 
     let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 
@@ -543,7 +544,7 @@ fn seed_project(state: &AppState) -> Result<()> {
 fn do_smoke(dir: &Path) -> Result<()> {
     let paths = ProjectPaths::for_dir(dir)?;
     let store = SqliteEventStore::open(&paths.db)?;
-    let cursors = CursorStore::open(&paths.cursors)?;
+    let cursors = casting::cursor::SqliteCursorStore::open(&paths.cursors)?;
 
     let project = "project-demo";
 

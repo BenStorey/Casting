@@ -24,7 +24,6 @@
 //! requires *attempting* a merge (an active operation). The git runner emits
 //! it when a merge command fails due to conflicts (increment 3+).
 
-use crate::cursor::CursorStore;
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::pm::AppState;
 use crate::store::EventStore;
@@ -54,7 +53,7 @@ struct BranchTip {
 pub fn observe<S: EventStore>(
     ws: &Workspace,
     store: &S,
-    cursors: &CursorStore,
+    cursors: &dyn crate::cursor::CursorStore,
     project: &str,
 ) -> Result<u32> {
     let cursor = cursors.get(project, GIT_OBSERVER_CONSUMER)?;
