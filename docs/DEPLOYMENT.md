@@ -93,9 +93,16 @@ docker run --rm casting --help                        # explore the CLI
 - `~/.casting/` (the registry) and each project repo must be **mounted** so the
   container sees the same projects as a host run; per-project state stays
   collocated in `<repo>/.casting/` and persists in the mounted repo.
-- The image runs as a non-root user (`casting`, uid 1000) and ships `ca-certificates`
-  + `git` (needed by the workspace git runner).
+- The image runs as a non-root user (`casting`, uid 1000) and ships
+  `ca-certificates` + `git` (needed by the workspace git runner). Because the
+  container user is non-root, **mounted project/registry dirs must be writable
+  by uid 1000** — e.g. `sudo chown -R 1000:1000 /path/to/project ~/.casting`, or
+  your `cast run` will hit "Permission denied" creating `<repo>/.casting/`.
 - Internally `CAST_ADDR=0.0.0.0:8080` so the container binds the exposed port.
+
+The image has been verified end-to-end: it builds (`docker build -t casting .`),
+`casting --help` runs, and `casting run <name>` boots a mounted project and
+serves the API (state 200) on the published port.
 
 ---
 
