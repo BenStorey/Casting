@@ -34,9 +34,20 @@ impl ProjectPaths {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("help");
+    let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("list");
 
     match cmd {
+        // `cast` with no args, or `cast list`: list registered projects.
+        "list" | "projects" => do_list(),
+        "add" => {
+            let name = args.get(2).context("usage: cast add <name> <repo-path>")?;
+            let repo = args.get(3).context("usage: cast add <name> <repo-path>")?;
+            do_add(name, repo)
+        }
+        "remove" => {
+            let name = args.get(2).context("usage: cast remove <name>")?;
+            do_remove(name)
+        }
         "init" => {
             let init = parse_init(&args[2..])?;
             do_init(init)
@@ -46,25 +57,70 @@ fn main() -> Result<()> {
             let dir = Path::new(dir_str);
             do_smoke(dir)
         }
-        "run" => {
-            let run = parse_run(&args[2..])?;
-            do_run(run)
-        }
+        // `cast run <project-name>` — resolve the repo via the registry.
+        "run" => do_run(get_run_name(
+            args.get(2).context("usage: cast run <project-name>")?,
+        )?),
         "log" => {
             let log = parse_log(&args[2..])?;
             do_log(log)
         }
         "help" | "--help" | "-h" => {
             println!(
-                "cast — Casting autonomous software company (vertical slice)\n\n\
-                 USAGE:\n  cast init <project-dir>          create a Casting project (.casting/ skeleton + setup)\n  cast smoke <dir>                append sample events and replay them\n  cast run --project <dir> [--selfhost]\n                                  start the workspace (PM + web UI)\n  cast log --db <events.db> [--project <id>] [--verify]\n                                  dump / verify the raw event stream\n\n\
-                 --project <dir>  your project repo Casting drives; state lives\n                                  collocated in <dir>/.casting/ (gitignored)\n  --selfhost       operate on the Casting source repo itself (off by default)\n\n\
-                 Env:\n  CAST_ADDR   bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_SELFHOST  1 to enable self-hosting instead of --selfhost\n"
+                "cast — Casting autonomous software company\n\n\
+                 USAGE:\n  cast                          list your projects (from ~/.casting/projects.json)\n  cast add <name> <repo-path>   register a project\n  cast remove <name>            unregister a project\n  cast init <project-dir> [--name=..] [opts]   create + register a project\n  cast run <project-name> [--selfhost]         start the workspace (PM + web UI)\n  cast smoke <dir>              append sample events and replay them\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n\
+                 Multi-project:\n  Projects live in ~/.casting/projects.json (name -> repo). Multi-user is NOT\n  supported — git is the sharing surface; each owner runs their own setup. State\n  lives collocated in <repo>/.casting/ (gitignored).\n\n\
+                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
         other => anyhow::bail!("unknown command: {other} (try `cast help`)"),
     }
+}
+
+/// Resolve a project name to its repo path via the home-dir registry.
+fn get_run_name(name: &str) -> Result<std::path::PathBuf> {
+    let reg = casting::registry::Registry::load(None)?;
+    let entry = reg.lookup(name).with_context(|| {
+        format!("no project named {name:?} (add it with `cast add {name} <repo-path>`)")
+    })?;
+    Ok(entry.repo.clone())
+}
+
+fn do_list() -> Result<()> {
+    let reg = casting::registry::Registry::load(None)?;
+    if reg.projects.is_empty() {
+        println!("No projects yet. Register one: `cast add <name> <repo-path>`");
+    } else {
+        println!("Your projects (in ~/.casting/projects.json):");
+        for p in &reg.projects {
+            println!("  {:<20} {}", p.name, p.repo.display());
+        }
+    }
+    Ok(())
+}
+
+fn do_add(name: &str, repo: &str) -> Result<()> {
+    let mut reg = casting::registry::Registry::load(None)?;
+    let new = reg.register(name.to_string(), repo.into());
+    reg.save(None)?;
+    println!(
+        "{} project {name:?} -> {}",
+        if new { "registered" } else { "updated" },
+        repo
+    );
+    Ok(())
+}
+
+fn do_remove(name: &str) -> Result<()> {
+    let mut reg = casting::registry::Registry::load(None)?;
+    if reg.remove(name) {
+        reg.save(None)?;
+        println!("removed project {name:?}");
+    } else {
+        println!("no project named {name:?}");
+    }
+    Ok(())
 }
 
 /// Flags for `cast init`, parsed by [`parse_init`].
@@ -228,6 +284,22 @@ fn do_init(mut args: InitArgs) -> Result<()> {
     let written = plan.apply(&casting_dir)?;
     // Write a no-secrets config template to the repo root (like .env.example).
     casting::setup::write_template(&args.dir, &plan.spec.name)?;
+    // Auto-register the project in the home-dir registry so it's runnable via
+    // `cast run <name>` (name = --name, else the dir's basename).
+    let proj_name = args.name.clone().unwrap_or_else(|| {
+        args.dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "project".to_string())
+    });
+    {
+        let mut reg = casting::registry::Registry::load(None)?;
+        reg.register(proj_name.clone(), args.dir.clone());
+        reg.save(None)?;
+    }
+    println!(
+        "   registered as project {proj_name:?} (run `cast {proj_name}` / `cast run {proj_name}`)"
+    );
     if written == 0 {
         println!(
             "Company already set up at {} — no changes.",
@@ -255,43 +327,6 @@ fn do_init(mut args: InitArgs) -> Result<()> {
     Ok(())
 }
 
-/// Flags for `cast run`, parsed by [`parse_run`].
-struct RunArgs {
-    project: PathBuf,
-    selfhost: Selfhost,
-}
-
-fn parse_run(args: &[String]) -> Result<RunArgs> {
-    let mut project = None;
-    let mut selfhost = Selfhost::Disabled;
-
-    // --selfhost may also come from the env (CAST_SELFHOST=1).
-    if std::env::var("CAST_SELFHOST").is_ok_and(|v| v == "1") {
-        selfhost = Selfhost::Enabled;
-    }
-
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            // --project is the canonical flag; --repo is kept as an alias.
-            "--project" | "--repo" => {
-                project = Some(args.get(i + 1).context("--project requires a path")?.into());
-                i += 2;
-            }
-            "--selfhost" => {
-                selfhost = Selfhost::Enabled;
-                i += 1;
-            }
-            other => anyhow::bail!(
-                "unknown argument {other:?} (tip: cast run --project <dir> [--selfhost])"
-            ),
-        }
-    }
-
-    let project = project.context("cast run requires --project <dir> (your project repo)")?;
-    Ok(RunArgs { project, selfhost })
-}
-
 /// Print the preflight banner: the canonical target + detected repo HEAD, so
 /// the operator *sees* what Casting is about to touch before anything mutates.
 fn preflight(ws: &Workspace, repo_created: bool) {
@@ -316,8 +351,8 @@ fn preflight(ws: &Workspace, repo_created: bool) {
 /// `cast run` — boot the whole workspace: enforce the ownership boundary, seed
 /// the project, start the simulated PM control loop, and serve the API +
 /// embedded React UI from one binary.
-fn do_run(run: RunArgs) -> Result<()> {
-    let ws = Workspace::open(&run.project, run.selfhost)?;
+fn do_run(project: std::path::PathBuf) -> Result<()> {
+    let ws = Workspace::open(&project, Selfhost::Disabled)?;
 
     // Ensure the artifact repo is a real git repo (git-init if missing). This
     // wires Git into the workspace at startup (Git slice increment 1).
