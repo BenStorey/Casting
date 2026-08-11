@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import SetupWizard from "./SetupWizard";
 import {
   Decision,
   Inbox,
@@ -66,23 +67,28 @@ export default function App() {
 
       {error && <div className="banner">⚠️ {error}</div>}
 
-      <nav className="tabs">
-        <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>Chat</TabButton>
-        <TabButton active={tab === "board"} onClick={() => setTab("board")}>Board</TabButton>
-        <TabButton active={tab === "team"} onClick={() => setTab("team")}>Team</TabButton>
-        <TabButton active={tab === "decisions"} onClick={() => setTab("decisions")}>Decisions</TabButton>
-        <TabButton
-          active={tab === "inbox"}
-          onClick={() => setTab("inbox")}
-          badge={inbox?.unread}
-        >
-          Inbox
-        </TabButton>
-        <TabButton active={tab === "activity"} onClick={() => setTab("activity")}>Activity</TabButton>
-      </nav>
-
-      {state && (
+      {/* First-run: no company cast yet (only the seed PM) -> show the setup
+          wizard. Once engaged it drives the same engine as `cast init`. */}
+      {state && state.agents.filter((a) => a.id !== "pm").length === 0 && (
+        <SetupWizard onDone={refresh} />
+      )}
+      {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
         <>
+          <nav className="tabs">
+            <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>Chat</TabButton>
+            <TabButton active={tab === "board"} onClick={() => setTab("board")}>Board</TabButton>
+            <TabButton active={tab === "team"} onClick={() => setTab("team")}>Team</TabButton>
+            <TabButton active={tab === "decisions"} onClick={() => setTab("decisions")}>Decisions</TabButton>
+            <TabButton
+              active={tab === "inbox"}
+              onClick={() => setTab("inbox")}
+              badge={inbox?.unread}
+            >
+              Inbox
+            </TabButton>
+            <TabButton active={tab === "activity"} onClick={() => setTab("activity")}>Activity</TabButton>
+          </nav>
+
           {tab === "chat" && <Chat state={state} onSent={refresh} />}
           {tab === "board" && <Board tasks={state.tasks} />}
           {tab === "team" && <Team agents={state.agents} />}

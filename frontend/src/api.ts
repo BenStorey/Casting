@@ -114,6 +114,40 @@ export function fetchState(): Promise<Projection> {
   return j<Projection>("/api/state");
 }
 
+export interface SetupRole {
+  id: string;
+  title: string;
+  scope: string;
+}
+
+export interface SetupStatus {
+  configured: boolean;
+  roles: SetupRole[];
+}
+
+export interface SetupResult {
+  ok: boolean;
+  hires: [string, string][];
+  objective: string;
+}
+
+export function fetchSetupStatus(): Promise<SetupStatus> {
+  return j<SetupStatus>("/api/setup/status");
+}
+
+export async function submitSetup(
+  name: string,
+  objective: string,
+  cast: string[],
+  ownerToken?: string
+): Promise<SetupResult> {
+  return j<SetupResult>("/api/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, objective, cast, owner_token: ownerToken || undefined }),
+  });
+}
+
 export function fetchInbox(): Promise<Inbox> {
   return j<Inbox>("/api/inbox");
 }
