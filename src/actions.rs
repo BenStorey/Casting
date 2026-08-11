@@ -122,6 +122,13 @@ pub enum PmAction {
         kind: String,
         statement: String,
     },
+    /// Explicitly supersede a previously-recorded opinion (it is never edited;
+    /// this sets its status to Superseded and preserves history). Mirrors
+    /// SupersedeDirective. `by_opinion_id` names the newer opinion.
+    SupersedeOpinion {
+        opinion_id: String,
+        by_opinion_id: String,
+    },
     /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
     CreateDirective {
         id: String,
@@ -249,6 +256,8 @@ pub enum PolicyError {
     RiskNotFound(String),
     /// Acting on a directive that does not exist.
     DirectiveNotFound(String),
+    /// A referenced opinion doesn't exist (or isn't supersede-able).
+    OpinionNotFound(String),
     /// A plain agent (not owner/PM/system) trying to change governance.
     DirectiveAuthority(String),
     /// Hiring/proposing a role that isn't in the catalog.
@@ -297,6 +306,9 @@ impl std::fmt::Display for PolicyError {
             PolicyError::RiskNotFound(id) => write!(f, "cannot resolve risk {id}: no such risk"),
             PolicyError::DirectiveNotFound(id) => {
                 write!(f, "cannot act on directive {id}: no such directive")
+            }
+            PolicyError::OpinionNotFound(id) => {
+                write!(f, "cannot supersede opinion {id}: no such active opinion")
             }
             PolicyError::DirectiveAuthority(who) => {
                 write!(
@@ -454,6 +466,30 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
+        PmAction::SupersedeOpinion {
+            opinion_id,
+            by_opinion_id,
+        } => {
+            // The target must exist and currently be Active (don't re-flip an
+            // already-superseded opinion; that'd be a no-op/ambiguity).
+            let Some(target) = state.opinions.iter().find(|o| o.id == *opinion_id) else {
+                return Err(opinion_not_found(opinion_id));
+            };
+            if target.status != crate::projection::OpinionStatus::Active {
+                return Err(opinion_not_found(opinion_id));
+            }
+            // The replacing opinion must exist, be distinct, and Active.
+            if opinion_id == by_opinion_id {
+                return Err(opinion_not_found(by_opinion_id));
+            }
+            let Some(by) = state.opinions.iter().find(|o| o.id == *by_opinion_id) else {
+                return Err(opinion_not_found(by_opinion_id));
+            };
+            if by.status != crate::projection::OpinionStatus::Active {
+                return Err(opinion_not_found(by_opinion_id));
+            }
+            Ok(())
+        }
         // Proposing a governance change needs no directive authority — the PM/
         // agent is PROPOSING, not authoring. It routes to the owner (Ask) and
         // is applied only on approval. Encodes the desired change for later.
@@ -491,6 +527,12 @@ fn check_directive_exists(directive_id: &str, state: &Projection) -> Result<(), 
     } else {
         Err(PolicyError::DirectiveNotFound(directive_id.to_string()))
     }
+}
+
+/// The referenced opinion isn't a valid supersede target (absent or not
+/// currently Active).
+fn opinion_not_found(opinion_id: &str) -> PolicyError {
+    PolicyError::OpinionNotFound(opinion_id.to_string())
 }
 
 /// For Start/Complete/Block: the task must exist, have an assignee, and the
@@ -703,6 +745,18 @@ impl PmAction {
                 "fact",
                 EventType::FactRecorded,
                 json!({ "kind": kind, "statement": statement }),
+                meta,
+            )],
+            PmAction::SupersedeOpinion {
+                opinion_id,
+                by_opinion_id,
+            } => vec![ev(
+                project,
+                actor,
+                opinion_id,
+                "opinion",
+                EventType::OpinionSuperseded,
+                json!({ "superseded_by": by_opinion_id }),
                 meta,
             )],
             PmAction::CreateDirective {

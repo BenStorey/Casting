@@ -98,6 +98,160 @@ fn opinion_supersedes_keeps_history() {
 }
 
 #[test]
+fn superseding_flips_status_and_active_view_reports_only_valid() {
+    // The owner's exact scenario: op-1 and op-2 are about DIFFERENT things;
+    // op-2 supersedes op-1; a third op-3 is unrelated. Readers must get the
+    // currently-valid set, not everything ever recorded.
+    let state = make_state();
+    append(
+        &state,
+        EventType::OpinionRecorded,
+        "op-1",
+        "opinion",
+        serde_json::json!({
+            "category": "rationale",
+            "statement": "Postgres is a good default for our event log",
+        }),
+    );
+    append(
+        &state,
+        EventType::OpinionRecorded,
+        "op-2",
+        "opinion",
+        serde_json::json!({
+            "category": "design",
+            "statement": "The event log is the only authority",
+        }),
+    );
+    // A third opinion supersedes op-1 (different topic from op-2 entirely).
+    append(
+        &state,
+        EventType::OpinionRecorded,
+        "op-3",
+        "opinion",
+        serde_json::json!({
+            "category": "rationale",
+            "statement": "FoundationDB fits the ordered-log shape better",
+            "supersedes": "op-1",
+        }),
+    );
+    // AND the explicit supersession event flips op-1's status.
+    state
+        .append(Event::new(
+            &state.project,
+            Actor::Owner,
+            EventType::OpinionSuperseded,
+            Aggregate {
+                kind: "opinion".into(),
+                id: "op-1".into(),
+            },
+            serde_json::json!({ "superseded_by": "op-3" }),
+        ))
+        .unwrap();
+
+    let proj = Projection::build(&state.store, &state.project).unwrap();
+    // All three recorded (audit trail intact).
+    assert_eq!(proj.opinions.len(), 3);
+
+    // op-1 is folded to Superseded; op-2 and op-3 stay Active.
+    let by_id = |id: &str| proj.opinions.iter().find(|o| o.id == id).unwrap();
+    use casting::projection::OpinionStatus;
+    assert_eq!(by_id("op-1").status, OpinionStatus::Superseded);
+    assert_eq!(by_id("op-2").status, OpinionStatus::Active);
+    assert_eq!(by_id("op-3").status, OpinionStatus::Active);
+
+    // Readers asking "what's currently valid" get exactly op-2 and op-3.
+    let active: Vec<&str> = proj
+        .active_opinions()
+        .into_iter()
+        .map(|o| o.id.as_str())
+        .collect();
+    let mut active = active;
+    active.sort_unstable();
+    assert_eq!(active, vec!["op-2", "op-3"]);
+
+    // Category-scoped: current rationale = op-3 only (op-1 superseded).
+    let rationale: Vec<&str> = proj
+        .active_opinions_by_category("rationale")
+        .into_iter()
+        .map(|o| o.id.as_str())
+        .collect();
+    assert_eq!(rationale, vec!["op-3"]);
+}
+
+#[test]
+fn supersede_opinion_action_through_gate_and_events() {
+    let state = make_state();
+    append(
+        &state,
+        EventType::OpinionRecorded,
+        "op-old",
+        "opinion",
+        serde_json::json!({ "category": "preference", "statement": "old view" }),
+    );
+    append(
+        &state,
+        EventType::OpinionRecorded,
+        "op-new",
+        "opinion",
+        serde_json::json!({ "category": "preference", "statement": "new view" }),
+    );
+    let proj = Projection::build(&state.store, &state.project).unwrap();
+
+    // Supersede passes the gate (both exist + active).
+    actions::validate(
+        &PmAction::SupersedeOpinion {
+            opinion_id: "op-old".into(),
+            by_opinion_id: "op-new".into(),
+        },
+        "owner",
+        &proj,
+    )
+    .unwrap();
+
+    // Guilds against superseding the same opinion or a non-existent one.
+    assert!(matches!(
+        actions::validate(
+            &PmAction::SupersedeOpinion {
+                opinion_id: "op-old".into(),
+                by_opinion_id: "op-old".into(),
+            },
+            "owner",
+            &proj,
+        ),
+        Err(casting::actions::PolicyError::OpinionNotFound(_))
+    ));
+    assert!(matches!(
+        actions::validate(
+            &PmAction::SupersedeOpinion {
+                opinion_id: "nope".into(),
+                by_opinion_id: "op-new".into(),
+            },
+            "owner",
+            &proj,
+        ),
+        Err(casting::actions::PolicyError::OpinionNotFound(_))
+    ));
+
+    let cause = cause_for(&state);
+    let evs = PmAction::SupersedeOpinion {
+        opinion_id: "op-old".into(),
+        by_opinion_id: "op-new".into(),
+    }
+    .to_events(&state.project, "owner", &cause, "corr-1");
+    assert_eq!(evs.len(), 1);
+    assert_eq!(evs[0].event_type, EventType::OpinionSuperseded);
+    assert_eq!(evs[0].aggregate.id, "op-old");
+
+    // Applying it flips op-old to Superseded.
+    state.append(evs.into_iter().next().unwrap()).unwrap();
+    let after = Projection::build(&state.store, &state.project).unwrap();
+    use casting::projection::OpinionStatus;
+    let old = after.opinions.iter().find(|o| o.id == "op-old").unwrap();
+    assert_eq!(old.status, OpinionStatus::Superseded);
+}
+
+#[test]
 fn fact_reduces_with_point_in_time() {
     let state = make_state();
     append(

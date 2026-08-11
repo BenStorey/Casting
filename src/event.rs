@@ -56,6 +56,9 @@ pub enum EventType {
     /// and changeable: superseded, never edited. (owner concept 2026-08-10:
     /// knowledge worth not re-deriving is opinion, not objective fact)
     OpinionRecorded,
+    /// A previously-recorded opinion is superseded by a newer one -> status
+    /// Superseded (history preserved). Mirrors ProjectDirectiveSuperseded.
+    OpinionSuperseded,
     /// A project FACT was recorded — an objective, measured datapoint about the
     /// project (e.g. "the repo is 1,342 lines"). Objective measures are usually
     /// derived from state, but recording one captures a point-in-time snapshot

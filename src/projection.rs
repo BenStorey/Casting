@@ -140,6 +140,24 @@ pub struct Assumption {
     pub recorded_by: String,
 }
 
+/// Lifecycle state of a recorded opinion (mirrors directives). An opinion is
+/// `Active` until a later opinion explicitly supersedes it (never edited).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpinionStatus {
+    /// Currently-held judgment / rationale / preference.
+    Active,
+    /// Replaced by a later opinion (history preserved, not overwritten).
+    Superseded,
+}
+
+impl Default for OpinionStatus {
+    /// Old/unknown opinions default to Active (records with no status field are
+    /// treated as currently-held).
+    fn default() -> Self {
+        OpinionStatus::Active
+    }
+}
+
 /// A recorded project OPINION — a subjective judgment / rationale / preference
 /// (e.g. "Postgres is a good default for our event log"). Subjective: a later
 /// opinion supersedes it (history preserved) rather than editing it in place.
@@ -151,6 +169,11 @@ pub struct Opinion {
     pub category: String,
     pub statement: String,
     pub recorded_by: String,
+    /// Current validity. Derived in the projection: `Active` until an
+    /// `OpinionSuperseded` event flips this to `Superseded`. Readers that want
+    /// only currently-valid opinions filter on `Active`.
+    #[serde(default)]
+    pub status: OpinionStatus,
     /// If non-empty, the id of the opinion this one supersedes.
     #[serde(default)]
     pub supersedes: Option<String>,
@@ -300,6 +323,26 @@ impl Projection {
         Ok(p)
     }
 
+    /// Currently-valid opinions (status == Active). The derived "what is
+    /// actually believed right now" view — superseded opinions are excluded
+    /// but preserved in `self.opinions` for history. Readers that want the
+    /// full audit trail (incl. superseded) can read `self.opinions` directly.
+    pub fn active_opinions(&self) -> Vec<&Opinion> {
+        self.opinions
+            .iter()
+            .filter(|o| o.status == OpinionStatus::Active)
+            .collect()
+    }
+
+    /// Currently-valid opinions in a given category (status == Active), so a
+    /// reader can ask e.g. "what's the current design rationale?".
+    pub fn active_opinions_by_category(&self, category: &str) -> Vec<&Opinion> {
+        self.active_opinions()
+            .into_iter()
+            .filter(|o| o.category == category)
+            .collect()
+    }
+
     /// Apply a single event to the running projection.
     pub fn apply(&mut self, e: &Event) {
         match e.event_type {
@@ -426,8 +469,14 @@ impl Projection {
                 category: string_field(e, "category").unwrap_or_default(),
                 statement: string_field(e, "statement").unwrap_or_default(),
                 recorded_by: actor_name(e),
+                status: OpinionStatus::Active,
                 supersedes: string_field(e, "supersedes"),
             }),
+            EventType::OpinionSuperseded => {
+                if let Some(op) = self.opinions.iter_mut().find(|o| o.id == e.aggregate.id) {
+                    op.status = OpinionStatus::Superseded;
+                }
+            }
             EventType::FactRecorded => self.facts.push(Fact {
                 id: e.aggregate.id.clone(),
                 kind: string_field(e, "kind").unwrap_or_default(),
