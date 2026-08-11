@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **164 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5),
+"why does this code exist?". **170 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+6),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -346,7 +346,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5 = 164 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+6 = 170 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -630,6 +630,21 @@ backend, we do NOT carry two concrete paths in AppState):
   --db <selector>`) or `CAST_DB`. Verified against real Postgres (docker).
 - `deploy/docker-compose.postgres.yml`; integration tests
   `tests/postgres_backend.rs` (real PG round-trip, full company boot+onboard).
+
+**Knowledge layer — OPINION + FACT — DONE 2026-08-10** (owner concept: "save
+down interesting facts so we don't re-derive them", in Casting-native form):
+- Distinction the owner drew: knowledge worth preserving is **OPINION**
+  (subjective rationale, lost unless recorded) vs objective **FACTS** (usually
+  derived from state; recorded only as a point-in-time snapshot when it
+  matters). We build both; the LLM/gate decides which.
+- `OpinionRecorded` {category, statement, recorded_by, supersedes} + `FactRecorded`
+  {kind, statement, recorded_by, recorded_at}; projected to `proj.opinions` /
+  `proj.facts`. Opinions supersede (never edited, history preserved) like
+  decisions. `PmAction::RecordOpinion` / `RecordFact` through the gate.
+- When D2 lands, the LLM writes learned knowledge through the same gate — the
+  deterministic home for lessons/rationale/preferences.
+- `docs/STORAGE_CANDIDATES.md` holds the immutable reasoning about Postgres /
+  FoundationDB / etc. choices.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
