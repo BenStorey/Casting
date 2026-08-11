@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **172 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8),
+"why does this code exist?". **178 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -156,6 +156,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
 │   ├── registry.rs                 <- home-dir project registry (~/.casting/projects.json)
+│   ├── reconciler.rs               <- drift reconciler: cursor-gated "every N events" cleanup
 │   ├── backend.rs                  <- storage backend factory (sqlite | postgres)
 │   ├── postgres_store.rs           <- PostgresBackend (EventStore+CursorStore+SnapshotStore)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
@@ -346,7 +347,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8 = 172 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6 = 178 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -649,6 +650,21 @@ down interesting facts so we don't re-derive them", in Casting-native form):
   deterministic home for lessons/rationale/preferences.
 - `docs/STORAGE_CANDIDATES.md` holds the immutable reasoning about Postgres /
   FoundationDB / etc. choices.
+
+**Drift reconciler — DONE 2026-08-10** (owner framing: knowledge drifts rather
+than going stale in a burst; keep writes simple, reconcile periodically. This is
+the reusable "every N events" primitive, later also for priority/plan
+re-ranking):
+- `Opinion.subject` = the matching key (what an opinion is ABOUT; empty =
+  ungroupable), from the Model-2 mechanics design fork.
+- `src/reconciler.rs`: a reconciler CONSUMER (own cursor); `should_run` fires
+  when `latest - reconciler_cursor >= interval`; `drift(projection)` finds
+  same-subject Active duplicates (keeps latest, flags older); `reconcile` emits
+  `SupersedeOpinion` through the gate + advances its cursor; `run_if_due` in
+  the PM loop. `reconcile_interval` on AppState (default 25).
+- The D2 seam later supplies the *smart* "what truly conflicts" judgment; the
+  skeleton does the mechanically-obvious cleanup deterministically and
+  idempotently.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
