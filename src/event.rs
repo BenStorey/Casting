@@ -51,6 +51,16 @@ pub enum EventType {
     AssumptionRecorded,
     /// A project constraint was recorded (semantic object).
     ConstraintRecorded,
+    /// A project OPINION was recorded — a subjective judgment / rationale /
+    /// preference (e.g. "Postgres is a good default for our log"). Subjective
+    /// and changeable: superseded, never edited. (owner concept 2026-08-10:
+    /// knowledge worth not re-deriving is opinion, not objective fact)
+    OpinionRecorded,
+    /// A project FACT was recorded — an objective, measured datapoint about the
+    /// project (e.g. "the repo is 1,342 lines"). Objective measures are usually
+    /// derived from state, but recording one captures a point-in-time snapshot
+    /// worth preserving. (owner concept 2026-08-10)
+    FactRecorded,
     /// A project directive was created (governance layer, docs/INTENT.md).
     ProjectDirectiveCreated,
     /// A directive was suspended (no longer governs) — status -> Suspended.

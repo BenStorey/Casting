@@ -106,6 +106,22 @@ pub enum PmAction {
         id: String,
         body: String,
     },
+    /// Record a project OPINION — a subjective judgment / rationale /
+    /// preference (e.g. "Postgres is a good default for our event log").
+    RecordOpinion {
+        id: String,
+        category: String,
+        statement: String,
+        /// Optional id of a prior opinion this one supersedes (not edited).
+        supersedes: Option<String>,
+    },
+    /// Record a project FACT — an objective, measured point-in-time datapoint
+    /// (e.g. "the repo is 1,342 lines").
+    RecordFact {
+        id: String,
+        kind: String,
+        statement: String,
+    },
     /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
     CreateDirective {
         id: String,
@@ -656,6 +672,37 @@ impl PmAction {
                 "constraint",
                 EventType::ConstraintRecorded,
                 json!({ "body": body }),
+                meta,
+            )],
+            PmAction::RecordOpinion {
+                id,
+                category,
+                statement,
+                supersedes,
+            } => vec![ev(
+                project,
+                actor,
+                id,
+                "opinion",
+                EventType::OpinionRecorded,
+                json!({
+                    "category": category,
+                    "statement": statement,
+                    "supersedes": supersedes,
+                }),
+                meta,
+            )],
+            PmAction::RecordFact {
+                id,
+                kind,
+                statement,
+            } => vec![ev(
+                project,
+                actor,
+                id,
+                "fact",
+                EventType::FactRecorded,
+                json!({ "kind": kind, "statement": statement }),
                 meta,
             )],
             PmAction::CreateDirective {

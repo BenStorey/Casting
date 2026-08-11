@@ -140,6 +140,36 @@ pub struct Assumption {
     pub recorded_by: String,
 }
 
+/// A recorded project OPINION — a subjective judgment / rationale / preference
+/// (e.g. "Postgres is a good default for our event log"). Subjective: a later
+/// opinion supersedes it (history preserved) rather than editing it in place.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Opinion {
+    pub id: String,
+    /// Category: "rationale" | "design" | "lesson" | "preference" (free string,
+    /// not an enum, so categories can evolve without a migration).
+    pub category: String,
+    pub statement: String,
+    pub recorded_by: String,
+    /// If non-empty, the id of the opinion this one supersedes.
+    #[serde(default)]
+    pub supersedes: Option<String>,
+}
+
+/// A recorded project FACT — an objective, measured datapoint (e.g. "the repo
+/// is 1,342 lines"). Objective measures are usually derived from state; this
+/// captures a point-in-time snapshot worth preserving.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Fact {
+    pub id: String,
+    /// What kind of measurement, e.g. "loc" | "events" | "tasks" (free string).
+    pub kind: String,
+    pub statement: String,
+    pub recorded_by: String,
+    /// ISO/chrono timestamp at record time, so a datapoint is a point-in-time.
+    pub recorded_at: String,
+}
+
 /// A recorded project constraint (semantic note, SEMANTIC_EVENTS §8).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Constraint {
@@ -228,6 +258,10 @@ pub struct Projection {
     pub risks: Vec<Risk>,
     pub assumptions: Vec<Assumption>,
     pub constraints: Vec<Constraint>,
+    /// Recorded project opinions (subjective knowledge worth not re-deriving).
+    pub opinions: Vec<Opinion>,
+    /// Recorded project facts (objective point-in-time measurements).
+    pub facts: Vec<Fact>,
     /// First-class governance objects (docs/INTENT.md).
     pub directives: Vec<crate::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
@@ -386,6 +420,20 @@ impl Projection {
                 id: e.aggregate.id.clone(),
                 body: string_field(e, "body").unwrap_or_default(),
                 recorded_by: actor_name(e),
+            }),
+            EventType::OpinionRecorded => self.opinions.push(Opinion {
+                id: e.aggregate.id.clone(),
+                category: string_field(e, "category").unwrap_or_default(),
+                statement: string_field(e, "statement").unwrap_or_default(),
+                recorded_by: actor_name(e),
+                supersedes: string_field(e, "supersedes"),
+            }),
+            EventType::FactRecorded => self.facts.push(Fact {
+                id: e.aggregate.id.clone(),
+                kind: string_field(e, "kind").unwrap_or_default(),
+                statement: string_field(e, "statement").unwrap_or_default(),
+                recorded_by: actor_name(e),
+                recorded_at: e.timestamp.to_string(),
             }),
             EventType::ProjectDirectiveCreated => {
                 use crate::directive::{Directive, DirectiveKind, DirectiveStrength};
