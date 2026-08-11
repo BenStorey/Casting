@@ -1,0 +1,216 @@
+//! The **setup engine** (`cast init`) — onboarding as a shared, deterministic
+//! flow (owner decision 2026-08-10: "offer both CLI wizard and UI, one engine").
+//!
+//! A fresh company is configured here: name, initial cast (roles from the
+//! catalog), an optional owner token, and optional starting governance
+//! directives. `SetupPlan` writes these as the initial event sequence into the
+//! state store — **idempotently** (re-running never double-hires or re-creates).
+//!
+//! The engine is deliberately separate from _onboarding_: it seeds the company
+//! and cast but does NOT fire the objective/message. That stays the owner's
+//! first real message, which triggers `plan_onboard`. Because the engine and
+//! onboarding both hire cast members, `plan_onboard` skips already-hired
+//! agents (see pm.rs). This keeps setup and onboarding from fighting.
+//!
+//! Future first-run UI drives this SAME engine (no second copy of setup logic).
+
+use crate::actions;
+use crate::directive::{DirectiveKind, DirectiveStrength};
+use crate::event::{Actor, Aggregate, Event, EventType};
+use crate::sqlite_store::SqliteEventStore;
+use crate::store::EventStore;
+use anyhow::{Context, Result};
+
+/// What the owner wants for a fresh company.
+#[derive(Debug, Clone, Default)]
+pub struct SetupSpec {
+    /// Human-readable company/product name.
+    pub name: String,
+    /// Role ids from the catalog to hire (e.g. ["engineer","qa"]). Empty =
+    /// default cast.
+    pub roles: Vec<String>,
+    /// Optional owner bearer token (enables auth). Empty = auth off.
+    pub owner_token: Option<String>,
+    /// Optional starting governance directives (`ProjectDirectiveCreated`).
+    pub directives: Vec<StartDirective>,
+}
+
+/// A starting governance directive (reuses the owner-authored event builder).
+#[derive(Debug, Clone)]
+pub struct StartDirective {
+    pub id: String,
+    pub kind: DirectiveKind,
+    pub statement: String,
+    pub scope: Vec<String>,
+    pub strength: DirectiveStrength,
+}
+
+/// The plan to create a company, ready to apply against a state store.
+pub struct SetupPlan {
+    pub spec: SetupSpec,
+    /// Which cast members will be hired (id + role title), for the summary.
+    pub hires: Vec<(String, String)>,
+}
+
+impl SetupPlan {
+    /// Build the plan from a spec. Resolves the default cast when `roles` is
+    /// empty; validates every role is in the catalog.
+    pub fn build(spec: SetupSpec) -> Result<Self> {
+        let roles: Vec<String> = if spec.roles.is_empty() {
+            crate::cast::DEFAULT_CAST
+                .iter()
+                .map(|m| m.role_id.to_string())
+                .collect()
+        } else {
+            spec.roles.clone()
+        };
+
+        let mut hires = Vec::new();
+        let mut seen = std::collections::HashMap::<String, usize>::new();
+        for role_id in &roles {
+            let role = crate::cast::role_by_id(role_id)
+                .with_context(|| format!("unknown role in cast catalog: {role_id}"))?;
+            // Canonical default-cast agent for that role if it's a default one,
+            // else a per-role occurrence counter (role-1, role-2, ...).
+            let agent_id = match default_agent_for(role_id) {
+                Some(id) => id,
+                None => {
+                    let n = seen.entry(role_id.clone()).or_insert(0);
+                    *n += 1;
+                    format!("{role_id}-{n}")
+                }
+            };
+            hires.push((agent_id, role.title.to_string()));
+        }
+
+        Ok(SetupPlan { spec, hires })
+    }
+
+    /// Apply the setup to a state dir: open (or create) the DBs, append the
+    /// initial events idempotently, and persist the runtime config (name +
+    /// optional owner token) that `cast run` reads. Returns the number of
+    /// events written (0 if the company is already set up).
+    pub fn apply(&self, dir: &std::path::Path) -> Result<u32> {
+        let store = open_store(dir)?;
+        let written = apply_to_store(&store, &self.spec, &self.hires)?;
+        write_config(dir, &self.spec)?;
+        Ok(written)
+    }
+}
+
+/// Open (or create) the state-dir event store.
+pub fn open_store(dir: &std::path::Path) -> Result<SqliteEventStore> {
+    std::fs::create_dir_all(dir).context("create state dir")?;
+    SqliteEventStore::open(dir.join("events.db"))
+}
+
+/// The canonical agent id for a default-cast role, if any (so the wizard's
+/// "add security" numbers don't collide with Marcus/Maya).
+fn default_agent_for(role_id: &str) -> Option<String> {
+    crate::cast::DEFAULT_CAST
+        .iter()
+        .find(|m| m.role_id == role_id)
+        .map(|m| m.agent_id.to_string())
+}
+
+/// Append the initial company events against an existing store, idempotently.
+/// Assumes the store already has a seeded PM (like `cast run`); detects an
+/// existing company by the project's first event.
+fn apply_to_store(
+    store: &SqliteEventStore,
+    spec: &SetupSpec,
+    hires: &[(String, String)],
+) -> Result<u32> {
+    use crate::projection::Projection;
+    let project = "project-demo"; // single-project for now (multi-project later)
+
+    if store.latest_sequence(project)? > 0 {
+        return Ok(0); // company already exists — no-op
+    }
+
+    let mut written = 0u32;
+
+    // 1. Create the company.
+    store.append(Event::new(
+        project,
+        Actor::System,
+        EventType::ProjectCreated,
+        Aggregate {
+            kind: "project".into(),
+            id: project.into(),
+        },
+        serde_json::json!({ "name": spec.name }),
+    ))?;
+    written += 1;
+
+    // 2. Hire the PM.
+    store.append(Event::new(
+        project,
+        Actor::System,
+        EventType::AgentHired,
+        Aggregate {
+            kind: "agent".into(),
+            id: "pm".into(),
+        },
+        serde_json::json!({ "role": "Project Manager" }),
+    ))?;
+    written += 1;
+
+    // 3. Hire the chosen cast members.
+    for (agent_id, role_title) in hires {
+        store.append(Event::new(
+            project,
+            Actor::System,
+            EventType::AgentHired,
+            Aggregate {
+                kind: "agent".into(),
+                id: agent_id.clone(),
+            },
+            serde_json::json!({ "role": role_title }),
+        ))?;
+        written += 1;
+    }
+
+    // 4. Optionally write starting governance directives (owner-authored).
+    for d in &spec.directives {
+        store.append(actions::owner_directive_created(
+            project,
+            &d.id,
+            d.kind,
+            &d.statement,
+            d.scope.clone(),
+            d.strength,
+        ))?;
+        written += 1;
+    }
+
+    // Rebuild the empty projection once to confirm it folds (cheap sanity).
+    Projection::build(store, project)?;
+
+    Ok(written)
+}
+
+/// Runtime config persisted by setup and read by `cast run` (name + auth).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RuntimeConfig {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_token: Option<String>,
+}
+
+const CONFIG_FILE: &str = "config.json";
+
+fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
+    let cfg = RuntimeConfig {
+        name: spec.name.clone(),
+        owner_token: spec.owner_token.clone(),
+    };
+    let json = serde_json::to_string_pretty(&cfg)?;
+    std::fs::write(dir.join(CONFIG_FILE), json).context("write state-dir config")
+}
+
+/// Read the persisted runtime config (owner token + name), if present.
+pub fn read_config(dir: &std::path::Path) -> Option<RuntimeConfig> {
+    let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).ok()?;
+    serde_json::from_str(&raw).ok()
+}

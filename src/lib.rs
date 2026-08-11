@@ -26,6 +26,7 @@ pub mod policy;
 pub mod projection;
 pub mod provenance;
 pub mod replay;
+pub mod setup;
 pub mod snapshot;
 pub mod sqlite_store;
 pub mod store;
