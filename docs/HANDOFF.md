@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **141 tests** (6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3+5),
+"why does this code exist?". **149 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -150,6 +150,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── persona.rs                  <- persona/CV rendering (brief §2.2)
 │   ├── orchestrator.rs             <- D2 seam: Orchestrator trait + MockOrchestrator (real LLM off)
 │   ├── integrity.rs                <- write-time event-stream precondition enforcement
+│   ├── setup.rs                    <- setup engine (SetupSpec + SetupPlan, idempotent onboarding)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
@@ -268,17 +269,27 @@ SSE — on every event the app refetches `/api/state` + `/api/inbox`.
 TypeScript types in `frontend/src/api.ts` mirror the Rust projection.
 Dark themed, single CSS file, no CSS framework.
 
-## 2.5 `cast` CLI
+## 2.5 `cast` CLI / setup wizard
 
-- `cast init <dir>` — create `.casting/` with `events.db` + `cursors.db`.
+- `cast init <state-dir> [--interactive] [--name=..] [--objective=..]
+  [--cast=engineer,qa] [--owner-token=..] [--directive=stmt|scope]` — the
+  setup wizard/engine (owner decision: CLI + first-run UI share ONE engine, no
+  second copy). Flag mode is scriptable/headless; `--interactive` prompts for
+  any missing field on stdin. Writes `ProjectCreated`, hires the chosen cast
+  roles (`AgentHired`), optional starting directives, and persists
+  `config.json` (name + owner token). Idempotent — re-running is a no-op and
+  never wipes an existing token. Deliberately does NOT fire the objective (that
+  stays the owner's first UI message → `plan_onboard`).
 - `cast smoke <dir>` — headless-core smoke test (append/replay/cursor).
 - `cast run --repo <dir> --state-dir <path> [--selfhost]` — boot the
   workspace: enforces the ownership boundary (D5), opens/creates the stores,
-  seeds the project (`ProjectCreated` + hire `pm`) if empty, spawns the PM
-  loop, serves API + embedded UI at `http://127.0.0.1:8080` (`CAST_ADDR` env
-  overrides). `--state-dir` is **required** and always separate from the repo;
-  `--selfhost` operates on the Casting source itself (see
-  `docs/OWNERSHIP_BOUNDARY.md`). No prior `cast init` needed.
+  seeds the project if empty, spawns the PM loop, serves API + embedded UI at
+  `http://127.0.0.1:8080` (`CAST_ADDR` env overrides). `--state-dir` is
+  **required** and always separate from the repo; `--selfhost` operates on the
+  Casting source itself (see `docs/OWNERSHIP_BOUNDARY.md`). No prior
+  `cast init` needed (bare run auto-hires the default cast on first message).
+  Owner auth: reads token from `config.json` first, else `CAST_OWNER_TOKEN`.
+- `cast log --db <events.db> [--project <id>] [--verify]` — dump / verify.
 
 Known wart: the scripted titles read "Design Build me a todo app" (the
 owner's message gets spliced into task titles) — cosmetic, low priority.
@@ -311,7 +322,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3+5 = 141 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3 = 149 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -565,6 +576,15 @@ it on in production. Keep building the deterministic surface first.
   `AppState::with_owner_auth` / the `CAST_OWNER_TOKEN` env var. `POST /api/login`
   verifies the token. Reads stay open (the whole site is already behind Caddy
   basic auth in production; this is the write-authority boundary inside the app).
+
+**Setup engine + CLI wizard — DONE 2026-08-10** (owner decision: CLI + the
+future first-run UI share ONE engine, never two):
+- `src/setup.rs`: `SetupSpec` (name, roles, owner token, optional starting
+  directives) → `SetupPlan::build` (resolves default cast, validates roles)
+  → `apply(state-dir)` idempotently writes `ProjectCreated` + hire cast +
+  optional directives, and persists `config.json` (name + owner token).
+- `cast init` drives it (flag- or interactive-); `cast run` reads the persisted
+  token first. `plan_onboard` no longer tops-up a setup-chosen custom cast.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
