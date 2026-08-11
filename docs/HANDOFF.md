@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **182 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1),
+"why does this code exist?". **186 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -246,6 +246,10 @@ axum router for a single project (project id is currently fixed at
 - `GET /api/inbox` — decisions awaiting the owner.
 - `POST /api/message` `{body}` — owner → PM; persists a durable
   `MessageSent` and wakes the PM.
+- `POST /api/brief` `{source?, subject?, title?, body, assets?}` — the owner
+  imports EXTERNAL advisor content (e.g. a pasted ChatGPT plan) as an ADVISORY
+  briefing. Explicitly NOT authoritative: `source` marks provenance, and it can
+  inform context but never sets rules. Returns the stored event.
 - `POST /api/decision` `{decision_id, subject, approved, note}` —
   persists `DecisionMade` (actor = Owner).
 - `POST /api/policy` `{class, involvement}` — owner configures a decision
@@ -325,6 +329,10 @@ registry is the launcher; per-project *state* lives collocated in
   on first message). Owner auth: token from `config.json` first, else
   `CAST_OWNER_TOKEN`.
 - `cast smoke <dir>` — headless-core smoke test (append/replay/cursor).
+- `cast brief <project> [--subject S] [--source SRC] [--title T] <file|->` —
+  import EXTERNAL advisor content (a text file, or stdin via `-`) as an
+  ADVISORY briefing: it can inform context but NEVER sets rules (provenance
+  `source` keeps it distinct from the owner's own intent).
 - `cast log --db <events.db> [--project <id>] [--verify]` — dump / verify.
 
 Known wart: the scripted titles read "Design Build me a todo app" (the
@@ -358,7 +366,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1 = 182 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4 = 186 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -702,6 +710,21 @@ attributable from day one):
 - `/api/model` surfaces `spend` (total + per-agent) so the PM's budget concern
   has real data. MockOrchestrator meters (~$0.0018) on planning calls so the
   seam is tested end-to-end with the LLM still off.
+
+**External advisor briefings — DONE 2026-08-10** (owner: "a way to dump stuff
+in that's generated outside Casting ... that doesn't set the rules." Fixes the
+provenance failure where an imported .md became authoritative by default):
+- `AdvisoryBriefingImported` event + `proj.briefings` (Briefing{source, subject,
+  title, body, assets, brought_in_by, status Active|Superseded, supersedes}).
+  `source` marks provenance so advice is never confusable with the owner's own
+  intent; supersession lets stale advice decay instead of dominating.
+- `PmAction::ImportBriefing`; `cast brief <project> [--subject S] [--source SRC]
+  [--title T] <file|->`; `POST /api/brief`.
+- `/api/model` surfaces them under `knowledge.briefings` (AdvisoryView: active +
+  superseded + count), clearly separate from governance and Casting's own beliefs.
+- The rule: advisory can INFORM context, never SETS rules (directives remain the
+  only authority mechanism). Images/diagrams are reference assets (caption +
+  path/URL); vision-derivation is a D2 item.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
