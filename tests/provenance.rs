@@ -20,9 +20,8 @@ fn ws_with_repo() -> (tempfile::TempDir, Workspace, SqliteEventStore, CursorStor
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
-    let state = tmp.path().join("state");
 
-    let ws = Workspace::open(&repo, &state, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
     ws.ensure_repo().unwrap();
 
     let store = SqliteEventStore::open(ws.state_dir.join("events.db")).unwrap();

@@ -57,8 +57,8 @@ fn main() -> Result<()> {
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company (vertical slice)\n\n\
-                 USAGE:\n  cast init <dir>                 create a Casting project skeleton\n  cast smoke <dir>                append sample events and replay them\n  cast run --repo <dir> --state-dir <path> [--selfhost]\n                                  start the workspace (PM + web UI)\n  cast log --db <events.db> [--project <id>] [--verify]\n                                  dump / verify the raw event stream\n\n\
-                 --repo <dir>     the artifact repo Casting drives (git)\n  --state-dir <path> Casting's internal state dir (always separate from the repo)\n  --selfhost       operate on the Casting source repo itself (off by default)\n\n\
+                 USAGE:\n  cast init <project-dir>          create a Casting project (.casting/ skeleton + setup)\n  cast smoke <dir>                append sample events and replay them\n  cast run --project <dir> [--selfhost]\n                                  start the workspace (PM + web UI)\n  cast log --db <events.db> [--project <id>] [--verify]\n                                  dump / verify the raw event stream\n\n\
+                 --project <dir>  your project repo Casting drives; state lives\n                                  collocated in <dir>/.casting/ (gitignored)\n  --selfhost       operate on the Casting source repo itself (off by default)\n\n\
                  Env:\n  CAST_ADDR   bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_SELFHOST  1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
@@ -217,7 +217,15 @@ fn do_init(mut args: InitArgs) -> Result<()> {
     };
 
     let plan = casting::setup::SetupPlan::build(spec)?;
-    let written = plan.apply(&args.dir)?;
+
+    // State lives collocated in <project>/.casting/ (gitignored).
+    std::fs::create_dir_all(&args.dir).context("create project dir")?;
+    let casting_dir = args.dir.join(".casting");
+    let ws = Workspace::open(&args.dir, Selfhost::Disabled)?;
+    ws.ensure_self_ignored()
+        .context("ensure .casting self-ignored")?;
+
+    let written = plan.apply(&casting_dir)?;
     if written == 0 {
         println!(
             "Company already set up at {} — no changes.",
@@ -247,14 +255,12 @@ fn do_init(mut args: InitArgs) -> Result<()> {
 
 /// Flags for `cast run`, parsed by [`parse_run`].
 struct RunArgs {
-    repo: PathBuf,
-    state_dir: PathBuf,
+    project: PathBuf,
     selfhost: Selfhost,
 }
 
 fn parse_run(args: &[String]) -> Result<RunArgs> {
-    let mut repo = None;
-    let mut state_dir = None;
+    let mut project = None;
     let mut selfhost = Selfhost::Disabled;
 
     // --selfhost may also come from the env (CAST_SELFHOST=1).
@@ -265,20 +271,9 @@ fn parse_run(args: &[String]) -> Result<RunArgs> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--repo" => {
-                repo = Some(
-                    args.get(i + 1)
-                        .context("--repo requires a path")?
-                        .into(),
-                );
-                i += 2;
-            }
-            "--state-dir" => {
-                state_dir = Some(
-                    args.get(i + 1)
-                        .context("--state-dir requires a path")?
-                        .into(),
-                );
+            // --project is the canonical flag; --repo is kept as an alias.
+            "--project" | "--repo" => {
+                project = Some(args.get(i + 1).context("--project requires a path")?.into());
                 i += 2;
             }
             "--selfhost" => {
@@ -286,26 +281,21 @@ fn parse_run(args: &[String]) -> Result<RunArgs> {
                 i += 1;
             }
             other => anyhow::bail!(
-                "unknown argument {other:?} (tip: cast run --repo <dir> --state-dir <path> [--selfhost])"
+                "unknown argument {other:?} (tip: cast run --project <dir> [--selfhost])"
             ),
         }
     }
 
-    let repo = repo.context("cast run requires --repo <dir>")?;
-    let state_dir = state_dir.context("cast run requires --state-dir <path>")?;
-    Ok(RunArgs {
-        repo,
-        state_dir,
-        selfhost,
-    })
+    let project = project.context("cast run requires --project <dir> (your project repo)")?;
+    Ok(RunArgs { project, selfhost })
 }
 
 /// Print the preflight banner: the canonical target + detected repo HEAD, so
 /// the operator *sees* what Casting is about to touch before anything mutates.
 fn preflight(ws: &Workspace, repo_created: bool) {
     println!("🎬 Casting workspace");
-    println!("   artifact repo: {}", ws.repo.display());
-    println!("   state-dir:     {}", ws.state_dir.display());
+    println!("   project:       {}", ws.repo.display());
+    println!("   state:         {}", ws.casting_dir().display());
     if repo_created {
         println!("   git:           initialized (repo had no .git)");
     }
@@ -325,19 +315,23 @@ fn preflight(ws: &Workspace, repo_created: bool) {
 /// the project, start the simulated PM control loop, and serve the API +
 /// embedded React UI from one binary.
 fn do_run(run: RunArgs) -> Result<()> {
-    let ws = Workspace::open(&run.repo, &run.state_dir, run.selfhost)?;
+    let ws = Workspace::open(&run.project, run.selfhost)?;
 
     // Ensure the artifact repo is a real git repo (git-init if missing). This
     // wires Git into the workspace at startup (Git slice increment 1).
     let created = ws.ensure_repo().context("ensure git repo")?;
 
+    // Casting's internal state lives collocated in <repo>/.casting/, which is
+    // self-ignored by git (so it never shows as pending changes).
+    ws.ensure_self_ignored()
+        .context("ensure .casting self-ignored")?;
+
     preflight(&ws, created);
 
-    // Casting's internal state lives in the (mandatory, separate) state dir.
-    let store = SqliteEventStore::open(ws.state_dir.join("events.db"))?;
-    let cursors = CursorStore::open(ws.state_dir.join("cursors.db"))?;
+    let store = SqliteEventStore::open(ws.casting_dir().join("events.db"))?;
+    let cursors = CursorStore::open(ws.casting_dir().join("cursors.db"))?;
     // Projection snapshots (a pure read optimization, never a source of truth).
-    let snapshots = casting::snapshot::SnapshotStore::open(ws.state_dir.join("snapshots.db"))?;
+    let snapshots = casting::snapshot::SnapshotStore::open(ws.casting_dir().join("snapshots.db"))?;
 
     let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 
@@ -346,12 +340,12 @@ fn do_run(run: RunArgs) -> Result<()> {
         let state = AppState::new(store, cursors, PROJECT_ID)
             .with_snapshots(snapshots)
             .with_integrity()
-            .with_state_dir(ws.state_dir.clone());
+            .with_state_dir(ws.casting_dir().to_path_buf());
         // Owner auth: the token comes from the persisted setup config.json
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:
         // Bearer <token>.
-        let persisted_token = casting::setup::read_config(&run.state_dir)
+        let persisted_token = casting::setup::read_config(ws.casting_dir())
             .and_then(|c| c.owner_token)
             .filter(|t| !t.is_empty());
         let token = persisted_token.or_else(|| std::env::var("CAST_OWNER_TOKEN").ok());

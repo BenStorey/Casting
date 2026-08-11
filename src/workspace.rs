@@ -36,27 +36,20 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// Open a workspace for `repo` + `state_dir`, enforcing the boundary:
+    /// Open a workspace for `repo` (the artifact/project repo), enforcing the
+    /// boundary:
     ///
-    /// 1. both resolve to canonical absolute paths;
-    /// 2. they are distinct and not nested (state can never collide with the
-    ///    repo or vice-versa);
+    /// 1. the repo resolves to a canonical absolute path;
+    /// 2. Casting's own state lives **collocated** in `<repo>/.casting/` (a
+    ///    gitignored directory — the whole dir is self-ignored so it never
+    ///    pollutes the user's git history);
     /// 3. unless `Selfhost::Enabled`, refuse to operate on the repo that built
     ///    this binary (embedded source root) or any repo whose identity is the
     ///    Casting crate (`name = "casting"`).
-    pub fn open(repo: &Path, state_dir: &Path, selfhost: Selfhost) -> Result<Self> {
+    pub fn open(repo: &Path, selfhost: Selfhost) -> Result<Self> {
         let repo = repo
             .canonicalize()
             .with_context(|| format!("canonicalize artifact repo {}", repo.display()))?;
-
-        // The state dir must exist (we're allowed to create it).
-        std::fs::create_dir_all(state_dir)
-            .with_context(|| format!("create state dir {}", state_dir.display()))?;
-        let state_dir = state_dir
-            .canonicalize()
-            .with_context(|| format!("canonicalize state dir {}", state_dir.display()))?;
-
-        ensure_distinct(&repo, &state_dir)?;
 
         if selfhost == Selfhost::Disabled && is_casting_source(&repo) {
             bail!(
@@ -67,11 +60,32 @@ impl Workspace {
             );
         }
 
+        let state_dir = repo.join(".casting");
         Ok(Workspace {
             repo,
             state_dir,
             selfhost,
         })
+    }
+
+    /// The `.casting/` directory (Casting's internal state lives here,
+    /// collocated inside the project repo and self-ignored by git).
+    pub fn casting_dir(&self) -> &Path {
+        &self.state_dir
+    }
+
+    /// Ensure Casting's state directory exists and is **self-ignored**: write
+    /// `<repo>/.casting/.gitignore` = `*` (idempotent) so the whole directory
+    /// never shows up as untracked/pending in the user's repo. Also makes sure
+    /// the directory itself exists. Called at startup.
+    pub fn ensure_self_ignored(&self) -> Result<()> {
+        std::fs::create_dir_all(&self.state_dir)
+            .with_context(|| format!("create casting dir {}", self.state_dir.display()))?;
+        let gi = self.state_dir.join(".gitignore");
+        if !gi.exists() {
+            std::fs::write(&gi, "*\n").with_context(|| format!("write {}", gi.display()))?;
+        }
+        Ok(())
     }
 
     /// Whether self-hosting is enabled on this workspace.
@@ -187,22 +201,6 @@ impl Workspace {
     }
 }
 
-fn ensure_distinct(repo: &Path, state_dir: &Path) -> Result<()> {
-    if repo == state_dir || repo.starts_with(state_dir) || state_dir.starts_with(repo) {
-        bail!(
-            "state-dir and repo must be distinct, non-nested paths \
-             (got repo={} state-dir={}); the state-dir is always separate \
-             from the artifact repo (docs/OWNERSHIP_BOUNDARY.md §6)",
-            repo.display(),
-            state_dir.display()
-        );
-    }
-    Ok(())
-}
-
-/// Does `repo` look like the Casting source? Two signals: it matches the repo
-/// that built this binary (embedded source root), or its `Cargo.toml` names the
-/// Casting crate.
 fn is_casting_source(repo: &Path) -> bool {
     // Signal 1: this is the actual repo this binary was compiled from.
     if let Some(root) = option_env!("CASTING_SOURCE_ROOT") {
