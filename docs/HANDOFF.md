@@ -65,6 +65,9 @@ explainability ("why does this code/decision exist?").
   tiered triggers, coalescing, cost rules).
 - `docs/OWNERSHIP_BOUNDARY.md` — the state-vs-repo ownership model +
   self-identity guard + self-hosting (D5, prerequisite for the Git slice).
+- `docs/HARNESS.md` — harness responsibilities (fault isolation, context,
+  tracing, checkpointing, cost attribution, concurrency, escalation, sandboxing,
+  backpressure): what we own vs. borrow; what's already the event-sourced core.
 - `docs/INITIAL_PITCH.md` — the original rough idea (context/history).
 - `docs/ENGINEERING_NOTES.md` — scoping notes + open decisions (D1–D5).
 
