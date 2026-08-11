@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **149 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3),
+"why does this code exist?". **152 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -250,6 +250,12 @@ axum router for a single project (project id is currently fixed at
   `CAST_OWNER_TOKEN` is set, the owner-mutating endpoints (`message`/`decision`/
   `policy`/`directive`/`hire`) require `Authorization: Bearer <token>`; reads
   stay open.
+- `GET /api/setup/status` — `{ configured, roles[] }` for the first-run wizard
+  (`configured` = a cast is hired, not just the seed PM; `roles` = the catalog).
+- `POST /api/setup` `{name, objective, cast:[role ids], owner_token?}` — the
+  first-run submit: hire the cast (idempotent), persist the token, then fire the
+  owner's objective as a message so `plan_onboard` kicks off. Shares ONE engine
+  with `cast init`.
 - `GET /api/context/{actor}` — the assembled operating context for an agent
   (or "owner"/"pm"): objective, ranked priorities, their tasks, the governance
   directives that apply to them, risks, and open decisions (Context Assembler).
@@ -268,6 +274,9 @@ Team, Decisions, Inbox (badge with unread count), Activity. Realtime via
 SSE — on every event the app refetches `/api/state` + `/api/inbox`.
 TypeScript types in `frontend/src/api.ts` mirror the Rust projection.
 Dark themed, single CSS file, no CSS framework.
+**First-run wizard:** when no cast is hired yet (only the seed PM), the SPA
+shows `SetupWizard.tsx` (name, objective, role picker, owner token) instead of
+the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
 
 ## 2.5 `cast` CLI / setup wizard
 
@@ -322,7 +331,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3 = 149 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3 = 152 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -585,6 +594,9 @@ future first-run UI share ONE engine, never two):
   optional directives, and persists `config.json` (name + owner token).
 - `cast init` drives it (flag- or interactive-); `cast run` reads the persisted
   token first. `plan_onboard` no longer tops-up a setup-chosen custom cast.
+- **Web first-run wizard DONE**: `/api/setup/status` + `/api/setup` + the SPA's
+  `SetupWizard.tsx` drive the same engine — name, objective, role picker, owner
+  token. Phone-testable.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
