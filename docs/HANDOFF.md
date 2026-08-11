@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **181 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3),
+"why does this code exist?". **182 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -358,7 +358,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3 = 181 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1 = 182 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -690,6 +690,18 @@ wrong-priority PM AND for users):
 - Pure derivation, no LLM. The `drift_signals` field reuses the same-subject
   Active-contradiction detection as the reconciler, surfacing it to the owner
   BEFORE the reconciler's next pass.
+
+**Cost attribution — DONE 2026-08-10** (HARNESS #6; the one harness
+responsibility worth designing NOW, per the ⚡ directive that the LLM stays a
+thin client over a complete product — so when D2 wires real providers, spend is
+attributable from day one):
+- `Orchestrator::plan` returns `PlanOutput { actions, metering }`; a provider
+  call reports `CostMetering` (agent_id, task_id, model_tier, tokens, USD).
+- The PM lands it as a `CostIncurred` event → `proj.spend` (CostEntry),
+  aggregated via `total_spend_usd` / `spend_by_agent`.
+- `/api/model` surfaces `spend` (total + per-agent) so the PM's budget concern
+  has real data. MockOrchestrator meters (~$0.0018) on planning calls so the
+  seam is tested end-to-end with the LLM still off.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
