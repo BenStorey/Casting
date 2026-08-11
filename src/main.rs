@@ -345,7 +345,8 @@ fn do_run(run: RunArgs) -> Result<()> {
     rt.block_on(async move {
         let state = AppState::new(store, cursors, PROJECT_ID)
             .with_snapshots(snapshots)
-            .with_integrity();
+            .with_integrity()
+            .with_state_dir(ws.state_dir.clone());
         // Owner auth: the token comes from the persisted setup config.json
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:

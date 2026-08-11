@@ -56,33 +56,7 @@ impl SetupPlan {
     /// Build the plan from a spec. Resolves the default cast when `roles` is
     /// empty; validates every role is in the catalog.
     pub fn build(spec: SetupSpec) -> Result<Self> {
-        let roles: Vec<String> = if spec.roles.is_empty() {
-            crate::cast::DEFAULT_CAST
-                .iter()
-                .map(|m| m.role_id.to_string())
-                .collect()
-        } else {
-            spec.roles.clone()
-        };
-
-        let mut hires = Vec::new();
-        let mut seen = std::collections::HashMap::<String, usize>::new();
-        for role_id in &roles {
-            let role = crate::cast::role_by_id(role_id)
-                .with_context(|| format!("unknown role in cast catalog: {role_id}"))?;
-            // Canonical default-cast agent for that role if it's a default one,
-            // else a per-role occurrence counter (role-1, role-2, ...).
-            let agent_id = match default_agent_for(role_id) {
-                Some(id) => id,
-                None => {
-                    let n = seen.entry(role_id.clone()).or_insert(0);
-                    *n += 1;
-                    format!("{role_id}-{n}")
-                }
-            };
-            hires.push((agent_id, role.title.to_string()));
-        }
-
+        let hires = resolve_hires(&spec.roles)?;
         Ok(SetupPlan { spec, hires })
     }
 
@@ -105,6 +79,82 @@ impl SetupPlan {
 pub fn open_store(dir: &std::path::Path) -> Result<SqliteEventStore> {
     std::fs::create_dir_all(dir).context("create state dir")?;
     SqliteEventStore::open(dir.join("events.db"))
+}
+
+/// Resolve a list of role ids into concrete hires (agent id + role title),
+/// using the default cast when `roles` is empty. Validates each role.
+pub fn resolve_hires(roles: &[String]) -> Result<Vec<(String, String)>> {
+    let roles: Vec<String> = if roles.is_empty() {
+        crate::cast::DEFAULT_CAST
+            .iter()
+            .map(|m| m.role_id.to_string())
+            .collect()
+    } else {
+        roles.to_vec()
+    };
+
+    let mut hires = Vec::new();
+    let mut seen = std::collections::HashMap::<String, usize>::new();
+    for role_id in &roles {
+        let role = crate::cast::role_by_id(role_id)
+            .with_context(|| format!("unknown role in cast catalog: {role_id}"))?;
+        // Canonical default-cast agent for that role if it's a default one,
+        // else a per-role occurrence counter (role-1, role-2, ...).
+        let agent_id = match default_agent_for(role_id) {
+            Some(id) => id,
+            None => {
+                let n = seen.entry(role_id.clone()).or_insert(0);
+                *n += 1;
+                format!("{role_id}-{n}")
+            }
+        };
+        hires.push((agent_id, role.title.to_string()));
+    }
+    Ok(hires)
+}
+
+/// Idempotently ensure a set of cast members are hired against a RUNNING
+/// AppState (used by the web setup endpoint). Skips anyone already in the
+/// projection. Returns the hires that were actually issued.
+pub fn ensure_hires(
+    state: &crate::pm::AppState,
+    roles: &[String],
+) -> Result<Vec<(String, String)>> {
+    let hires = resolve_hires(roles)?;
+    let existing: Vec<String> = state
+        .projection()
+        .ok()
+        .map(|p| p.agents.iter().map(|a| a.id.clone()).collect())
+        .unwrap_or_default();
+    let mut issued = Vec::new();
+    for (agent_id, role_title) in hires {
+        if existing.contains(&agent_id) {
+            continue;
+        }
+        state.append(Event::new(
+            &state.project,
+            Actor::System,
+            EventType::AgentHired,
+            Aggregate {
+                kind: "agent".into(),
+                id: agent_id.clone(),
+            },
+            serde_json::json!({ "role": role_title }),
+        ))?;
+        issued.push((agent_id, role_title));
+    }
+    Ok(issued)
+}
+
+/// Persist the runtime config (name + owner token) that `cast run` reads.
+pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&str>) -> Result<()> {
+    let spec = SetupSpec {
+        name: name.to_string(),
+        roles: vec![],
+        owner_token: owner_token.map(str::to_string),
+        directives: vec![],
+    };
+    write_config(dir, &spec)
 }
 
 /// The canonical agent id for a default-cast role, if any (so the wizard's

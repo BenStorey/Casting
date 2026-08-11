@@ -66,6 +66,9 @@ pub struct AppState {
     /// auth disabled (backward compatible with tests / local runs). Enabled via
     /// `with_owner_auth` / the `CAST_OWNER_TOKEN` env var.
     pub auth_token: Option<Arc<str>>,
+    /// The state dir (set by `cast run`). Lets the web setup endpoint persist
+    /// `config.json` (name + owner token). `None` in tests.
+    pub state_dir: Option<std::path::PathBuf>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -81,6 +84,7 @@ impl AppState {
             orchestrator: None,
             enforce_integrity: false,
             auth_token: None,
+            state_dir: None,
             events: Arc::new(tx),
         }
     }
@@ -110,6 +114,12 @@ impl AppState {
     /// API endpoints then require `Authorization: Bearer <token>`.
     pub fn with_owner_auth(mut self, token: impl Into<String>) -> Self {
         self.auth_token = Some(Arc::from(token.into()));
+        self
+    }
+
+    /// Builder-style: attach the state dir (used by the web setup endpoint).
+    pub fn with_state_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.state_dir = Some(dir.into());
         self
     }
 
