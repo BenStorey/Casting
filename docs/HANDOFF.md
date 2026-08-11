@@ -400,6 +400,21 @@ crates, Even Better TOML.
 The simulated vertical slice is DONE and verified. Next increments, in
 order (aligns with brief §45 priorities):
 
+> ## ⚡ OWNER DIRECTIVE (2026-08-10): build the rest of the product FIRST
+>
+> Sequencing is now explicit. **Before** either of these two things, build the
+> rest of the deterministic product surface first:
+>
+> 1. **Do NOT expand to multiple projects / multiple users yet.**
+> 2. **Do NOT wire any real LLM integration (D2) yet.**
+>
+> Instead, keep building the deterministic product surface around the seam —
+> the **event / decision / state core is the product** ("this is what we live or
+> die by"). Keep every increment LLM-free, deterministic, and tested. Only reach
+> for multi-project / multi-user / real-LLM **once the product surface is
+> complete**. The real LLM stays a *thin client over a complete product*, never
+> a model racing a half-built scaffold.
+
 ### Next: build the product around the LLM seam — DEFER REAL LLM WIRING (D2, owner decision 2026-08-10)
 **Owner decision: do NOT wire a real LLM yet.** Build as much of the product
 surface as possible around the seam, and plug a provider in *later*. This
@@ -436,6 +451,11 @@ Next increments build the deterministic product surface around the seam.
 
 Concrete candidates, roughly in value order — all deterministic, LLM-free,
 independently testable:
+
+> **2026-08-10 owner note:** this is the section to keep working. The event /
+> decision / state core IS the product — keep maturing it and adding product
+> surface here before touching multi-project, multi-user, or a real LLM (per the
+> ⚡ directive at the top of this roadmap).
 
 1. ~~**Persist `DecisionPolicy` as domain events.** Today the per-class autonomy
    map is rebuilt from `DecisionPolicy::defaults()` in-memory; the owner's
@@ -535,8 +555,9 @@ the rules it operates under.
   via `AppState::with_integrity`; the production `cast run` enables it. `cast
   log --verify` remains the full-stream advisory check.
 
-**Next (D2, deferred until the owner returns):** plug the real OpenRouter
-provider into the `Orchestrator` seam and flip it on in production.
+**Next (D2, deferred until the product surface is complete — per the ⚡ directive
+above):** plug the real OpenRouter provider into the `Orchestrator` seam and flip
+it on in production. Keep building the deterministic surface first.
 
 **Owner auth — DONE 2026-08-10** (scoped to auth alone; multi-project later):
 - `src/auth.rs`: constant-time bearer-token guard for the owner-mutating API
@@ -556,7 +577,9 @@ Then, only after the core matures:
    (`Projection::persona_for`, `GET /api/persona/{id}`): the friendly identity
    layer, a pure renderer over the underlying agent configuration.
 7. ~~**Auth + multi-project** (brief §2.1/§31) — owner login + per-project
-   workspaces.~~ **DEPRIORITIZED** (not urgent).
+   workspaces.~~ **DEPRIORITIZED** — do NOT build until the rest of the product
+   surface is complete (per the ⚡ directive above). Owner auth alone is done;
+   multi-project / multi-user waits.
 8. ~~**Cost capture** (brief §6) — spend/budget/forecast.~~ **DEPRIORITIZED**
    (not urgent).
 
@@ -604,13 +627,15 @@ workflow; Git owns artifacts; Casting owns the organization.
   index.html; return a JSON 404 instead.~~ **DONE**.
 - ~~**SSE catch-up**: stream only pushes new events; replay missed on
   reconnect.~~ **DONE** (`?after=N` + frontend tracking).
-- **Auth + multi-project** (brief §2.1/§31, first-run UX), **task `review`
-  status**, **cost capture** (metadata shape is ready) — larger; leave to their
-  own milestone.
+- ~~**Task `review` status**~~ **DONE** (2026-08-10).
+- **Multi-project + multi-user + LLM integration** — **explicitly deferred until
+  the rest of the product surface is complete** (per the ⚡ directive at the top
+  of this roadmap). Owner auth alone is done.
 
-### Later: Postgres, decision policy engine, realtime dashboard polish,
-external owner messaging (Telegram/WhatsApp), context-assembly scoring,
-agent identity/persona rendering.
+### Later: Postgres, realtime dashboard polish, external owner messaging
+(Telegram/WhatsApp), context-assembly scoring — these remain LLM-free surface
+and are fair game to build once the core candidates above are exhausted. If in
+doubt, work the core candidates first.
 
 ---
 
