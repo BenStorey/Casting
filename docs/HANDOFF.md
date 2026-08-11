@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **152 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3),
+"why does this code exist?". **159 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -155,6 +155,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── setup.rs                    <- setup engine (SetupSpec + SetupPlan, idempotent onboarding)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
+│   ├── registry.rs                 <- home-dir project registry (~/.casting/projects.json)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
 │   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
@@ -280,28 +281,34 @@ Dark themed, single CSS file, no CSS framework.
 shows `SetupWizard.tsx` (name, objective, role picker, owner token) instead of
 the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
 
-## 2.5 `cast` CLI / setup wizard
+## 2.5 `cast` CLI / setup wizard / project registry
 
+Projects are registered in **`~/.casting/projects.json`** (name → repo). The
+registry is the launcher; per-project *state* lives collocated in
+`<repo>/.casting/` (gitignored). **Multi-user is deliberately NOT supported**
+(git is the sharing surface; each owner runs their own setup).
+
+- `cast` (no args) / `cast list` — list registered projects.
+- `cast add <name> <repo-path>` / `cast remove <name>` — register / unregister.
 - `cast init <project-dir> [--interactive] [--name=..] [--objective=..]
   [--cast=engineer,qa] [--owner-token=..] [--directive=stmt|scope]` — the
   setup wizard/engine (owner decision: CLI + first-run UI share ONE engine, no
   second copy). Flag mode is scriptable/headless; `--interactive` prompts for
   any missing field on stdin. Creates `<project-dir>/.casting/` (self-ignored),
   writes `ProjectCreated`, hires the chosen cast roles (`AgentHired`), optional
-  starting directives, persists `config.json` (name + owner token), and writes
-  a no-secrets `casting.example.json` template to the repo root. Idempotent —
-  re-running is a no-op and never wipes an existing token. Deliberately does
-  NOT fire the objective (that stays the owner's first UI message →
-  `plan_onboard`).
+  starting directives, persists `config.json` (name + owner token), writes a
+  no-secrets `casting.example.json` template to the repo root, and
+  **auto-registers** the project (name = `--name`, else dir basename) so it's
+  immediately runnable. Idempotent. Does NOT fire the objective (that stays the
+  owner's first UI message → `plan_onboard`).
+- `cast run <project-name> [--selfhost]` — resolve the repo via the registry,
+  enforce the ownership boundary (D5), open/create stores in
+  `<repo>/.casting/` (collocated + gitignored), seed if empty, spawn the PM
+  loop, serve API + embedded UI at `http://127.0.0.1:8080` (`CAST_ADDR` env
+  overrides). No prior `cast init` needed (bare run auto-hires the default cast
+  on first message). Owner auth: token from `config.json` first, else
+  `CAST_OWNER_TOKEN`.
 - `cast smoke <dir>` — headless-core smoke test (append/replay/cursor).
-- `cast run --project <dir> [--selfhost]` — boot the workspace: enforces the
-  ownership boundary (D5), opens/creates the stores in `<dir>/.casting/`
-  (collocated + gitignored), seeds the project if empty, spawns the PM loop,
-  serves API + embedded UI at `http://127.0.0.1:8080` (`CAST_ADDR` env
-  overrides). `--repo` is kept as an alias. `--selfhost` operates on the
-  Casting source itself (see `docs/OWNERSHIP_BOUNDARY.md`). No prior
-  `cast init` needed (bare run auto-hires the default cast on first message).
-  Owner auth: reads token from `config.json` first, else `CAST_OWNER_TOKEN`.
 - `cast log --db <events.db> [--project <id>] [--verify]` — dump / verify.
 
 Known wart: the scripted titles read "Design Build me a todo app" (the
@@ -335,7 +342,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3 = 152 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7 = 159 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -615,10 +622,16 @@ Then, only after the core matures:
 6. ~~**Persona / CV rendering** (brief §2.2)~~ — **DONE 2026-08-10**
    (`Projection::persona_for`, `GET /api/persona/{id}`): the friendly identity
    layer, a pure renderer over the underlying agent configuration.
-7. ~~**Auth + multi-project** (brief §2.1/§31) — owner login + per-project
-   workspaces.~~ **DEPRIORITIZED** — do NOT build until the rest of the product
-   surface is complete (per the ⚡ directive above). Owner auth alone is done;
-   multi-project / multi-user waits.
+7. ~~**Auth + multi-project** (brief §2.1/§31).~~ **RETHOUGHT 2026-08-10**:
+   - **Multi-user is DROPPED.** Git is the sharing surface — each human runs
+     their own Casting setup. Single-owner auth (token today; password/signed
+     key later) is always enough. No users/roles/permissions to build.
+   - **Multi-project narrowed to a registry + multi-project support in the
+     interface.** The home-dir registry (`~/.casting/projects.json`, name →
+     repo) is **DONE** — `cast` lists, `cast run <name>` resolves. Remaining:
+     a single UI that lists projects and switches between them, which stays
+     deferred until the product surface is complete (⚡ directive). Owner auth
+     is done.
 8. ~~**Cost capture** (brief §6) — spend/budget/forecast.~~ **DEPRIORITIZED**
    (not urgent).
 

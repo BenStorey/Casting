@@ -67,8 +67,8 @@ sudo systemctl stop    cast-frontend cast-backend
 Manual run (equivalent, if not using systemd):
 
 ```bash
-cd /home/ben/casting
-CAST_ADDR=127.0.0.1:8080 ./target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state
+cast add dev /home/ben/casting-workspace/proj   # once: register the project
+CAST_ADDR=127.0.0.1:8080 ./target/debug/cast run dev
 cd /home/ben/casting/frontend && npm run dev -- --host 127.0.0.1   # separately
 ```
 
