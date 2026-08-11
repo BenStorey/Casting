@@ -180,6 +180,15 @@ fn do_run(run: RunArgs) -> Result<()> {
         let state = AppState::new(store, cursors, PROJECT_ID)
             .with_snapshots(snapshots)
             .with_integrity();
+        // Owner auth: when CAST_OWNER_TOKEN is set, the owner-mutating API
+        // endpoints require Authorization: Bearer <token>. Off by default.
+        let state = match std::env::var("CAST_OWNER_TOKEN").ok() {
+            Some(tok) if !tok.is_empty() => {
+                println!("🔐 owner auth enabled (send 'Authorization: Bearer <token>' to mutate)");
+                state.with_owner_auth(tok)
+            }
+            _ => state,
+        };
 
         // Seed the empty project with its existence + the PM hire.
         seed_project(&state)?;
