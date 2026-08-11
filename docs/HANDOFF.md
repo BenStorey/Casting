@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **129 tests** (6+4+12+3+14+6+11+10+4+5+12+10+6+4+4+5+5+5+3),
+"why does this code exist?". **136 tests** (6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -147,6 +147,8 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── cast.rs                     <- role catalog + default cast = team composition config
 │   ├── context.rs                  <- per-agent Context Assembler (SEMANTIC_EVENTS §21)
 │   ├── persona.rs                  <- persona/CV rendering (brief §2.2)
+│   ├── orchestrator.rs             <- D2 seam: Orchestrator trait + MockOrchestrator (real LLM off)
+│   ├── integrity.rs                <- write-time event-stream precondition enforcement
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
@@ -304,7 +306,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+10+4+5+12+10+6+4+4+5+5+5+3 = 129 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3 = 136 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -515,6 +517,21 @@ the rules it operates under.
   AddConsultant decision class: Pm = PM auto-hires, Ask = surfaces for owner
   approval. `POST /api/hire {role_id}` = owner adds a role directly;
   `ProposeConsultant` = PM proposes via the decision pipeline, applied on approval.
+
+**D2 seam + integrity hardening — DONE 2026-08-10:**
+- `src/orchestrator.rs`: the D2 contract. `Orchestrator` (assembled context +
+  cause → `PmAction`s, still gate-checked) + `MockOrchestrator` prove the seam
+  end-to-end with **zero live LLM / zero spend**. `AppState.orchestrator` is OFF
+  by default (the real provider stays unplugged while away); `with_orchestrator`
+  enables it. When enabled, `pm::respond` routes owner messages through it.
+- `src/integrity.rs`: write-time event-stream enforcement. `check_append` rejects
+  a DecisionMade/DecisionSuperseded without a prior DecisionProposed, and task
+  lifecycle events without a prior TaskCreated, at the moment of write. Opt-in
+  via `AppState::with_integrity`; the production `cast run` enables it. `cast
+  log --verify` remains the full-stream advisory check.
+
+**Next (D2, deferred until the owner returns):** plug the real OpenRouter
+provider into the `Orchestrator` seam and flip it on in production.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
