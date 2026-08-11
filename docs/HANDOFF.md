@@ -20,7 +20,8 @@ design itself.
 > (assignee checks), the **SSE catch-up** + **JSON 404** web fixes, and the
 > **complete Git slice** (4 increments: boot-time repo management, semantic Git
 > events + observer, ChangeSet as a first-class concept, and provenance linking).
-> `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
+> `cast run` takes `--project <dir>` (state collocated in the gitignored
+> `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
 "why does this code exist?". **152 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3),
@@ -88,10 +89,10 @@ of §1. They are:
    project invariant before it becomes an event. Proven by 8 unit tests + a
    JSON round-trip; this is exactly the seam a real provider will occupy.
 4. **The ownership boundary** (`src/workspace.rs`, D5): the self-identity
-   guard (refuses to operate on the repo that built the binary), a mandatory
-   state-dir always separate from the artifact repo, path sandboxing
-   (`resolve_under`), and one pinned Git runner. `cast run` now requires
-   `--repo` + `--state-dir`. Proven by 7 tests; prerequisite for the Git
+   guard (refuses to operate on the repo that built the binary), a collocated
+   `.casting/` state dir (self-ignored by git; one `--project` param), path
+   sandboxing (`resolve_under`), and one pinned Git runner. `cast run` now
+   requires `--project <dir>`. Proven by 10 tests; prerequisite for the Git
    slice.
 5. **Policy-gate hardening** (`src/actions.rs`): `validate()` now takes the
    acting agent's id and enforces that only the task's assignee (or `system`)
@@ -105,8 +106,9 @@ of §1. They are:
    instead of falling through to the SPA index.html.
 7. **The Git slice** (addendum §28, §18–27) — **COMPLETE**, 4 increments:
    - **Boot-time repo management** (`Workspace::ensure_repo`): `cast run`
-     ensures a real git repo exists at `--repo` (git-init if missing); the
-     preflight banner shows the git init, a true HEAD, and the current branch.
+     ensures a real git repo exists at `--project <dir>` (git-init if missing);
+     the preflight banner shows the git init, a true HEAD, and the current
+     branch.
    - **Semantic Git events + observer** (`src/git_observer.rs`): the event
      vocabulary gains `BranchCreated`, `CommitObserved`, `MergeCompleted`,
      `MergeConflictDetected`, `ChangeSetReady`. A polling observer with a
@@ -280,21 +282,23 @@ the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
 
 ## 2.5 `cast` CLI / setup wizard
 
-- `cast init <state-dir> [--interactive] [--name=..] [--objective=..]
+- `cast init <project-dir> [--interactive] [--name=..] [--objective=..]
   [--cast=engineer,qa] [--owner-token=..] [--directive=stmt|scope]` — the
   setup wizard/engine (owner decision: CLI + first-run UI share ONE engine, no
   second copy). Flag mode is scriptable/headless; `--interactive` prompts for
-  any missing field on stdin. Writes `ProjectCreated`, hires the chosen cast
-  roles (`AgentHired`), optional starting directives, and persists
-  `config.json` (name + owner token). Idempotent — re-running is a no-op and
-  never wipes an existing token. Deliberately does NOT fire the objective (that
-  stays the owner's first UI message → `plan_onboard`).
+  any missing field on stdin. Creates `<project-dir>/.casting/` (self-ignored),
+  writes `ProjectCreated`, hires the chosen cast roles (`AgentHired`), optional
+  starting directives, persists `config.json` (name + owner token), and writes
+  a no-secrets `casting.example.json` template to the repo root. Idempotent —
+  re-running is a no-op and never wipes an existing token. Deliberately does
+  NOT fire the objective (that stays the owner's first UI message →
+  `plan_onboard`).
 - `cast smoke <dir>` — headless-core smoke test (append/replay/cursor).
-- `cast run --repo <dir> --state-dir <path> [--selfhost]` — boot the
-  workspace: enforces the ownership boundary (D5), opens/creates the stores,
-  seeds the project if empty, spawns the PM loop, serves API + embedded UI at
-  `http://127.0.0.1:8080` (`CAST_ADDR` env overrides). `--state-dir` is
-  **required** and always separate from the repo; `--selfhost` operates on the
+- `cast run --project <dir> [--selfhost]` — boot the workspace: enforces the
+  ownership boundary (D5), opens/creates the stores in `<dir>/.casting/`
+  (collocated + gitignored), seeds the project if empty, spawns the PM loop,
+  serves API + embedded UI at `http://127.0.0.1:8080` (`CAST_ADDR` env
+  overrides). `--repo` is kept as an alias. `--selfhost` operates on the
   Casting source itself (see `docs/OWNERSHIP_BOUNDARY.md`). No prior
   `cast init` needed (bare run auto-hires the default cast on first message).
   Owner auth: reads token from `config.json` first, else `CAST_OWNER_TOKEN`.
@@ -351,15 +355,16 @@ make run   # -> http://127.0.0.1:8080
 ```
 Open the URL, chat with the PM ("Build me a todo app"), watch the team
 form and tasks move, decide on the database in the Inbox, reload — all
-state persists in `/home/ben/casting-workspace/state/` (kept separate from
-the artifact repo, per the ownership boundary D5 / `docs/OWNERSHIP_BOUNDARY.md`).
+state persists collocated in a **gitignored `.casting/` dir** inside the
+artifact repo (the ownership boundary D5 / `docs/OWNERSHIP_BOUNDARY.md`),
+so it never shows as pending changes.
 
 > **⚠️ Do not use an in-tree workspace** (e.g. `.dev/proj`). The D5
 > self-identity guard refuses any repo inside the embedded source root
-> (`/home/ben/casting`), so `cast run --repo .dev/proj ...` fails at boot
+> (`/home/ben/casting`), so `cast run --project .dev/proj ...` fails at boot
 > unless you pass `--selfhost` (which is the wrong semantic — it records the
-> run as building Casting). The artifact repo and state-dir must live outside
-> the source tree, exactly as `/home/ben/casting-workspace/` is set up. See
+> run as building Casting). The artifact repo must live outside the Casting
+> source tree, exactly as `/home/ben/casting-workspace/proj` is set up. See
 > `docs/DEPLOYMENT.md` + `docs/OWNERSHIP_BOUNDARY.md`.
 
 Frontend dev with hot reload (`make dev` runs both in one shell; Ctrl-C stops
@@ -590,8 +595,10 @@ it on in production. Keep building the deterministic surface first.
 future first-run UI share ONE engine, never two):
 - `src/setup.rs`: `SetupSpec` (name, roles, owner token, optional starting
   directives) → `SetupPlan::build` (resolves default cast, validates roles)
-  → `apply(state-dir)` idempotently writes `ProjectCreated` + hire cast +
-  optional directives, and persists `config.json` (name + owner token).
+  → `apply(<project>/.casting/)` idempotently writes `ProjectCreated` + hire
+  cast + optional directives, and persists `config.json` (name + owner token)
+  in the self-ignored `.casting/` dir. `cast init` also writes a no-secrets
+  `casting.example.json` template to the repo root.
 - `cast init` drives it (flag- or interactive-); `cast run` reads the persisted
   token first. `plan_onboard` no longer tops-up a setup-chosen custom cast.
 - **Web first-run wizard DONE**: `/api/setup/status` + `/api/setup` + the SPA's
@@ -625,14 +632,14 @@ fully deterministic (no LLM anywhere). Everything uses the pinned git runner
 from `src/workspace.rs` and `resolve_under`.
 **Ownership boundary prerequisite (D5 / `docs/OWNERSHIP_BOUNDARY.md`) is LANDED**
 — `src/workspace.rs` provides the self-identity guard, path sandboxing, the
-single pinned git runner (`Workspace::git_command()`), and the mandatory
-separate state-dir, so the Git workflow can never accidentally target the
-Casting source. Everything below uses that runner and `resolve_under`. No LLM
-anywhere; this is fully deterministic.
+single pinned git runner (`Workspace::git_command()`), and the collocated
+`.casting/` state dir (gitignored), so the Git workflow can never accidentally
+target the Casting source. Everything below uses that runner and `resolve_under`.
+No LLM anywhere; this is fully deterministic.
 
 Proceed one increment at a time, in this order:
 
-1. **Boot-time repo management.** `cast run --repo` ensures a real git repo
+1. **Boot-time repo management.** `cast run --project` ensures a real git repo
    exists at that path (git-init if missing); preflight shows a true HEAD; this
    wires Git into the workspace at startup. Testable on its own.
 2. **Semantic Git events + a minimal observer.** Add the domain vocabulary —

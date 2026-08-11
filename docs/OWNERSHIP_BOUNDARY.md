@@ -79,32 +79,35 @@ detected repo HEAD, and — if it detected the Casting source — a loud refusal
 The operator *sees* the target every time, so a foot-gun is obvious before
 anything mutates.
 
-## 6. State-dir is ALWAYS separate from the repo (mandatory, not optional)
+## 6. State is COLLOCATED in a gitignored `.casting/` (one project dir)
 
-The event store, cursors and agent state live in a `.casting/` directory. The
-**state-dir and the artifact repo are always distinct paths, by construction** —
-there is no collocated default to accidentally fall into.
+The event store, cursors, agent state and `config.json` (which holds the owner
+token) all live in **`<repo>/.casting/`** — *inside* the project repo, but
+**self-ignored by git** so it never shows up as pending changes and is never a
+committed or commit-able artifact.
 
-- **`--state-dir <path>` is a required argument at startup.** It may live
-  anywhere the operator chooses (sibling dir, a `~/.casting/workspaces/<name>`
-  home, etc.), but it must never be inside the artifact repo, and the artifact
-  repo must never be inside it.
-- Example: `cast run --repo ~/proj --state-dir ~/.casting/workspaces/proj`.
-- Because `.casting/` is never inside the repo, it is never a committed or
-  commit-able artifact anywhere: Casting's internal state never pollutes a
-  user's git history, and the repo remains a clean view of *the product's code
-  only*.
+- **One parameter, by design.** `cast run --project <dir>` — the project IS its
+  git repo, and Casting derives `<dir>/.casting/` internally. No separate
+  `--state-dir` to manage or mis-name.
+- **Self-ignored, enforced by gitignore not discipline.** `cast init` / `cast
+  run` create `<repo>/.casting/.gitignore` containing just `*`, so the entire
+  directory is ignored without touching the user's root `.gitignore`. The repo
+  stays a clean view of *the product's code only*.
+- **Secrets never commit.** The owner token lives only in the gitignored
+  `.casting/config.json`. A committed `casting.example.json` *template* (no
+  token, like `.env.example`) documents the shape.
+- **Migrating between machines** = clone the repo + `cast init` + copy the
+  `.casting/` dir over (a file copy — databases can't be merged, so committing
+  them would buy nothing).
 
-This was originally motivated to make self-hosting safe; we make it **universal**
-because it makes every case safer and eliminates a whole class of
-"is this path the store or the source?" confusion — including the operator's own
-finger-memory during development (the one place people were most likely to
-collocate by habit).
+Why this changed: the original `state-dir` was a heavy fix for the real (small)
+problem — Casting's bookkeeping showing up as pending changes in the repo. A
+gitignored dot-dir solves that directly and removes a second parameter.
 
 Note on the end user: a normal Casting user never touches the Casting source, so
 the §3 self-identity guard is mostly inert for them — their real protection is
-this mandatory state-dir + the §4 git interface. The guard exists primarily to
-protect our own dev/agents from the meta-confusion.
+the §6 self-ignored `.casting/` + the §4 git interface. The guard exists
+primarily to protect our own dev/agents from the meta-confusion.
 
 ## 7. Self-hosting: building Casting with Casting
 
@@ -116,10 +119,11 @@ be an **explicit escape hatch**, not an implicit allowance:
 - **Explicit opt-in.** Driving the embedded source root requires
   `CAST_SELFHOST=1` (env) or `--selfhost`. Without it, the §3 refusal applies.
   With it, the guard demotes from refusal to a loud banner.
-- **State separation is already enforced (§6).** `--state-dir` is mandatory and
-  always distinct from the repo, so self-hosting gets it for free — `.casting/`
-  can never land inside the monitored source tree, so Casting's internals can
-  never become a commit-able product artifact.
+- **State is self-ignored under §6.** The collocated `.casting/` is gitignored,
+  so even when self-hosting, Casting's internals never become commit-able
+  product artifacts. (For the most isolated self-hosting setup, run against a
+  `git worktree` copy with the tree the agents edit distinct from your dev
+  checkout.)
 - **Record which Casting built it.** Every agent-run / ChangeSet is tagged with
   the running binary's build commit (embedded HEAD sha). So "changes made by
   Casting vX" are distinguishable from human edits and from changes made by an
@@ -132,42 +136,44 @@ be an **explicit escape hatch**, not an implicit allowance:
   mid-loop. This prevents the feedback trap of Casting editing the code that is
   running, which changes behavior while it runs.
 - **No self-triggering.** Casting's own bookkeeping must never enter its
-  meaningful-event feed. With state separated out of the repo (above), the
-  `.casting/` commits vanish, which mostly removes this risk; any residual
-  bookkeeping commits are excluded by the observer explicitly.
+  meaningful-event feed. With `events.db` self-ignored under `.casting/`, the
+  bookkeeping never shows in git at all; any residual bookkeeping commits are
+  excluded by the observer explicitly.
 - **Recommended self-hosting setup.** Build a fresh binary from a feature
   branch and run it against a **`git worktree`** copy of the source on its own
-  branch, with `--state-dir` pointing outside the tree. This way the tree the
-  agents edit is not the tree your dev environment is actively using, and the
-  main checkout stays clean.
+  branch (state collocates in that worktree's `.casting/`, self-ignored). This
+  way the tree the agents edit is not the tree your dev environment is actively
+  using, and the main checkout stays clean.
 
 ## 8. Enforcement obligations (tests)
 
 - **No test may ever target the product repo.** Git-slice tests create throwaway
   repos under `tempdir` (existing `tempfile` pattern), never in `/home/ben/casting`.
-- `Workspace::open` requires both a repo and a **distinct** state-dir; a test
-  asserts it **errors** if the two are the same or nested.
+- A test asserts state is **collocated** in `<repo>/.casting/` and that
+  `ensure_self_ignored` writes `<repo>/.casting/.gitignore` = `*`, so the state
+  dir never appears as a pending change.
 - A test asserts the git runner pins the repo for every call (e.g. a bare call
   cannot resolve to the Casting repo) and that `Workspace::open` **refuses** the
   embedded source root / a repo whose identity is `casting`.
 - A test asserts `--selfhost` demotes that refusal to a banner while keeping the
-  mandatory separate state-dir. Encode these rules so they cannot regress.
+  self-ignored `.casting/` (self-hosting). Encode these rules so they cannot
+  regress.
 
 ## 9. What changes in the codebase
 
 - `build.rs`: emit `CASTING_SOURCE_ROOT`, package identity, and HEAD sha.
-- `src/workspace.rs` (new): `Workspace::open` — mandatory repo + distinct
-  state-dir, resolve+refuse (self-identity guard), path sandboxing, and the
-  **sole git runner** through which all Git executes.
-- `src/main.rs` / `src/web.rs`: preflight banner; **required** `--state-dir`;
-  `--selfhost`.
+- `src/workspace.rs` (new): `Workspace::open(repo, selfhost)` — derives the
+  collocated `.casting/` state dir, resolve+refuse (self-identity guard), path
+  sandboxing, `ensure_self_ignored`, and the **sole git runner** through which
+  all Git executes.
+- `src/main.rs` / `src/web.rs`: preflight banner; `--project <dir>` (+ `--selfhost`).
 - `docs/HANDOFF.md`: register as D5 (done).
-- Tests: identity-refusal + self-hosting-positive cases; state/repo distinctness;
-  git-runner pinning; tempdir-only git tests.
+- Tests: identity-refusal + self-hosting-positive cases; collocated `.casting/`
+  + self-gitignore; git-runner pinning; tempdir-only git tests.
 
 ## 10. Related but out of scope here
 
 - The actual Git semantics (branches, ChangeSet, provenance) — ADDENDUM §18–30.
-- Choosing a friendly *default* state-dir location for ergonomics (e.g. a
-  `~/.casting/workspaces/<project-id>` home) — a later UX decision; it must
-  stay outside the artifact repo regardless.
+- Whether each project might later hold its state at a user-chosen path, or a
+  `~/.casting/` convention — a later UX decision; for now `--project` collocates
+  `.casting/` inside the repo, self-ignored.
