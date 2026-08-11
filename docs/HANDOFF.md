@@ -23,7 +23,7 @@ design itself.
 > `cast run` takes `--repo` + `--state-dir` and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **136 tests** (6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3),
+"why does this code exist?". **141 tests** (6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3+5),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -138,6 +138,7 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── lib.rs                      <- module root
 │   ├── event.rs                    <- typed domain events (Actor, EventType, Aggregate, Metadata)
 │   ├── actions.rs                  <- PM action vocabulary (PmAction) + policy gate (ADDENDUM §16)
+│   ├── auth.rs                     <- owner bearer-token auth (opt-in, CAST_OWNER_TOKEN)
 │   ├── store.rs                    <- EventStore trait (append, read_since, latest_sequence)
 │   ├── sqlite_store.rs             <- SQLite impl (WAL, append-only, per-project sequences)
 │   ├── cursor.rs                   <- durable per-consumer cursors
@@ -244,6 +245,10 @@ axum router for a single project (project id is currently fixed at
   Owner). If a strength is omitted it defaults to `required`.
 - `POST /api/hire` `{role_id}` — owner adds an agent of a curated catalog role
   to the cast; persists `AgentHired` (actor = Owner). Unknown role → 400.
+- `POST /api/login` `{token}` — verify an owner token (200 ok / 401). When
+  `CAST_OWNER_TOKEN` is set, the owner-mutating endpoints (`message`/`decision`/
+  `policy`/`directive`/`hire`) require `Authorization: Bearer <token>`; reads
+  stay open.
 - `GET /api/context/{actor}` — the assembled operating context for an agent
   (or "owner"/"pm"): objective, ranked priorities, their tasks, the governance
   directives that apply to them, risks, and open decisions (Context Assembler).
@@ -306,7 +311,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3 = 136 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+10+4+5+12+10+6+4+4+5+5+5+3+5 = 141 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -532,6 +537,13 @@ the rules it operates under.
 
 **Next (D2, deferred until the owner returns):** plug the real OpenRouter
 provider into the `Orchestrator` seam and flip it on in production.
+
+**Owner auth — DONE 2026-08-10** (scoped to auth alone; multi-project later):
+- `src/auth.rs`: constant-time bearer-token guard for the owner-mutating API
+  endpoints (`message`/`decision`/`policy`/`directive`/`hire`), opt-in via
+  `AppState::with_owner_auth` / the `CAST_OWNER_TOKEN` env var. `POST /api/login`
+  verifies the token. Reads stay open (the whole site is already behind Caddy
+  basic auth in production; this is the write-authority boundary inside the app).
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
