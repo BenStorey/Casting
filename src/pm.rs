@@ -54,6 +54,10 @@ pub struct AppState {
     /// Pause inserted between appended events so the UI animates the company
     /// working. Zero in tests for speed. (brief §35)
     pub step_delay: Duration,
+    /// Optional D2 orchestrator. When present, the PM routes new owner messages
+    /// through it (instead of the scripted plan) — the LLM seam. **Off by
+    /// default**: the real provider stays unplugged until the owner enables it.
+    pub orchestrator: Option<Arc<dyn crate::orchestrator::Orchestrator>>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -66,6 +70,7 @@ impl AppState {
             project: project.into(),
             snapshots: None,
             step_delay: Duration::from_millis(220),
+            orchestrator: None,
             events: Arc::new(tx),
         }
     }
@@ -73,6 +78,15 @@ impl AppState {
     /// Builder-style: enable projection snapshots for this AppState.
     pub fn with_snapshots(mut self, snapshots: crate::snapshot::SnapshotStore) -> Self {
         self.snapshots = Some(snapshots);
+        self
+    }
+
+    /// Builder-style: enable the D2 orchestrator (the LLM seam). Off by default.
+    pub fn with_orchestrator(
+        mut self,
+        orchestrator: Arc<dyn crate::orchestrator::Orchestrator>,
+    ) -> Self {
+        self.orchestrator = Some(orchestrator);
         self
     }
 
@@ -178,7 +192,12 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
         };
 
         let planned: Vec<PlannedAction> = if is_owner_message {
-            if projection.requirements.is_empty() {
+            // D2 seam: if an orchestrator is enabled, let IT drive the response
+            // (the LLM, or the mock in tests). Otherwise use the scripted plans.
+            if let Some(orch) = &state.orchestrator {
+                let context = projection.context_for("pm");
+                orch.plan(&context, e)
+            } else if projection.requirements.is_empty() {
                 plan_onboard(state, e, body, &projection.policy)
             } else {
                 plan_acknowledge(state, e)
