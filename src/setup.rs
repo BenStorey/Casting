@@ -267,3 +267,15 @@ pub fn read_config(dir: &std::path::Path) -> Option<RuntimeConfig> {
     let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).ok()?;
     serde_json::from_str(&raw).ok()
 }
+
+/// Write a NO-SECRETS `casting.example.json` template to `dir` (the repo
+/// root), documenting the canonical config shape. The real token never appears
+/// here — this is the committed "like .env.example", never live state.
+pub fn write_template(dir: &std::path::Path, name: &str) -> Result<()> {
+    let cfg = serde_json::json!({
+        "name": name,
+        "owner_token": "<set at cast init; never commit a real token>",
+    });
+    let json = serde_json::to_string_pretty(&cfg)?;
+    std::fs::write(dir.join("casting.example.json"), json).context("write casting.example.json")
+}

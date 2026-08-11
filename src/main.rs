@@ -226,6 +226,8 @@ fn do_init(mut args: InitArgs) -> Result<()> {
         .context("ensure .casting self-ignored")?;
 
     let written = plan.apply(&casting_dir)?;
+    // Write a no-secrets config template to the repo root (like .env.example).
+    casting::setup::write_template(&args.dir, &plan.spec.name)?;
     if written == 0 {
         println!(
             "Company already set up at {} — no changes.",
