@@ -130,6 +130,16 @@ pub enum PmAction {
         opinion_id: String,
         by_opinion_id: String,
     },
+    /// Import external advisor content (text + optional image/diagram refs) as
+    /// an ADVISORY briefing — never authoritative (owner 2026-08-10).
+    ImportBriefing {
+        id: String,
+        source: String,
+        subject: String,
+        title: String,
+        body: String,
+        assets: Vec<crate::projection::BriefingAsset>,
+    },
     /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
     CreateDirective {
         id: String,
@@ -762,6 +772,37 @@ impl PmAction {
                 json!({ "superseded_by": by_opinion_id }),
                 meta,
             )],
+            PmAction::ImportBriefing {
+                id,
+                source,
+                subject,
+                title,
+                body,
+                assets,
+            } => {
+                let brought_in_by = match &actor {
+                    Actor::Owner => "owner".to_string(),
+                    Actor::Agent { id } => id.clone(),
+                    Actor::System => "system".to_string(),
+                };
+                vec![ev(
+                    project,
+                    actor,
+                    id,
+                    "briefing",
+                    EventType::AdvisoryBriefingImported,
+                    json!({
+                        "source": source,
+                        "subject": subject,
+                        "title": title,
+                        "body": body,
+                        "assets": assets,
+                        "brought_in_by": brought_in_by,
+                        "supersedes": null,
+                    }),
+                    meta,
+                )]
+            }
             PmAction::CreateDirective {
                 id,
                 kind,

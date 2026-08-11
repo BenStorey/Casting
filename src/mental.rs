@@ -76,6 +76,23 @@ pub struct KnowledgeView {
     pub facts: Vec<String>,
     pub assumptions: Vec<String>,
     pub constraints: Vec<String>,
+    /// EXTERNAL advisor briefings imported into the project.
+    pub briefings: AdvisoryView,
+}
+
+/// External advisor content, kept clearly separate from authoritative state.
+/// `briefings.active` are the currently-considered advisories; `superseded`
+/// keeps the audit trail. Each is marked with its `source` so it's never
+/// confusable with the owner's own intent. Advisory can inform context, never
+/// sets rules (directives remain the only authority mechanism).
+#[derive(Debug, Clone, Serialize)]
+pub struct AdvisoryView {
+    /// Active briefings: "subject — title (source): body-preview".
+    pub active: Vec<String>,
+    /// Superseded briefings (history preserved, no longer at full weight).
+    pub superseded: Vec<String>,
+    /// How many advisory items are currently shaping context.
+    pub active_count: usize,
 }
 
 /// The environmental state the company reasons about.
@@ -137,6 +154,34 @@ impl crate::projection::Projection {
         let assumptions = self.assumptions.iter().map(|a| a.body.clone()).collect();
         let constraints = self.constraints.iter().map(|c| c.body.clone()).collect();
 
+        // External advisor briefings — kept separate, clearly marked advisory.
+        use crate::projection::BriefingStatus;
+        let active_briefings = self
+            .briefings
+            .iter()
+            .filter(|b| b.status == BriefingStatus::Active)
+            .map(|b| {
+                let preview: String = b.body.chars().take(120).collect::<String>()
+                    + if b.body.chars().count() > 120 {
+                        "…"
+                    } else {
+                        ""
+                    };
+                format!("{} — {} ({}): {preview}", b.subject, b.title, b.source)
+            })
+            .collect::<Vec<_>>();
+        let superseded_briefings = self
+            .briefings
+            .iter()
+            .filter(|b| b.status == BriefingStatus::Superseded)
+            .map(|b| format!("{} — {} (superseded)", b.subject, b.title))
+            .collect::<Vec<_>>();
+        let advisory_briefings = AdvisoryView {
+            active_count: active_briefings.len(),
+            active: active_briefings,
+            superseded: superseded_briefings,
+        };
+
         let open_risks = self
             .risks
             .iter()
@@ -196,6 +241,7 @@ impl crate::projection::Projection {
                 facts,
                 assumptions,
                 constraints,
+                briefings: advisory_briefings,
             },
             context: ContextView {
                 open_risks,

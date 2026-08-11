@@ -51,6 +51,19 @@ struct MessageIn {
     body: String,
 }
 
+/// POST /api/brief input: external advisor content. `source` marks provenance
+/// (e.g. "ChatGPT advisor") so it's never confusable with the owner's intent.
+#[derive(Deserialize)]
+struct BriefIn {
+    source: Option<String>,
+    subject: Option<String>,
+    title: Option<String>,
+    body: String,
+    /// Optional image/diagram references (caption + path/URL).
+    #[serde(default)]
+    assets: Vec<crate::projection::BriefingAsset>,
+}
+
 #[derive(Deserialize)]
 struct DecisionIn {
     decision_id: String,
@@ -94,6 +107,7 @@ pub fn router(state: AppState) -> Router {
     // middleware consults AppState.auth_token; no-op when it's None).
     let guarded = Router::new()
         .route("/api/message", axum::routing::post(message_handler))
+        .route("/api/brief", axum::routing::post(brief_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
@@ -326,6 +340,58 @@ async fn message_handler(
         },
         serde_json::json!({ "to": "pm", "body": body }),
     );
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
+
+/// POST /api/brief — the owner imports EXTERNAL advisor content (text + optional
+/// image/diagram refs) as an ADVISORY briefing. Explicitly advisory, NOT
+/// authoritative: `source` records provenance, and it can inform context but
+/// never sets rules (directives remain the only authority mechanism).
+async fn brief_handler(
+    State(state): State<AppState>,
+    Json(input): Json<BriefIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let body = input.body.trim().to_string();
+    if body.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "briefing body must not be empty".into(),
+        ));
+    }
+    let action = crate::actions::PmAction::ImportBriefing {
+        id: format!("brief-{}", uuid::Uuid::new_v4()),
+        source: input.source.unwrap_or_else(|| "advisor".to_string()),
+        subject: input.subject.unwrap_or_else(|| "general".to_string()),
+        title: input
+            .title
+            .unwrap_or_else(|| "advisor briefing".to_string()),
+        body,
+        assets: input.assets,
+    };
+    let proj = state
+        .projection()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::actions::validate(&action, "owner", &proj)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let cause = Event::new(
+        &state.project,
+        Actor::Owner,
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "bootstrap".into(),
+        },
+        serde_json::json!({}),
+    );
+    let ev = action
+        .to_events(&state.project, "owner", &cause, "brief")
+        .into_iter()
+        .next()
+        .expect("ImportBriefing produces one event");
     let stored = state
         .append(ev)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

@@ -75,6 +75,16 @@ fn main() -> Result<()> {
             })?;
             do_run(entry.repo.clone(), entry.db.clone())
         }
+        // `cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->`
+        // — import EXTERNAL advisor content (text file) as an advisory briefing.
+        "brief" => {
+            let name = args.get(2).context("usage: cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->")?;
+            let reg = casting::registry::Registry::load(None)?;
+            let entry = reg.lookup(name).with_context(|| {
+                format!("no project named {name:?} (add it with `cast add {name} <repo-path>`)")
+            })?;
+            do_brief(&args[3..], &entry.repo, entry.db.as_deref())
+        }
         "log" => {
             let log = parse_log(&args[2..])?;
             do_log(log)
@@ -131,6 +141,120 @@ fn do_remove(name: &str) -> Result<()> {
         println!("no project named {name:?}");
     }
     Ok(())
+}
+
+/// `cast brief` — import EXTERNAL advisor content (a text file, or stdin via
+/// `-`) as an ADVISORY briefing: it can inform context but never sets rules.
+/// Usage: `cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->`
+fn do_brief(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result<()> {
+    let (mut subject, mut source, mut title) = (
+        "general".to_string(),
+        "advisor".to_string(),
+        "advisor briefing".to_string(),
+    );
+    let mut file: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--subject" => {
+                subject = args.get(i + 1).context("--subject needs a value")?.clone();
+                i += 2;
+            }
+            "--source" => {
+                source = args.get(i + 1).context("--source needs a value")?.clone();
+                i += 2;
+            }
+            "--title" => {
+                title = args.get(i + 1).context("--title needs a value")?.clone();
+                i += 2;
+            }
+            other => {
+                file = Some(other);
+                i += 1;
+            }
+        }
+    }
+    let body = match file {
+        Some("-") | None => {
+            use std::io::Read;
+            let mut s = String::new();
+            std::io::stdin().read_to_string(&mut s)?;
+            s
+        }
+        Some(p) => std::fs::read_to_string(p).with_context(|| format!("read {p}"))?,
+    };
+    if body.trim().is_empty() {
+        anyhow::bail!("briefing body is empty");
+    }
+
+    // Open the backend (same selection as `cast run`), enforce integrity.
+    let ws = crate::Workspace::open(repo, Selfhost::Disabled)?;
+    let selector = db
+        .map(str::to_string)
+        .or_else(|| std::env::var("CAST_DB").ok())
+        .unwrap_or_else(|| "sqlite".to_string());
+    let backend = casting::backend::from_selector(&selector, ws.casting_dir())?;
+    let store = backend.events();
+    let cursors = backend.cursors();
+    let snapshots = backend.snapshots();
+
+    let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
+    rt.block_on(async move {
+        let mut state = casting::pm::AppState::new(store, cursors, PROJECT_ID).with_integrity();
+        if let Some(snaps) = snapshots {
+            state = state.with_snapshots(snaps);
+        }
+
+        let source_clone = source.clone();
+        let body_len = body.len();
+
+        let action = casting::actions::PmAction::ImportBriefing {
+            id: format!("brief-{}", uuid::Uuid::new_v4()),
+            source,
+            subject,
+            title,
+            body,
+            assets: Vec::new(),
+        };
+        let proj = state.projection()?;
+        casting::actions::validate(&action, "owner", &proj)?;
+
+        // Build the event through the action, then append it (advisory, never
+        // authoritative — recorded with its `source` so provenance is explicit).
+        let stored = {
+            use casting::event::{Actor, Aggregate, Event, EventType};
+            let previous = state.store.latest_sequence(&state.project)?;
+            let cause = state
+                .store
+                .read_since(&state.project, previous.saturating_sub(1))?
+                .pop()
+                .unwrap_or_else(|| {
+                    Event::new(
+                        &state.project,
+                        Actor::Owner,
+                        EventType::MessageSent,
+                        Aggregate {
+                            kind: "message".into(),
+                            id: "bootstrap".into(),
+                        },
+                        serde_json::json!({}),
+                    )
+                });
+            let ev = action
+                .to_events(&state.project, "owner", &cause, "brief")
+                .into_iter()
+                .next()
+                .expect("ImportBriefing produces one event");
+            state.append(ev.clone())?;
+            ev
+        };
+
+        println!(
+            "imported advisory briefing {} (from {source_clone}, {body_len} bytes)",
+            stored.aggregate.id
+        );
+        Ok(())
+    })
 }
 
 /// Flags for `cast init`, parsed by [`parse_init`].

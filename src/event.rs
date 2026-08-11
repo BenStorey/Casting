@@ -109,6 +109,15 @@ pub enum EventType {
     /// A batch of work is ready for review (task + branch + commits assembled
     /// into a ChangeSet). Emitted by the ChangeSet layer (increment 3).
     ChangeSetReady,
+
+    // --- External advisory context (owner, 2026-08-10) ---
+    /// Advisor content (text and/or image/diagram references) brought INTO the
+    /// project from OUTSIDE Casting (e.g. a ChatGPT plan Ben pastes in). It is
+    /// explicitly **advisory, NOT authoritative** — it can inform context but
+    /// NEVER sets rules. Carries provenance (`source`) so it's never confusable
+    /// with the owner's own intent. Supersedable (`status`/`supersedes`), so
+    /// stale advice decays instead of dominating context forever.
+    AdvisoryBriefingImported,
 }
 
 /// The entity primarily affected by an event.

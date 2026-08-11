@@ -227,6 +227,57 @@ pub struct Constraint {
     pub recorded_by: String,
 }
 
+/// Lifecycle of an external advisor briefing (owner 2026-08-10). Mirrors
+/// directive/opinion supersession: active until a newer briefing supersedes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum BriefingStatus {
+    /// This briefing is currently being considered (still advisory, never
+    /// authoritative — see `Briefing` docs).
+    #[default]
+    Active,
+    /// Replaced by a newer briefing (history preserved; it no longer shapes the
+    /// operating context at full weight).
+    Superseded,
+}
+
+/// An EXTERNAL advisor briefing imported into the project (e.g. a plan from a
+/// ChatGPT conversation pasted in by the owner). It is deliberately **advisory,
+/// NOT authoritative**: `source` records where it came from so it's never
+/// confusable with the owner's own intent, and it can *inform* context but NEVER
+/// sets rules (directives remain the only way to assert authority). Scoped by
+/// `subject` so it can be looked up ("what does my advisor say about X?") rather
+/// than dominating all context.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Briefing {
+    pub id: String,
+    /// Where this came from, e.g. "ChatGPT advisor", "email from Ben", "paste".
+    pub source: String,
+    /// The topic this advice is about, e.g. "storage" | "architecture".
+    pub subject: String,
+    /// A short human label, e.g. "chatgpt D2 plan".
+    pub title: String,
+    /// The advisory text body.
+    pub body: String,
+    /// Reference handles for images/diagrams (paths/URLs + caption). Content is
+    /// NOT embedded in the event; a future vision pass can derive from them.
+    #[serde(default)]
+    pub assets: Vec<BriefingAsset>,
+    pub brought_in_by: String,
+    pub status: BriefingStatus,
+    /// If non-empty, the id of a prior briefing this supersedes.
+    #[serde(default)]
+    pub supersedes: Option<String>,
+    pub imported_at: String,
+}
+
+/// A reference to an image/diagram that accompanied an advisor briefing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BriefingAsset {
+    pub caption: String,
+    /// Path or URL to the asset.
+    pub location: String,
+}
+
 /// A branch in the artifact repo (semantic Git event, ADDENDUM §20/§23).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Branch {
@@ -313,6 +364,9 @@ pub struct Projection {
     pub facts: Vec<Fact>,
     /// Cost entries (HARNESS #6): provider metering so spend is attributable.
     pub spend: Vec<CostEntry>,
+    /// External advisor briefings imported into the project (advisory, NOT
+    /// authoritative — see `Briefing`).
+    pub briefings: Vec<Briefing>,
     /// First-class governance objects (docs/INTENT.md).
     pub directives: Vec<crate::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
@@ -548,6 +602,28 @@ impl Projection {
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0),
                     incurred_at: e.timestamp.to_string(),
+                });
+            }
+            EventType::AdvisoryBriefingImported => {
+                fn str(e: &Event, k: &str) -> String {
+                    string_field(e, k).unwrap_or_default()
+                }
+                let assets: Vec<BriefingAsset> = e
+                    .data
+                    .get("assets")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                self.briefings.push(Briefing {
+                    id: e.aggregate.id.clone(),
+                    source: str(e, "source"),
+                    subject: str(e, "subject"),
+                    title: str(e, "title"),
+                    body: str(e, "body"),
+                    assets,
+                    brought_in_by: str(e, "brought_in_by"),
+                    status: BriefingStatus::Active,
+                    supersedes: string_field(e, "supersedes"),
+                    imported_at: e.timestamp.to_string(),
                 });
             }
             EventType::ProjectDirectiveCreated => {
