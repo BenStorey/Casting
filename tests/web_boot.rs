@@ -58,6 +58,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/hire",
         "/api/setup/status",
         "/api/context/owner",
+        "/api/model",
     ] {
         let req = Request::builder().uri(path).body(Body::empty()).unwrap();
         let resp = app

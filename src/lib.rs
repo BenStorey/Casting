@@ -19,6 +19,7 @@ pub mod directive;
 pub mod event;
 pub mod git_observer;
 pub mod integrity;
+pub mod mental;
 pub mod orchestrator;
 pub mod persona;
 pub mod plan;

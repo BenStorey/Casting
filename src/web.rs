@@ -126,6 +126,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/context/{actor}", get(context_handler))
         .route("/api/persona/{agent_id}", get(persona_handler))
+        .route("/api/model", get(model_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
@@ -551,6 +552,19 @@ async fn persona_handler(
         Some(p) => Ok(Json(p)),
         None => Err(StatusCode::NOT_FOUND),
     }
+}
+
+/// GET /api/model — the operating picture: what the models are currently
+/// seeing (objective, priorities, governance, knowledge, per-actor contexts,
+/// and any mechanical drift signals). The owner's "why is it prioritizing that
+/// way?" / "what does it believe?" debug surface. Pure derivation.
+async fn model_handler(
+    State(state): State<AppState>,
+) -> Result<Json<crate::mental::OperatingModel>, StatusCode> {
+    let proj = state
+        .projection()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(proj.operating_model()))
 }
 
 /// Serve the embedded SPA. Real files serve directly; unknown paths fall back

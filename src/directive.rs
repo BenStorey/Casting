@@ -122,3 +122,15 @@ pub fn relevant<'a>(projection: &'a Projection, areas: &[&str]) -> Vec<&'a Direc
     out.sort_by_key(|d| std::cmp::Reverse(d.strength));
     out
 }
+
+/// Select ALL currently-Active directives (no scope filter), strongest-first.
+/// For the owner's operating picture / governance surface.
+pub fn active(projection: &Projection) -> Vec<&Directive> {
+    let mut out: Vec<&Directive> = projection
+        .directives
+        .iter()
+        .filter(|d| d.status == DirectiveStatus::Active)
+        .collect();
+    out.sort_by_key(|d| std::cmp::Reverse(d.strength));
+    out
+}
