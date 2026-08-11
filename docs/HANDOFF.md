@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **170 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+6),
+"why does this code exist?". **172 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -346,7 +346,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+6 = 170 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8 = 172 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -639,8 +639,12 @@ down interesting facts so we don't re-derive them", in Casting-native form):
   matters). We build both; the LLM/gate decides which.
 - `OpinionRecorded` {category, statement, recorded_by, supersedes} + `FactRecorded`
   {kind, statement, recorded_by, recorded_at}; projected to `proj.opinions` /
-  `proj.facts`. Opinions supersede (never edited, history preserved) like
-  decisions. `PmAction::RecordOpinion` / `RecordFact` through the gate.
+  `proj.facts`. When the owner asked how the "currently valid" set is derived,
+  supersession was made explicit (mirrors directives): `Opinion.status`
+  (Active|Superseded) + `OpinionSuperseded` event + `PmAction::SupersedeOpinion`;
+  readers use `proj.active_opinions()` (status==Active) for the current view,
+  with the full audit trail preserved in `proj.opinions`. `RecordOpinion` /
+  `RecordFact` / `SupersedeOpinion` all pass the gate.
 - When D2 lands, the LLM writes learned knowledge through the same gate — the
   deterministic home for lessons/rationale/preferences.
 - `docs/STORAGE_CANDIDATES.md` holds the immutable reasoning about Postgres /
