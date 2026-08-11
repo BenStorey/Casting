@@ -25,6 +25,7 @@ pub mod pm;
 pub mod policy;
 pub mod projection;
 pub mod provenance;
+pub mod registry;
 pub mod replay;
 pub mod setup;
 pub mod snapshot;
