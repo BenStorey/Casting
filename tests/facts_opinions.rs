@@ -278,6 +278,7 @@ fn record_opinion_and_fact_pass_the_gate() {
     actions::validate(
         &PmAction::RecordOpinion {
             id: "op-9".into(),
+            subject: "auth".into(),
             category: "lesson".into(),
             statement: "Single-owner auth is enough".into(),
             supersedes: None,
@@ -304,6 +305,7 @@ fn record_opinion_action_to_events() {
     let cause = cause_for(&state);
     let evs = PmAction::RecordOpinion {
         id: "op-9".into(),
+        subject: "auth".into(),
         category: "lesson".into(),
         statement: "Single-owner auth is enough".into(),
         supersedes: None,
@@ -323,6 +325,7 @@ fn pm_can_narrate_opinions_and_facts() {
 
     let opinion_ev = PmAction::RecordOpinion {
         id: "op-pm".into(),
+        subject: "architecture".into(),
         category: "design".into(),
         statement: "The event log is the only authority".into(),
         supersedes: None,

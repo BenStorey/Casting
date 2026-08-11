@@ -67,6 +67,10 @@ pub struct AppState {
     /// The state dir (set by `cast run`). Lets the web setup endpoint persist
     /// `config.json` (name + owner token). `None` in tests.
     pub state_dir: Option<std::path::PathBuf>,
+    /// Every N appended events, the drift reconciler wakes and cleans up
+    /// derived state (e.g. same-subject opinion contradictions). Cursor-gated,
+    /// mirrors the PM loop. Set low in tests.
+    pub reconcile_interval: u64,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -87,8 +91,16 @@ impl AppState {
             enforce_integrity: false,
             auth_token: None,
             state_dir: None,
+            reconcile_interval: 25,
             events: Arc::new(tx),
         }
+    }
+
+    /// Builder-style: set how often (per appended event) the drift reconciler
+    /// runs. Low in tests; tuned at runtime.
+    pub fn with_reconcile_interval(mut self, n: u64) -> Self {
+        self.reconcile_interval = n;
+        self
     }
 
     /// Builder-style: enable projection snapshots for this AppState.
@@ -189,6 +201,10 @@ pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
         crate::git_observer::observe_once(&state, &ws).await;
         if let Err(e) = drain(&state).await {
             eprintln!("[pm] drain error: {e:#}");
+        }
+        // Drift reconciliation: every N events, clean up derived state.
+        if let Err(e) = crate::reconciler::run_if_due(&state).await {
+            eprintln!("[pm] reconciler error: {e:#}");
         }
     }
 }

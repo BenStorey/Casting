@@ -164,6 +164,11 @@ impl Default for OpinionStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Opinion {
     pub id: String,
+    /// The thing this opinion is ABOUT — the matching key for drift/supersession
+    /// (e.g. "databases", "auth"). Distinct from `category` (rationale/design/
+    /// lesson/preference, a free tag). Empty means ungroupable; the reconciler
+    /// skips opinions with no subject.
+    pub subject: String,
     /// Category: "rationale" | "design" | "lesson" | "preference" (free string,
     /// not an enum, so categories can evolve without a migration).
     pub category: String,
@@ -466,6 +471,7 @@ impl Projection {
             }),
             EventType::OpinionRecorded => self.opinions.push(Opinion {
                 id: e.aggregate.id.clone(),
+                subject: string_field(e, "subject").unwrap_or_default(),
                 category: string_field(e, "category").unwrap_or_default(),
                 statement: string_field(e, "statement").unwrap_or_default(),
                 recorded_by: actor_name(e),

@@ -110,6 +110,7 @@ pub enum PmAction {
     /// preference (e.g. "Postgres is a good default for our event log").
     RecordOpinion {
         id: String,
+        subject: String,
         category: String,
         statement: String,
         /// Optional id of a prior opinion this one supersedes (not edited).
@@ -718,6 +719,7 @@ impl PmAction {
             )],
             PmAction::RecordOpinion {
                 id,
+                subject,
                 category,
                 statement,
                 supersedes,
@@ -728,6 +730,7 @@ impl PmAction {
                 "opinion",
                 EventType::OpinionRecorded,
                 json!({
+                    "subject": subject,
                     "category": category,
                     "statement": statement,
                     "supersedes": supersedes,
