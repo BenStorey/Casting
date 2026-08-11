@@ -38,9 +38,8 @@ fn main() -> Result<()> {
 
     match cmd {
         "init" => {
-            let dir_str = args.get(2).context("usage: cast init <project-dir>")?;
-            let dir = Path::new(dir_str);
-            do_init(dir)
+            let init = parse_init(&args[2..])?;
+            do_init(init)
         }
         "smoke" => {
             let dir_str = args.get(2).context("usage: cast smoke <project-dir>")?;
@@ -68,14 +67,181 @@ fn main() -> Result<()> {
     }
 }
 
-fn do_init(dir: &Path) -> Result<()> {
-    let paths = ProjectPaths::for_dir(dir)?;
-    let _events = SqliteEventStore::open(&paths.db)?;
-    let _cursors = CursorStore::open(&paths.cursors)?;
-    println!(
-        "Initialized Casting project at {}",
-        dir.join(PROJECT_DIR).display()
-    );
+/// Flags for `cast init`, parsed by [`parse_init`].
+struct InitArgs {
+    dir: PathBuf,
+    interactive: bool,
+    name: Option<String>,
+    objective: Option<String>,
+    cast: Vec<String>,
+    owner_token: Option<String>,
+    directives: Vec<(String, String)>, // (statement, scope)
+}
+
+fn parse_init(args: &[String]) -> Result<InitArgs> {
+    let mut dir = None;
+    let mut interactive = false;
+    let mut name = None;
+    let mut objective = None;
+    let mut cast = Vec::new();
+    let mut owner_token = None;
+    let mut directives = Vec::new();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--interactive" | "-i" => interactive = true,
+            "--name" => {
+                name = Some(args.get(i + 1).context("--name requires a value")?.clone());
+                i += 1;
+            }
+            "--objective" => {
+                objective = Some(
+                    args.get(i + 1)
+                        .context("--objective requires a value")?
+                        .clone(),
+                );
+                i += 1;
+            }
+            "--cast" => {
+                cast = args
+                    .get(i + 1)
+                    .context("--cast requires a comma-separated role list")?
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                i += 1;
+            }
+            "--owner-token" => {
+                owner_token = Some(
+                    args.get(i + 1)
+                        .context("--owner-token requires a value")?
+                        .clone(),
+                );
+                i += 1;
+            }
+            "--directive" => {
+                let spec = args
+                    .get(i + 1)
+                    .context("--directive requires 'statement|scope'")?
+                    .clone();
+                let (statement, scope) = spec.split_once('|').unwrap_or((&spec, ""));
+                directives.push((statement.to_string(), scope.to_string()));
+                i += 1;
+            }
+            other if !other.starts_with('-') => dir = Some(PathBuf::from(other)),
+            other => anyhow::bail!("unknown init flag: {other}"),
+        }
+        i += 1;
+    }
+
+    Ok(InitArgs {
+        dir: dir.context("usage: cast init <state-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..]")?,
+        interactive,
+        name,
+        objective,
+        cast,
+        owner_token,
+        directives,
+    })
+}
+
+/// Prompt for a single line on stdin.
+fn prompt(prompt: &str, default: Option<&str>) -> std::io::Result<String> {
+    use std::io::Write;
+    match default {
+        Some(d) => print!("{prompt} [{d}] "),
+        None => print!("{prompt} "),
+    }
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(line.trim().to_string())
+}
+
+fn do_init(mut args: InitArgs) -> Result<()> {
+    if args.interactive {
+        args.name = Some(args.name.unwrap_or_else(|| {
+            prompt("Company / product name?", Some("Acme Inc"))
+                .unwrap_or_else(|_| "Acme Inc".into())
+        }));
+        args.objective = Some(args.objective.unwrap_or_else(|| {
+            prompt("What should your team build first? (the objective)", None).unwrap_or_default()
+        }));
+        if args.cast.is_empty() {
+            let answer = prompt(
+                "Initial roles (comma-sep from catalog: engineer,qa,security,devops)",
+                Some("engineer,qa"),
+            )
+            .unwrap_or_else(|_| "engineer,qa".into());
+            args.cast = answer
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if args.owner_token.is_none() {
+            let tok = prompt("Owner auth token? (blank = auth off)", None).unwrap_or_default();
+            args.owner_token = if tok.is_empty() { None } else { Some(tok) };
+        }
+    }
+
+    let spec = casting::setup::SetupSpec {
+        name: args.name.clone().unwrap_or_else(|| "Casting demo".into()),
+        roles: args.cast.clone(),
+        owner_token: args.owner_token.clone(),
+        directives: args
+            .directives
+            .into_iter()
+            .map(|(statement, scope)| casting::setup::StartDirective {
+                id: format!(
+                    "setup-{}",
+                    statement
+                        .to_lowercase()
+                        .replace(' ', "-")
+                        .chars()
+                        .take(20)
+                        .collect::<String>()
+                ),
+                kind: casting::directive::DirectiveKind::Policy,
+                statement,
+                scope: scope
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                strength: casting::directive::DirectiveStrength::Required,
+            })
+            .collect(),
+    };
+
+    let plan = casting::setup::SetupPlan::build(spec)?;
+    let written = plan.apply(&args.dir)?;
+    if written == 0 {
+        println!(
+            "Company already set up at {} — no changes.",
+            args.dir.display()
+        );
+    } else {
+        println!(
+            "🎬 {} is live at {}\n   Team: {}",
+            plan.spec.name,
+            args.dir.display(),
+            plan.hires
+                .iter()
+                .map(|(id, role)| format!("{id} ({role})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    if let Some(obj) = args.objective {
+        println!("   📣 To kick off the build, send \u{201c}{obj}\u{201d} as your first message in the UI.");
+    }
+    if args.interactive && args.owner_token.is_none() {
+        println!("   ⚠️  no owner token set — owner-mutating writes are OPEN (set one via --owner-token / CAST_OWNER_TOKEN)");
+    }
     Ok(())
 }
 
@@ -180,9 +346,15 @@ fn do_run(run: RunArgs) -> Result<()> {
         let state = AppState::new(store, cursors, PROJECT_ID)
             .with_snapshots(snapshots)
             .with_integrity();
-        // Owner auth: when CAST_OWNER_TOKEN is set, the owner-mutating API
-        // endpoints require Authorization: Bearer <token>. Off by default.
-        let state = match std::env::var("CAST_OWNER_TOKEN").ok() {
+        // Owner auth: the token comes from the persisted setup config.json
+        // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
+        // Off by default. Owner-mutating endpoints require Authorization:
+        // Bearer <token>.
+        let persisted_token = casting::setup::read_config(&run.state_dir)
+            .and_then(|c| c.owner_token)
+            .filter(|t| !t.is_empty());
+        let token = persisted_token.or_else(|| std::env::var("CAST_OWNER_TOKEN").ok());
+        let state = match token {
             Some(tok) if !tok.is_empty() => {
                 println!("🔐 owner auth enabled (send 'Authorization: Bearer <token>' to mutate)");
                 state.with_owner_auth(tok)

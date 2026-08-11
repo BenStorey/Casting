@@ -89,11 +89,14 @@ impl SetupPlan {
     /// Apply the setup to a state dir: open (or create) the DBs, append the
     /// initial events idempotently, and persist the runtime config (name +
     /// optional owner token) that `cast run` reads. Returns the number of
-    /// events written (0 if the company is already set up).
+    /// events written (0 if the company is already set up — in which case the
+    /// existing config is left untouched).
     pub fn apply(&self, dir: &std::path::Path) -> Result<u32> {
         let store = open_store(dir)?;
         let written = apply_to_store(&store, &self.spec, &self.hires)?;
-        write_config(dir, &self.spec)?;
+        if written > 0 {
+            write_config(dir, &self.spec)?;
+        }
         Ok(written)
     }
 }

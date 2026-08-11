@@ -96,6 +96,22 @@ fn setup_writes_owner_token_config() {
     let cfg = setup::read_config(tmp.path()).expect("config written");
     assert_eq!(cfg.name, "Acme");
     assert_eq!(cfg.owner_token.as_deref(), Some("s3cr3t"));
+
+    // A re-run (no-op) must NOT clobber the persisted token/config.
+    let again = SetupPlan::build(SetupSpec {
+        name: "Acme".into(),
+        roles: vec![],
+        owner_token: None,
+        directives: vec![],
+    })
+    .unwrap();
+    assert_eq!(again.apply(tmp.path()).unwrap(), 0, "re-run is a no-op");
+    let cfg = setup::read_config(tmp.path()).expect("config still present");
+    assert_eq!(
+        cfg.owner_token.as_deref(),
+        Some("s3cr3t"),
+        "re-run must not wipe the token"
+    );
 }
 
 #[test]
@@ -178,4 +194,52 @@ async fn setup_then_onboard_does_not_double_hire() {
         let count = proj.agents.iter().filter(|a| a.id == expected).count();
         assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
     }
+}
+
+#[tokio::test]
+async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
+    // The owner chose a custom cast at setup (engineer + devops only). Onboarding
+    // must NOT add default QA on top — the chosen team stands as-is.
+    let tmp = tmp_dir();
+    let plan = SetupPlan::build(SetupSpec {
+        name: "Acme".into(),
+        roles: vec!["engineer".into(), "devops".into()],
+        owner_token: None,
+        directives: vec![],
+    })
+    .unwrap();
+    plan.apply(tmp.path()).unwrap();
+
+    use casting::cursor::CursorStore;
+    use casting::event::{Actor, Aggregate, Event, EventType};
+    use casting::pm::AppState;
+    let store = casting::setup::open_store(tmp.path()).unwrap();
+    let cursors = CursorStore::open(tmp.path().join("cursors.db")).unwrap();
+    let state = AppState::new(store, cursors, "project-demo");
+    state
+        .append(Event::new(
+            "project-demo",
+            Actor::Owner,
+            EventType::MessageSent,
+            Aggregate {
+                kind: "message".into(),
+                id: "msg-1".into(),
+            },
+            serde_json::json!({ "body": "Build me a thing" }),
+        ))
+        .unwrap();
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "project-demo").unwrap();
+    let ids: Vec<&str> = proj.agents.iter().map(|a| a.id.as_str()).collect();
+    assert!(ids.contains(&"marcus-reed"), "engineer in the custom cast");
+    assert!(ids.contains(&"devops-1"), "devops in the custom cast");
+    assert!(
+        !ids.contains(&"maya-patel"),
+        "default QA must NOT be topped up: {ids:?}"
+    );
+    assert!(
+        !ids.contains(&"security-1"),
+        "no other defaults added: {ids:?}"
+    );
 }

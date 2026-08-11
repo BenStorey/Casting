@@ -306,29 +306,37 @@ fn plan_onboard(
     // inbox — no auto-decision, no follow-up task.
     let testing_lib_decider = policy.resolve(DecisionClass::TestingLibrary).decider();
 
-    // Onboard the default cast: hire each member by role, but SKIP anyone the
-    // setup engine already hired (setup + onboarding must not double-hire).
-    // The PM is hired separately at seed, so the cast here is the working team.
+    // Onboard the working team: hire the default cast members by role, but SKIP
+    // anyone the setup engine already hired. If setup explicitly chose a cast
+    // (any non-PM agent exists), we DON'T top-up — the owner's chosen team
+    // stands. The PM is hired separately at seed, so the cast here is the
+    // working team.
     let already_hired: Vec<String> = state
         .projection()
         .ok()
         .map(|p| p.agents.iter().map(|a| a.id.clone()).collect())
         .unwrap_or_default();
-    let cast_hires: Vec<PlannedAction> = crate::cast::DEFAULT_CAST
-        .iter()
-        .filter(|m| !already_hired.iter().any(|id| id == m.agent_id))
-        .map(|m| {
-            let role = crate::cast::role_by_id(m.role_id)
-                .unwrap_or_else(|| panic!("default cast role {} missing from catalog", m.role_id));
-            (
-                "system".into(),
-                PmAction::HireAgent {
-                    agent_id: m.agent_id.into(),
-                    role: role.title.into(),
-                },
-            )
-        })
-        .collect();
+    let has_existing_cast = already_hired.iter().any(|id| id != "pm"); // any non-PM agent = setup chose the cast
+    let cast_hires: Vec<PlannedAction> = if has_existing_cast {
+        Vec::new()
+    } else {
+        crate::cast::DEFAULT_CAST
+            .iter()
+            .filter(|m| !already_hired.iter().any(|id| id == m.agent_id))
+            .map(|m| {
+                let role = crate::cast::role_by_id(m.role_id).unwrap_or_else(|| {
+                    panic!("default cast role {} missing from catalog", m.role_id)
+                });
+                (
+                    "system".into(),
+                    PmAction::HireAgent {
+                        agent_id: m.agent_id.into(),
+                        role: role.title.into(),
+                    },
+                )
+            })
+            .collect()
+    };
 
     let mut plan: Vec<PlannedAction> = vec![
         (
