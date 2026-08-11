@@ -28,12 +28,29 @@ pub struct OperatingModel {
     pub knowledge: KnowledgeView,
     /// The environmental state the company reasons about.
     pub context: ContextView,
+    /// Cost attribution (HARNESS #6) — total spend + per-agent, so budget is
+    /// visible to the PM/owner, not (only) tracked implicitly.
+    pub spend: SpendView,
     /// Per-actor operating context — EXACTLY what each model is handed when it
     /// plans. This is the heart of "see what the models are seeing".
     pub actor_contexts: Vec<crate::context::AgentContext>,
     /// Signals a stale/inconsistent state (e.g. same-subject opinion
     /// contradiction the reconciler hasn't fixed yet) the owner may want to see.
     pub drift_signals: Vec<String>,
+}
+
+/// Aggregated cost attribution for the operating picture.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpendView {
+    /// Total estimated USD across all cost entries.
+    pub total_estimated_usd: f64,
+    /// Total prompt & completion tokens across all entries.
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub entries: usize,
+    /// Per-agent spend (agent_id -> total USD), so individual consultants can
+    /// be budgeted.
+    pub by_agent: std::collections::BTreeMap<String, f64>,
 }
 
 /// Governance posture (directives + decision policy + open decisions).
@@ -190,6 +207,19 @@ impl crate::projection::Projection {
                     done,
                 },
                 active_agents,
+            },
+            spend: SpendView {
+                total_estimated_usd: self.total_spend_usd(),
+                prompt_tokens: self.total_prompt_tokens(),
+                completion_tokens: self.spend.iter().map(|c| c.completion_tokens).sum(),
+                entries: self.spend.len(),
+                by_agent: {
+                    let mut m = std::collections::BTreeMap::new();
+                    for c in &self.spend {
+                        *m.entry(c.agent_id.clone()).or_insert(0.0) += c.estimated_usd;
+                    }
+                    m
+                },
             },
             actor_contexts,
             drift_signals,

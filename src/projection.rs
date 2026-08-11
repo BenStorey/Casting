@@ -184,7 +184,7 @@ pub struct Opinion {
     pub supersedes: Option<String>,
 }
 
-/// A recorded project FACT — an objective, measured datapoint (e.g. "the repo
+/// A recorded project FACT — an objective, measured point-in-time datapoint (e.g. "the repo
 /// is 1,342 lines"). Objective measures are usually derived from state; this
 /// captures a point-in-time snapshot worth preserving.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -196,6 +196,27 @@ pub struct Fact {
     pub recorded_by: String,
     /// ISO/chrono timestamp at record time, so a datapoint is a point-in-time.
     pub recorded_at: String,
+}
+
+/// One cost-entry: provider metering for an agent/model call (HARNESS #6).
+/// Kept in the projection so spend is attributable per agent/task and the PM's
+/// budget concern reads it — the event log remains the durable authority.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostEntry {
+    pub id: String,
+    /// The agent whose call incurred this spend.
+    pub agent_id: String,
+    /// The task this spend is attributed to, if any.
+    #[serde(default)]
+    pub task_id: Option<String>,
+    /// Model tier, e.g. "flash" | "pro" (free string from the provider).
+    pub model_tier: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    /// Estimated USD cost of this call.
+    pub estimated_usd: f64,
+    /// Timestamp so spend is queryable over time.
+    pub incurred_at: String,
 }
 
 /// A recorded project constraint (semantic note, SEMANTIC_EVENTS §8).
@@ -288,8 +309,10 @@ pub struct Projection {
     pub constraints: Vec<Constraint>,
     /// Recorded project opinions (subjective knowledge worth not re-deriving).
     pub opinions: Vec<Opinion>,
-    /// Recorded project facts (objective point-in-time measurements).
+    /// Recorded project facts (objective, point-in-time measures).
     pub facts: Vec<Fact>,
+    /// Cost entries (HARNESS #6): provider metering so spend is attributable.
+    pub spend: Vec<CostEntry>,
     /// First-class governance objects (docs/INTENT.md).
     pub directives: Vec<crate::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
@@ -346,6 +369,25 @@ impl Projection {
             .into_iter()
             .filter(|o| o.category == category)
             .collect()
+    }
+
+    /// Total token spend across all cost entries (HARNESS #6 budget concern).
+    pub fn total_prompt_tokens(&self) -> u64 {
+        self.spend.iter().map(|c| c.prompt_tokens).sum()
+    }
+
+    /// Total cost in USD across all cost entries.
+    pub fn total_spend_usd(&self) -> f64 {
+        self.spend.iter().map(|c| c.estimated_usd).sum()
+    }
+
+    /// Total spend attributed to one agent (for per-consultant budgeting).
+    pub fn spend_by_agent(&self, agent_id: &str) -> f64 {
+        self.spend
+            .iter()
+            .filter(|c| c.agent_id == agent_id)
+            .map(|c| c.estimated_usd)
+            .sum()
     }
 
     /// Apply a single event to the running projection.
@@ -490,6 +532,24 @@ impl Projection {
                 recorded_by: actor_name(e),
                 recorded_at: e.timestamp.to_string(),
             }),
+            EventType::CostIncurred => {
+                let num_field =
+                    |k: &str| -> u64 { e.data.get(k).and_then(|v| v.as_u64()).unwrap_or(0) };
+                self.spend.push(CostEntry {
+                    id: e.aggregate.id.clone(),
+                    agent_id: string_field(e, "agent_id").unwrap_or_default(),
+                    task_id: string_field(e, "task_id"),
+                    model_tier: string_field(e, "model_tier").unwrap_or_default(),
+                    prompt_tokens: num_field("prompt_tokens"),
+                    completion_tokens: num_field("completion_tokens"),
+                    estimated_usd: e
+                        .data
+                        .get("estimated_usd")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0),
+                    incurred_at: e.timestamp.to_string(),
+                });
+            }
             EventType::ProjectDirectiveCreated => {
                 use crate::directive::{Directive, DirectiveKind, DirectiveStrength};
                 let kind: Option<DirectiveKind> = e

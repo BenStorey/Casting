@@ -17,13 +17,41 @@ use crate::context::AgentContext;
 use crate::event::Event;
 use crate::pm::PlannedAction;
 
+/// Provider metering for one orchestrator call (HARNESS #6 — cost attribution
+/// & token budgeting). Returned alongside actions so the PM can land it in the
+/// event log as a `CostIncurred` event; spend becomes attributable per
+/// agent/task and feeds the PM's budget concern.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CostMetering {
+    /// The agent whose call incurred this spend (e.g. "pm", "marcus-reed").
+    pub agent_id: String,
+    /// The task this call is attributed to, if any.
+    pub task_id: Option<String>,
+    /// Model tier, e.g. "flash" | "pro" (from the provider).
+    pub model_tier: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    /// Estimated USD cost of the call.
+    pub estimated_usd: f64,
+}
+
+/// The result of an orchestrator call: the planned actions PLUS the metering
+/// for the call that produced them (when a provider was actually used). When
+/// no provider call happened (deterministic/scripted planning, e.g. the mock
+/// being stateless), `metering` is `None` and no cost is recorded.
+#[derive(Debug, Clone, Default)]
+pub struct PlanOutput {
+    pub actions: Vec<PlannedAction>,
+    pub metering: Option<CostMetering>,
+}
+
 /// The D2 contract: turn an assembled operating context + the triggering event
 /// into planned actions. The output is still validated by the policy gate, so
 /// an LLM (or anything) can only do what it's authorized to.
 pub trait Orchestrator: Send + Sync {
     /// Plan the PM's response to `cause`, given the assembled context for the
     /// actor being orchestrated.
-    fn plan(&self, context: &AgentContext, cause: &Event) -> Vec<PlannedAction>;
+    fn plan(&self, context: &AgentContext, cause: &Event) -> PlanOutput;
 }
 
 /// A deterministic stand-in for the LLM. Drives a minimal, scripted PM loop:
@@ -34,8 +62,8 @@ pub trait Orchestrator: Send + Sync {
 pub struct MockOrchestrator;
 
 impl Orchestrator for MockOrchestrator {
-    fn plan(&self, context: &AgentContext, cause: &Event) -> Vec<PlannedAction> {
-        let mut out: Vec<PlannedAction> = Vec::new();
+    fn plan(&self, context: &AgentContext, cause: &Event) -> PlanOutput {
+        let mut actions: Vec<PlannedAction> = Vec::new();
 
         if context.objective.is_none() {
             // No product objective yet: acknowledge and wait for direction.
@@ -44,19 +72,24 @@ impl Orchestrator for MockOrchestrator {
                 .get("body")
                 .and_then(|b| b.as_str())
                 .unwrap_or("");
-            out.push((
+            actions.push((
                 "pm".into(),
                 PmAction::SendMessage {
                     to: "owner".into(),
                     body: format!("On it — \u{201c}{body}\u{201d}. I'll scope it into tasks."),
                 },
             ));
-            return out;
+            return PlanOutput {
+                actions,
+                // The mock is deterministic/stateless — no real provider call, so
+                // no cost to record (the seam is exercised but spend stays zero).
+                metering: None,
+            };
         }
 
         // There's an objective: narrow the task backlog (mock "reasoning").
         if context.priorities.is_empty() {
-            out.push((
+            actions.push((
                 "pm".into(),
                 PmAction::CreateTask {
                     id: "task-mock-1".into(),
@@ -65,7 +98,7 @@ impl Orchestrator for MockOrchestrator {
                 },
             ));
         } else {
-            out.push((
+            actions.push((
                 "pm".into(),
                 PmAction::ProposeDecision {
                     id: "decision-mock-1".into(),
@@ -78,6 +111,16 @@ impl Orchestrator for MockOrchestrator {
             ));
         }
 
-        out
+        PlanOutput {
+            actions,
+            metering: Some(CostMetering {
+                agent_id: "pm".into(),
+                task_id: None,
+                model_tier: "flash".into(),
+                prompt_tokens: 1200,
+                completion_tokens: 300,
+                estimated_usd: 0.0018,
+            }),
+        }
     }
 }

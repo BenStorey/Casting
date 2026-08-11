@@ -249,25 +249,54 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             _ => (false, ""),
         };
 
-        let planned: Vec<PlannedAction> = if is_owner_message {
-            // D2 seam: if an orchestrator is enabled, let IT drive the response
-            // (the LLM, or the mock in tests). Otherwise use the scripted plans.
+        // D2/orchestrator path returns actions + optional cost metering; the
+        // scripted paths return actions only. Normalize to (actions, metering).
+        let (planned, metering): (
+            Vec<PlannedAction>,
+            Option<crate::orchestrator::CostMetering>,
+        ) = if is_owner_message {
+            // D2 seam: if an orchestrator is enabled, let IT drive the
+            // response (the LLM, or the mock in tests). Otherwise use the
+            // scripted plans.
             if let Some(orch) = &state.orchestrator {
                 let context = projection.context_for("pm");
-                orch.plan(&context, e)
+                let out = orch.plan(&context, e);
+                (out.actions, out.metering)
             } else if projection.requirements.is_empty() {
-                plan_onboard(state, e, body, &projection.policy)
+                (plan_onboard(state, e, body, &projection.policy), None)
             } else {
-                plan_acknowledge(state, e)
+                (plan_acknowledge(state, e), None)
             }
         } else if e.event_type == EventType::DecisionMade && e.actor == Actor::Owner {
             // Only an OWNER's decision needs a PM reaction. A PM-authored
             // DecisionMade (a delegated Pm/Never decision) was already handled
             // inline by the plan that made it — reacting again would duplicate.
-            plan_owner_decision(state, e)
+            (plan_owner_decision(state, e), None)
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
+
+        // HARNESS #6: land the provider cost in the event log so spend is
+        // attributable per agent/task (the PM's budget concern reads it).
+        if let Some(m) = metering {
+            state.append(crate::event::Event::new(
+                &state.project,
+                Actor::System,
+                EventType::CostIncurred,
+                crate::event::Aggregate {
+                    kind: "cost".into(),
+                    id: uuid::Uuid::new_v4().to_string(),
+                },
+                serde_json::json!({
+                    "agent_id": m.agent_id,
+                    "task_id": m.task_id,
+                    "model_tier": m.model_tier,
+                    "prompt_tokens": m.prompt_tokens,
+                    "completion_tokens": m.completion_tokens,
+                    "estimated_usd": m.estimated_usd,
+                }),
+            ))?;
+        }
 
         authored += run_planned(state, e, planned).await?;
     }

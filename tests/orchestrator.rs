@@ -116,3 +116,80 @@ async fn mock_orchestrator_drives_the_pm_loop_end_to_end() {
         "with an objective, the mock orchestrator plans a task from context"
     );
 }
+
+#[tokio::test]
+async fn orchestrator_metering_lands_cost_in_the_event_log() {
+    // HARNESS #6: when the orchestrator reports provider metering, the PM lands
+    // a CostIncurred event so spend is attributable per agent/task from the
+    // source of truth (not tracked separately). The mock emits metering when it
+    // actually "plans," so drive it past the ack to a planning call.
+    let state = make_state().with_orchestrator(Arc::new(MockOrchestrator));
+    for (etype, id, kind, data) in [
+        (
+            EventType::ProjectCreated,
+            "proj-orch",
+            "project",
+            serde_json::json!({}),
+        ),
+        (
+            EventType::AgentHired,
+            "pm",
+            "agent",
+            serde_json::json!({ "role": "Project Manager" }),
+        ),
+        // A requirement establishes an objective so the next owner message
+        // actually triggers the mock's planning branch (which meters).
+        (
+            EventType::RequirementCreated,
+            "req-1",
+            "requirement",
+            serde_json::json!({ "title": "R", "description": "x" }),
+        ),
+        (
+            EventType::MessageSent,
+            "msg-1",
+            "message",
+            serde_json::json!({ "body": "Build me a thing" }),
+        ),
+    ] {
+        state
+            .append(Event::new(
+                "proj-orch",
+                if etype == EventType::MessageSent {
+                    Actor::Owner
+                } else {
+                    Actor::System
+                },
+                etype,
+                Aggregate {
+                    kind: kind.into(),
+                    id: id.into(),
+                },
+                data,
+            ))
+            .unwrap();
+    }
+
+    // Drive the PM: with an objective present, the mock plans AND reports
+    // metering (~1200 prompt + 300 completion tokens, $0.0018).
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "proj-orch").unwrap();
+    assert_eq!(
+        proj.spend.len(),
+        1,
+        "mock planning call should land exactly one CostIncurred entry"
+    );
+    let entry = &proj.spend[0];
+    assert_eq!(entry.agent_id, "pm");
+    assert_eq!(entry.model_tier, "flash");
+    assert_eq!(entry.prompt_tokens, 1200);
+    assert_eq!(entry.completion_tokens, 300);
+    assert!(entry.estimated_usd > 0.0);
+
+    // The budget view in the operating picture reflects it.
+    let m = proj.operating_model();
+    assert_eq!(m.spend.entries, 1);
+    assert!((m.spend.total_estimated_usd - 0.0018).abs() < 1e-9);
+    assert_eq!(m.spend.by_agent.get("pm"), Some(&0.0018));
+}

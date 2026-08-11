@@ -59,11 +59,16 @@ pub enum EventType {
     /// A previously-recorded opinion is superseded by a newer one -> status
     /// Superseded (history preserved). Mirrors ProjectDirectiveSuperseded.
     OpinionSuperseded,
-    /// A project FACT was recorded — an objective, measured datapoint about the
-    /// project (e.g. "the repo is 1,342 lines"). Objective measures are usually
+    /// A project FACT was recorded — an objective, measured point-in-time datapoint
+    /// (e.g. "the repo is 1,342 lines"). Objective measures are usually
     /// derived from state, but recording one captures a point-in-time snapshot
     /// worth preserving. (owner concept 2026-08-10)
     FactRecorded,
+    /// Cost incurred by an agent/model call (harness responsibility #6 — cost
+    /// attribution & token budgeting, docs/HARNESS.md). Carries provider
+    /// metering so spend is attributable per agent/task from the event log,
+    /// not tracked separately. The PM's "budget concern" reads this projection.
+    CostIncurred,
     /// A project directive was created (governance layer, docs/INTENT.md).
     ProjectDirectiveCreated,
     /// A directive was suspended (no longer governs) — status -> Suspended.
