@@ -289,7 +289,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
 /// whole sequence as actions; the gate lets each through as the projection
 /// grows.
 fn plan_onboard(
-    _state: &AppState,
+    state: &AppState,
     cause: &Event,
     body: &str,
     policy: &crate::policy::DecisionPolicy,
@@ -306,10 +306,17 @@ fn plan_onboard(
     // inbox — no auto-decision, no follow-up task.
     let testing_lib_decider = policy.resolve(DecisionClass::TestingLibrary).decider();
 
-    // Onboard the default cast: hire each member by role. The PM is hired
-    // separately at seed, so the cast here is the working team.
+    // Onboard the default cast: hire each member by role, but SKIP anyone the
+    // setup engine already hired (setup + onboarding must not double-hire).
+    // The PM is hired separately at seed, so the cast here is the working team.
+    let already_hired: Vec<String> = state
+        .projection()
+        .ok()
+        .map(|p| p.agents.iter().map(|a| a.id.clone()).collect())
+        .unwrap_or_default();
     let cast_hires: Vec<PlannedAction> = crate::cast::DEFAULT_CAST
         .iter()
+        .filter(|m| !already_hired.iter().any(|id| id == m.agent_id))
         .map(|m| {
             let role = crate::cast::role_by_id(m.role_id)
                 .unwrap_or_else(|| panic!("default cast role {} missing from catalog", m.role_id));

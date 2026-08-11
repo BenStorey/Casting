@@ -134,3 +134,48 @@ fn setup_rejects_unknown_role() {
         "unknown role must be rejected"
     );
 }
+
+#[tokio::test]
+async fn setup_then_onboard_does_not_double_hire() {
+    // Setup seeds the cast; then the owner's first message drives onboarding.
+    // plan_onboard must skip already-hired agents so we don't get duplicates.
+    let tmp = tmp_dir();
+    let plan = SetupPlan::build(SetupSpec {
+        name: "Acme".into(),
+        roles: vec![], // default cast (marcus + maya) hired by setup
+        owner_token: None,
+        directives: vec![],
+    })
+    .unwrap();
+    plan.apply(tmp.path()).unwrap();
+
+    // Boot an AppState over the setup state dir and drive the PM with the
+    // owner's first message (which triggers plan_onboard).
+    use casting::cursor::CursorStore;
+    use casting::event::{Actor, Aggregate, Event, EventType};
+    use casting::pm::AppState;
+    let store = casting::setup::open_store(tmp.path()).unwrap();
+    let cursors = CursorStore::open(tmp.path().join("cursors.db")).unwrap();
+    let state = AppState::new(store, cursors, "project-demo");
+
+    state
+        .append(Event::new(
+            "project-demo",
+            Actor::Owner,
+            EventType::MessageSent,
+            Aggregate {
+                kind: "message".into(),
+                id: "msg-1".into(),
+            },
+            serde_json::json!({ "body": "Build me a todo app" }),
+        ))
+        .unwrap();
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "project-demo").unwrap();
+    // Exactly one of each default agent — no duplicates from onboarding.
+    for expected in ["pm", "marcus-reed", "maya-patel"] {
+        let count = proj.agents.iter().filter(|a| a.id == expected).count();
+        assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
+    }
+}
