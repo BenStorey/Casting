@@ -9,6 +9,8 @@ target/
 # Frontend build artifacts (node deps + compiled SPA output)
 frontend/node_modules/
 frontend/dist/
+# TypeScript incremental build info (tsc -b)
+frontend/**/*.tsbuildinfo
 
 # Local dev workspace. NOTE: the D5 ownership boundary requires the `cast run`
 # workspace OUTSIDE the source tree (see /home/ben/casting-workspace/ and
