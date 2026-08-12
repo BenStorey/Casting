@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SetupWizard from "./SetupWizard";
+import { useCastStore } from "./store";
 import {
   Decision,
   Inbox,
@@ -7,10 +8,7 @@ import {
   Projection,
   TaskStatus,
   decide,
-  fetchInbox,
-  fetchState,
   sendMessage,
-  subscribe,
 } from "./api";
 
 type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity";
@@ -34,26 +32,17 @@ function agentLabel(id: string): string {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
-  const [state, setState] = useState<Projection | null>(null);
-  const [inbox, setInbox] = useState<Inbox | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const [s, i] = await Promise.all([fetchState(), fetchInbox()]);
-      setState(s);
-      setInbox(i);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, []);
+  const state = useCastStore((s) => s.state);
+  const inbox = useCastStore((s) => s.inbox);
+  const error = useCastStore((s) => s.error);
+  const refresh = useCastStore((s) => s.refresh);
+  const start = useCastStore((s) => s.start);
 
   useEffect(() => {
-    refresh();
-    const unsub = subscribe(refresh);
+    // Hydrate the snapshot and subscribe to the live stream (once).
+    const unsub = start();
     return unsub;
-  }, [refresh]);
+  }, [start]);
 
   return (
     <div className="app">
