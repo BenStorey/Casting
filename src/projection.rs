@@ -524,48 +524,10 @@ impl Projection {
         body: &str,
         labels: &[String],
     ) -> (String, String, bool) {
-        let haystack = format!("{} {}", title, body).to_lowercase();
-
-        // Classification: security first, then bug, then feature, else other.
-        let classification = if labels
-            .iter()
-            .any(|l| l.to_lowercase().contains("security") || l.to_lowercase().contains("vuln"))
-        {
-            "security"
-        } else if labels.iter().any(|l| {
-            l.to_lowercase().contains("feature") || l.to_lowercase().contains("enhancement")
-        }) {
-            "feature"
-        } else if labels.iter().any(|l| l.to_lowercase().contains("bug"))
-            || [
-                "crash", "broken", "fail", "error", "can't", "cannot", "bug", "wrong",
-            ]
-            .iter()
-            .any(|w| haystack.contains(w))
-        {
-            "bug"
-        } else {
-            "feature"
-        };
-
-        // Severity: security + crash words => high; some-bug words => medium; else low.
-        let severity = if classification == "security"
-            || haystack.contains("crash")
-            || haystack.contains("data loss")
-            || haystack.contains("cannot log")
-        {
-            "high"
-        } else if classification == "bug" {
-            "medium"
-        } else if labels.iter().any(|l| {
-            l.to_lowercase().contains("severe")
-                || l.to_lowercase().contains("urgent")
-                || l.to_lowercase().contains("p0")
-        }) {
-            "high"
-        } else {
-            "low"
-        };
+        // Classification + severity come from the single source of truth
+        // (crate::triage) — the same one that stamps the ExternalRequestReceived
+        // event, so this read-side verdict can never disagree with the log.
+        let (classification, severity) = crate::triage::classify(title, body, labels);
 
         // Duplicate: same source + external_id, or same source + normalized (lowercased) title.
         let dup = self.external_requests.iter().any(|r| {

@@ -908,37 +908,9 @@ impl PmAction {
                 labels,
                 url,
             } => {
-                // Deterministic triage (same heuristic as Projection::triage_request).
-                let haystack = format!("{} {}", title, body).to_lowercase();
-                let classification = if labels.iter().any(|l| {
-                    l.to_lowercase().contains("security") || l.to_lowercase().contains("vuln")
-                }) {
-                    "security"
-                } else if labels.iter().any(|l| {
-                    l.to_lowercase().contains("feature") || l.to_lowercase().contains("enhancement")
-                }) {
-                    "feature"
-                } else if labels.iter().any(|l| l.to_lowercase().contains("bug"))
-                    || [
-                        "crash", "broken", "fail", "error", "can't", "cannot", "bug", "wrong",
-                    ]
-                    .iter()
-                    .any(|w| haystack.contains(w))
-                {
-                    "bug"
-                } else {
-                    "feature"
-                };
-                let severity = if classification == "security"
-                    || haystack.contains("crash")
-                    || haystack.contains("data loss")
-                {
-                    "high"
-                } else if classification == "bug" {
-                    "medium"
-                } else {
-                    "low"
-                };
+                // Deterministic triage — single source of truth in crate::triage
+                // (also used by Projection::triage_request, so they can't drift).
+                let (classification, severity) = crate::triage::classify(title, body, labels);
                 vec![ev(
                     project,
                     actor,
