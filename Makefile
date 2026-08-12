@@ -11,6 +11,8 @@
 #     make test     # cargo test only
 #     make lint     # clippy --all-targets -- -D warnings
 #     make fmt      # cargo fmt
+#     make deploy-dev  # build + restart the dev-host services (dev.benstorey.com)
+#     make restart     # restart cast-backend + cast-frontend systemd services
 #
 # Why "one step" matters: the SPA is embedded into the binary (rust-embed), so a
 # frontend change must be npm-built BEFORE cargo build or you get the build.rs
@@ -29,7 +31,7 @@ REPO_DIR := $(HOME)/casting-workspace/proj
 PROJECT  := dev            # name in the ~/.casting/ registry
 CAST_ADDR ?= 127.0.0.1:8080
 
-.PHONY: all dev run frontend test lint fmt clean
+.PHONY: all dev run frontend test lint fmt clean deploy-dev restart
 
 # Default: the whole quality gate in one step.
 all: fmt lint test build
@@ -70,6 +72,24 @@ dev: build
 	trap 'kill 0' INT TERM EXIT; \
 	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(PROJECT) & \
 	cd frontend && npm run dev
+
+# --- Dev-host deploy (dev.benstorey.com) ------------------------------------
+# The long-lived systemd services (cast-backend + cast-frontend) serve
+# dev.benstorey.com. They go stale when deps or the Rust binary change under
+# them (a running Vite dev server does NOT survive a node_modules swap — it
+# served a blank page after the v5->v8 upgrade until restarted). A deploy must
+# restart them so the dev host can't silently go stale. One command:
+#     make deploy-dev   # = build (re-embed SPA) + restart both services
+.PHONY: deploy-dev restart
+deploy-dev: build restart
+	@echo "✓ dev host redeployed + services restarted — dev.benstorey.com live"
+
+# Restart both dev-host services (requires sudo; Ben has NOPASSWD sudo).
+#  - cast-backend:  serves the embedded SPA + /api on :8080
+#  - cast-frontend: Vite HMR on :5173 (proxies /api -> :8080), fronted by Caddy
+restart:
+	sudo systemctl restart cast-backend cast-frontend
+	@echo "✓ restarted cast-backend + cast-frontend"
 
 clean:
 	cargo clean

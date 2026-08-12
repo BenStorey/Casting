@@ -57,6 +57,22 @@ sudo systemctl restart cast-frontend
 sudo systemctl stop    cast-frontend cast-backend
 ```
 
+> **⚠️ Stale-serve pitfall (learned 2026-08-10):** these are LONG-LIVED
+> processes, and they do NOT survive a dependency or binary change under them.
+> A running Vite dev server (`cast-frontend`) holds its module graph in memory —
+> if `node_modules` is swapped underneath it (e.g. a frontend major upgrade),
+> it serves a **blank/broken page** (`Cannot find module …/vite/…/dep-*.js`)
+> until restarted. Likewise `cast-backend` serves the *embedded* build, so it
+> needs a rebuild + restart to pick up Rust or embedded-frontend changes.
+>
+> **Always use the one-command deploy instead of editing in place:**
+> ```bash
+> make deploy-dev    # = make build (re-embed SPA) + make restart (both services)
+> ```
+> So a deploy can't silently go stale. (For pure frontend *code* edits on the
+> live host, Vite HMR already reflects them without a restart — the restart is
+> the safety net for dep/binary changes.)
+
 - Unit files: `/etc/systemd/system/cast-backend.service`,
   `/etc/systemd/system/cast-frontend.service`.
 - `cast-frontend` depends on (`Wants` + `After`) `cast-backend`.
