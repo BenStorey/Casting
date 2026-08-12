@@ -26,7 +26,7 @@ use tokio::sync::broadcast;
 pub const PM_CONSUMER: &str = "pm";
 
 /// Stable agent roster the simulated company uses.
-const AGENT_PM: &str = "pm";
+const AGENT_PM: &str = PM_CONSUMER;
 const AGENT_ENG: &str = "marcus-reed";
 const AGENT_QA: &str = "maya-patel";
 
@@ -265,7 +265,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             } else if projection.requirements.is_empty() {
                 (plan_onboard(state, e, body, &projection.policy), None)
             } else {
-                (plan_acknowledge(state, e), None)
+                (plan_acknowledge(e), None)
             }
         } else if e.event_type == EventType::DecisionMade && e.actor == Actor::Owner {
             // Only an OWNER's decision needs a PM reaction. A PM-authored
@@ -567,8 +567,7 @@ fn plan_onboard(
 }
 
 /// Owner just messaged but we already have requirements — acknowledge politely.
-fn plan_acknowledge(state: &AppState, cause: &Event) -> Vec<PlannedAction> {
-    let _ = state;
+fn plan_acknowledge(cause: &Event) -> Vec<PlannedAction> {
     let body = cause
         .data
         .get("body")

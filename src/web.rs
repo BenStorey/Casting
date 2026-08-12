@@ -70,24 +70,21 @@ struct BriefIn {
 #[derive(Deserialize)]
 struct RequestIn {
     /// e.g. "github" | "email" | "web".
-    #[serde(default = "default_source")]
+    #[serde(default = "default_external")]
     source: String,
     external_id: Option<String>,
     title: String,
     #[serde(default)]
     body: String,
     /// Who raised it (e.g. GitHub username). Defaults to "external".
-    #[serde(default = "default_reporter")]
+    #[serde(default = "default_external")]
     reporter: String,
     #[serde(default)]
     labels: Vec<String>,
     url: Option<String>,
 }
 
-fn default_source() -> String {
-    "external".to_string()
-}
-fn default_reporter() -> String {
+fn default_external() -> String {
     "external".to_string()
 }
 

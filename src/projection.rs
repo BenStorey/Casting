@@ -505,15 +505,6 @@ impl Projection {
         self.spend.iter().map(|c| c.estimated_usd).sum()
     }
 
-    /// Total spend attributed to one agent (for per-consultant budgeting).
-    pub fn spend_by_agent(&self, agent_id: &str) -> f64 {
-        self.spend
-            .iter()
-            .filter(|c| c.agent_id == agent_id)
-            .map(|c| c.estimated_usd)
-            .sum()
-    }
-
     /// Deterministic triage of an external request (intake surface, D2-free):
     /// classify bug/feature/security, estimate severity, and detect duplicates.
     pub fn triage_request(
@@ -542,18 +533,7 @@ impl Projection {
         (classification.to_string(), severity.to_string(), dup)
     }
 
-    /// Open (not-yet-closed) external requests, optionally filtered by classification.
-    pub fn open_external_requests(&self, classification: Option<&str>) -> Vec<&ExternalRequest> {
-        self.external_requests
-            .iter()
-            .filter(|r| r.status == ExternalRequestStatus::Open)
-            .filter(|r| {
-                classification
-                    .map(|c| r.classification == c)
-                    .unwrap_or(true)
-            })
-            .collect()
-    }
+    
 
     /// Apply a single event to the running projection.
     pub fn apply(&mut self, e: &Event) {
