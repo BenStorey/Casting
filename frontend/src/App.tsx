@@ -4,6 +4,13 @@ import { useCastStore } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Decision,
@@ -92,7 +99,7 @@ export default function App() {
               <Decisions decisions={state.decisions} onDecide={refresh} />
             )}
             {tab === "inbox" && <InboxView inbox={inbox} onDecide={refresh} />}
-            {tab === "activity" && <Activity state={state} />}
+            {tab === "activity" && <Activity />}
           </Tabs>
         </>
       )}
@@ -123,32 +130,37 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
   };
 
   return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>Chat with your Project Manager</h3>
-      <div className="thread">
-        {state.messages.length === 0 && (
-          <div className="muted small">Say hello and tell the PM what you want to build.</div>
-        )}
-        {state.messages.map((m: Message) => (
-          <div key={m.id} className={`bubble ${m.from === "owner" ? "owner" : "pm"}`}>
-            <div className="from">{m.from === "owner" ? "You" : agentLabel(m.from)}</div>
-            {m.body}
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-      <div className="composer" style={{ display: "flex", gap: 10, marginTop: 12 }}>
-        <Input
-          value={draft}
-          placeholder='e.g. "Build me a todo app"'
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-        />
-        <Button className="primary" onClick={send} disabled={busy || !draft.trim()}>
-          Send
-        </Button>
-      </div>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Chat with your Project Manager</CardTitle>
+        <CardDescription>The owner ↔ PM channel. Tell it what to build.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="thread">
+          {state.messages.length === 0 && (
+            <div className="muted small">Say hello and tell the PM what you want to build.</div>
+          )}
+          {state.messages.map((m: Message) => (
+            <div key={m.id} className={`bubble ${m.from === "owner" ? "owner" : "pm"}`}>
+              <div className="from">{m.from === "owner" ? "You" : agentLabel(m.from)}</div>
+              {m.body}
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+        <div className="composer" style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <Input
+            value={draft}
+            placeholder='e.g. "Build me a todo app"'
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+          />
+          <Button onClick={send} disabled={busy || !draft.trim()}>
+            Send
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -156,23 +168,34 @@ function Board({ tasks }: { tasks: Projection["tasks"] }) {
   return (
     <div>
       {tasks.length === 0 && (
-        <div className="card muted">No tasks yet — tell the PM what to build.</div>
+        <Card className="muted">
+          <CardContent className="pt-6">No tasks yet — tell the PM what to build.</CardContent>
+        </Card>
       )}
       <div className="board">
         {TASK_COLUMNS.map((col) => (
-          <div className="col" key={col.key}>
-            <h3>{col.label}</h3>
-            {tasks
-              .filter((t) => t.status === col.key)
-              .map((t) => (
-                <div className="tcard" key={t.id}>
-                  <div className="title">{t.title}</div>
-                  <div className="meta">
-                    {t.assignee ? agentLabel(t.assignee) : "unassigned"} · {t.kind}
-                  </div>
-                </div>
-              ))}
-          </div>
+          <Card key={col.key} className="col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">{col.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-2">
+                {tasks
+                  .filter((t) => t.status === col.key)
+                  .map((t) => (
+                    <Card key={t.id} className="border-border/60">
+                      <CardContent className="p-3">
+                        <div className="text-sm font-medium leading-snug">{t.title}</div>
+                        <Badge variant={t.status === "blocked" ? "destructive" : "secondary"} className="mt-2">
+                          {t.status}
+                        </Badge>
+                        <div className="text-xs text-muted-foreground mt-1">{t.kind}</div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </div>
@@ -182,30 +205,28 @@ function Board({ tasks }: { tasks: Projection["tasks"] }) {
 function Team({ agents }: { agents: Projection["agents"] }) {
   return (
     <div>
-      {agents.length === 0 && <div className="card muted">No one hired yet.</div>}
-      {agents.map((a) => (
-        <div className="card" key={a.id} style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              background: "linear-gradient(135deg,#4f8cff,#7a5cff)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-              color: "#fff",
-            }}
-          >
-            {a.id === "pm" ? "SC" : initials(a.id)}
-          </div>
-          <div>
-            <div style={{ fontWeight: 600 }}>{agentLabel(a.id).split(" · ")[0]}</div>
-            <div className="muted small">{a.role}</div>
-          </div>
-        </div>
-      ))}
+      {agents.length === 0 && <Card className="muted"><CardContent className="pt-6">No one hired yet.</CardContent></Card>}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {agents.map((a) => (
+          <Card key={a.id}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <div
+                className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
+                style={{
+                  background: "linear-gradient(135deg,#4f8cff,#7a5cff)",
+                  color: "#fff",
+                }}
+              >
+                {a.id === "pm" ? "SC" : initials(a.id)}
+              </div>
+              <div>
+                <div className="font-semibold">{agentLabel(a.id).split(" · ")[0]}</div>
+                <div className="text-sm text-muted-foreground">{a.role}</div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
@@ -226,43 +247,40 @@ function Decisions({
   onDecide: () => void;
 }) {
   return (
-    <div>
-      {decisions.length === 0 && <div className="card muted">No decisions recorded yet.</div>}
+    <div className="flex flex-col gap-3">
+      {decisions.length === 0 && <Card className="muted"><CardContent className="py-6">No decisions recorded yet.</CardContent></Card>}
       {decisions.map((d) => (
-        <div className="decision" key={d.id}>
-          <div className={`status ${d.status}`}>{d.status}</div>
-          <div style={{ fontWeight: 600, margin: "4px 0" }}>{d.subject}</div>
-          {Object.entries(d.options).length > 0 && (
-            <ul>
-              {Object.entries(d.options).map(([k, v]) => (
-                <li key={k}>
-                  <strong>{k}:</strong> {v}
-                </li>
-              ))}
-            </ul>
-          )}
-          {d.recommendation && <div className="small muted">Pm recommends: {d.recommendation}</div>}
-          {d.owner_verdict && <div className="small muted">Owner: {d.owner_verdict}</div>}
-          {d.status === "proposed" && (
-            <div className="actions" style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <Button
-                size="sm"
-                className="bg-emerald-500 text-white hover:bg-emerald-600"
-                onClick={() => void decide(d.id, d.subject, true).then(onDecide)}
-              >
-                Approve
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-destructive"
-                onClick={() => void decide(d.id, d.subject, false).then(onDecide)}
-              >
-                Reject
-              </Button>
+        <Card key={d.id}>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-semibold">{d.subject}</div>
+              <Badge variant={d.status === "proposed" ? "default" : d.status === "approved" ? "secondary" : "destructive"}>
+                {d.status}
+              </Badge>
             </div>
-          )}
-        </div>
+            {Object.entries(d.options).length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-sm">
+                {Object.entries(d.options).map(([k, v]) => (
+                  <li key={k}>
+                    <strong>{k}:</strong> {v}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {d.recommendation && <div className="text-xs text-muted-foreground mt-1">Pm recommends: {d.recommendation}</div>}
+            {d.owner_verdict && <div className="text-xs text-muted-foreground mt-1">Owner: {d.owner_verdict}</div>}
+            {d.status === "proposed" && (
+              <div className="flex gap-2 mt-3">
+                <Button size="sm" onClick={() => void decide(d.id, d.subject, true).then(onDecide)}>
+                  Approve
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => void decide(d.id, d.subject, false).then(onDecide)}>
+                  Reject
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
@@ -277,66 +295,54 @@ function InboxView({
 }) {
   const items = inbox?.items ?? [];
   return (
-    <div>
-      {items.length === 0 && <div className="card muted">🟢 Nothing needs your attention right now.</div>}
+    <div className="flex flex-col gap-3">
+      {items.length === 0 && <Card className="muted"><CardContent className="py-6">🟢 Nothing needs your attention right now.</CardContent></Card>}
       {items.map((it) => (
-        <div className="decision" key={it.id}>
-          <div className="status proposed">awaiting your decision</div>
-          <div style={{ fontWeight: 600, margin: "4px 0" }}>{it.subject}</div>
-          {Object.entries(it.options).length > 0 && (
-            <ul>
-              {Object.entries(it.options).map(([k, v]) => (
-                <li key={k}>
-                  <strong>{k}:</strong> {v}
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="actions" style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <Button
-              size="sm"
-              className="bg-emerald-500 text-white hover:bg-emerald-600"
-              onClick={() => void decide(it.id, it.subject, true).then(onDecide)}
-            >
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-destructive"
-              onClick={() => void decide(it.id, it.subject, false).then(onDecide)}
-            >
-              Reject
-            </Button>
-          </div>
-        </div>
+        <Card key={it.id} className="border-primary/40">
+          <CardContent className="pt-6">
+            <Badge variant="outline" className="mb-2">awaiting your decision</Badge>
+            <div className="font-semibold">{it.subject}</div>
+            {Object.entries(it.options).length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-sm">
+                {Object.entries(it.options).map(([k, v]) => (
+                  <li key={k}>
+                    <strong>{k}:</strong> {v}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" onClick={() => void decide(it.id, it.subject, true).then(onDecide)}>Approve</Button>
+              <Button size="sm" variant="outline" onClick={() => void decide(it.id, it.subject, false).then(onDecide)}>Reject</Button>
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
 }
 
-function Activity({ state }: { state: Projection }) {
-  // We only have the projection here; the event stream is served at /api/events.
-  // Render a summary composed from the projection as a lightweight activity view.
-  const rows: { seq: number; text: string }[] = [];
-  state.requirements.forEach((r, i) => rows.push({ seq: i + 1, text: `Requirement created: ${r.title}` }));
-  state.tasks.forEach((t, i) => rows.push({ seq: 100 + i, text: `Task ${t.id}: ${t.title} → ${t.status}` }));
-  state.decisions.forEach((d, i) => rows.push({ seq: 200 + i, text: `Decision ${d.id}: ${d.subject} (${d.status})` }));
-  state.observations.forEach((o, i) => rows.push({ seq: 300 + i, text: `Observation from ${agentLabel(o.from)}: ${o.subject}` }));
-  rows.sort((a, b) => a.seq - b.seq);
-
+function Activity() {
+  // The Activity view is powered by the REAL event stream from the store (each
+  // event is a durable log entry), not a reconstruction from the projection.
+  const events = useCastStore((s) => s.events);
   return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>Company activity</h3>
-      <div className="stream">
-        {rows.map((r, i) => (
-          <div className="row" key={i}>
-            <span className="seq">#{r.seq}</span>
-            <span className="who">{r.text}</span>
-          </div>
-        ))}
-        {rows.length === 0 && <div className="muted">Nothing yet.</div>}
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Company activity</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="stream">
+          {events.length === 0 && <div className="text-sm text-muted-foreground">Nothing yet.</div>}
+          {[...events].reverse().slice(0, 60).map((ev) => (
+            <div className="row" key={ev.event_id}>
+              <span className="seq">#{ev.sequence}</span>
+              <span className="who">{ev.event_type}</span>
+              <span className="muted text-xs">{ev.actor as string}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

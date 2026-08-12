@@ -114,6 +114,20 @@ export function fetchState(): Promise<Projection> {
   return j<Projection>("/api/state");
 }
 
+export interface EventEnvelope {
+  event_id: string;
+  project_id: string;
+  sequence: number;
+  timestamp: string;
+  event_type: string;
+  actor: string | { id: string };
+  data: Record<string, unknown>;
+}
+
+export function fetchEvents(after = 0): Promise<EventEnvelope[]> {
+  return j<EventEnvelope[]>(`/api/events?after=${after}`);
+}
+
 export interface SetupRole {
   id: string;
   title: string;

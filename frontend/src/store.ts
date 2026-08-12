@@ -7,8 +7,10 @@
 // authorities. Components just subscribe to the slices they need.
 import { create } from "zustand";
 import {
+  EventEnvelope,
   Inbox,
   Projection,
+  fetchEvents,
   fetchInbox,
   fetchState,
   subscribe,
@@ -17,26 +19,38 @@ import {
 interface CastStore {
   state: Projection | null;
   inbox: Inbox | null;
+  events: EventEnvelope[];
   error: string | null;
   streamReady: boolean;
-  /** Fetch the current snapshot (state + inbox). Idempotent, safe to call on
-   *  any event from the stream or after any mutation. */
+  /** Fetch the current snapshot (state + inbox + recent events). Idempotent,
+   *  safe to call on any event from the stream or after any mutation. */
   refresh: () => Promise<void>;
   /** Hydrate once, then keep in sync with the live event stream. Returns an
    *  unsubscribe function. Safe to call multiple times (guarded). */
   start: () => () => void;
 }
 
+function actorName(a: EventEnvelope["actor"]): string {
+  if (typeof a === "string") return a;
+  return a?.id ?? "system";
+}
+
 export const useCastStore = create<CastStore>((set, get) => ({
   state: null,
   inbox: null,
+  events: [],
   error: null,
   streamReady: false,
 
   refresh: async () => {
     try {
-      const [s, i] = await Promise.all([fetchState(), fetchInbox()]);
-      set({ state: s, inbox: i, error: null });
+      const [s, i, e] = await Promise.all([fetchState(), fetchInbox(), fetchEvents()]);
+      set({
+        state: s,
+        inbox: i,
+        events: e.map((x) => ({ ...x, actor: actorName(x.actor) })),
+        error: null,
+      });
     } catch (e) {
       set({ error: String(e) });
     }
@@ -47,7 +61,6 @@ export const useCastStore = create<CastStore>((set, get) => ({
       void get().refresh();
     });
     void get().refresh();
-    // Mark the stream live; the first refresh eats the 400ms SSE handshake.
     set({ streamReady: true });
     return unsub;
   },
