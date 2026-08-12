@@ -183,10 +183,109 @@ fn cannot_start_a_task_you_dont_own() {
 fn assignee_can_start_their_own_task() {
     let mut st = state_with(&["marcus-reed"], &["task-1"]);
     st.tasks[0].assignee = Some("marcus-reed".into());
-    let act = casting::actions::PmAction::StartTask {
+    // Fail-closed isolation: the assignee may start the task ONLY once an
+    // isolated worktree is provisioned (2026-08-12). Without one, rejection.
+    assert_eq!(
+        validate(
+            &casting::actions::PmAction::StartTask {
+                task_id: "task-1".into()
+            },
+            "marcus-reed",
+            &st
+        ),
+        Err(PolicyError::TaskHasNoWorktree("task-1".into()))
+    );
+    st.worktrees.push(casting::projection::Worktree {
         task_id: "task-1".into(),
+        branch: "casting/task-1-x".into(),
+        path: "/x".into(),
+        cargo_target_dir: "/x/target".into(),
+        port: 8090,
+    });
+    assert!(validate(
+        &casting::actions::PmAction::StartTask {
+            task_id: "task-1".into()
+        },
+        "marcus-reed",
+        &st
+    )
+    .is_ok());
+}
+
+#[test]
+fn provision_worktree_requires_an_assigned_hired_consultant() {
+    let mut st = state_with(&["marcus-reed"], &["task-1"]);
+    st.tasks[0].assignee = Some("marcus-reed".into());
+    let act = casting::actions::PmAction::ProvisionWorktree {
+        task_id: "task-1".into(),
+        slug: "auth".into(),
+        cargo_target_dir: "/x/target".into(),
+        port: 8090,
     };
-    assert!(validate(&act, "marcus-reed", &st).is_ok());
+    // Valid: task exists, assigned to a hired consultant, no worktree yet.
+    assert!(validate(&act, "pm", &st).is_ok());
+
+    // Reject: owner-assigned tasks never get a Casting worktree (the human
+    // works through their own harness).
+    st.tasks[0].assignee = Some("owner".into());
+    assert_eq!(
+        validate(&act, "pm", &st),
+        Err(PolicyError::WorktreeForOwner("task-1".into()))
+    );
+    st.tasks[0].assignee = Some("marcus-reed".into());
+
+    // Reject: a task with no assignee.
+    st.tasks[0].assignee = None;
+    assert!(validate(&act, "pm", &st).is_err());
+
+    // Reject: assigning to an agent who isn't hired.
+    let st2 = state_with(&["marcus-reed"], &["task-1"]);
+    // task unassigned -> TaskUnassigned; also test unhired assignee path.
+    let mut st3 = state_with(&["marcus-reed"], &["task-1"]);
+    st3.tasks[0].assignee = Some("nobody".into());
+    assert_eq!(
+        validate(&act, "pm", &st3),
+        Err(PolicyError::AgentNotHired("nobody".into()))
+    );
+    let _ = st2;
+}
+
+#[test]
+fn provision_worktree_rejects_duplicate() {
+    let mut st = state_with(&["marcus-reed"], &["task-1"]);
+    st.tasks[0].assignee = Some("marcus-reed".into());
+    st.worktrees.push(casting::projection::Worktree {
+        task_id: "task-1".into(),
+        branch: "casting/task-1-auth".into(),
+        path: "/x".into(),
+        cargo_target_dir: "/x/target".into(),
+        port: 8090,
+    });
+    let act = casting::actions::PmAction::ProvisionWorktree {
+        task_id: "task-1".into(),
+        slug: "auth".into(),
+        cargo_target_dir: "/x/target".into(),
+        port: 8090,
+    };
+    assert_eq!(
+        validate(&act, "pm", &st),
+        Err(PolicyError::WorktreeAlreadyProvisioned("task-1".into()))
+    );
+}
+
+#[test]
+fn provision_worktree_requires_existing_task() {
+    let st = state_with(&["marcus-reed"], &["task-1"]);
+    let act = casting::actions::PmAction::ProvisionWorktree {
+        task_id: "task-999".into(),
+        slug: "x".into(),
+        cargo_target_dir: "/x/target".into(),
+        port: 8090,
+    };
+    assert_eq!(
+        validate(&act, "pm", &st),
+        Err(PolicyError::TaskNotFound("task-999".into()))
+    );
 }
 
 #[test]

@@ -49,6 +49,17 @@ pub enum PmAction {
         task_id: String,
         assignee: String,
     },
+    /// Provision an isolated worktree for a task (owner 2026-08-12): the
+    /// platform gives a summoned consultant a dedicated working tree on its own
+    /// branch with a private build target + distinct API port. This is the
+    /// *structural* isolation guarantee — the agent is handed a ready workspace,
+    /// never asked to "remember" to isolate. Produces WorktreeProvisioned.
+    ProvisionWorktree {
+        task_id: String,
+        slug: String,
+        cargo_target_dir: String,
+        port: u16,
+    },
     StartTask {
         task_id: String,
     },

@@ -58,6 +58,27 @@ impl PmAction {
                 json!({ "assignee": assignee }),
                 meta,
             )],
+            PmAction::ProvisionWorktree {
+                task_id,
+                slug,
+                cargo_target_dir,
+                port,
+            } => vec![ev(
+                project,
+                actor,
+                // aggregate keyed by the worktree (one per task)
+                &format!("wt-{task_id}"),
+                "worktree",
+                EventType::WorktreeProvisioned,
+                json!({
+                    "task_id": task_id,
+                    "branch": format!("casting/task-{slug}"),
+                    "path": cargo_target_dir,
+                    "cargo_target_dir": cargo_target_dir,
+                    "port": port,
+                }),
+                meta,
+            )],
             PmAction::StartTask { task_id } => vec![ev(
                 project,
                 actor,

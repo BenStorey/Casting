@@ -1,6 +1,6 @@
 //! The policy gate: validation of a proposed action against the projection, and
 //! the `PolicyError` rejection vocabulary.
-use super::action::{is_valid_assignee, PmAction};
+use super::action::{is_valid_assignee, PmAction, OWNER};
 use crate::policy;
 use crate::projection::Projection;
 
@@ -45,6 +45,15 @@ pub enum PolicyError {
     /// Creating an entity whose id already exists (fail-closed id uniqueness for
     /// all create actions, not just tasks/agents).
     DuplicateEntity(String),
+    /// Starting a task that has no provisioned worktree (fail-closed isolation:
+    /// a consultant cannot work un-isolated — the platform provisions the
+    /// workspace at summon). "Task X has no isolated worktree".
+    TaskHasNoWorktree(String),
+    /// Provisioning a worktree for a task that already has one.
+    WorktreeAlreadyProvisioned(String),
+    /// Provisioning a worktree for a task assigned to the owner (the human
+    /// works through their own harness, not a Casting worktree).
+    WorktreeForOwner(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -101,6 +110,17 @@ impl std::fmt::Display for PolicyError {
             }
             PolicyError::UnknownRole(role) => write!(f, "unknown role in the cast catalog: {role}"),
             PolicyError::DuplicateEntity(id) => write!(f, "cannot create {id}: id already exists"),
+            PolicyError::TaskHasNoWorktree(id) => write!(
+                f,
+                "cannot start task {id}: no isolated worktree provisioned (the platform provisions it at summon)"
+            ),
+            PolicyError::WorktreeAlreadyProvisioned(id) => {
+                write!(f, "cannot provision worktree for task {id}: one already exists")
+            }
+            PolicyError::WorktreeForOwner(id) => write!(
+                f,
+                "cannot provision worktree for task {id}: assigned to the owner (the human works through their own harness)"
+            ),
         }
     }
 }
@@ -146,7 +166,44 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
-        PmAction::StartTask { task_id } => check_assignee(task_id, who, state),
+        PmAction::StartTask { task_id } => {
+            check_assignee(task_id, who, state)?;
+            // Fail-closed isolation (2026-08-12): a task can only be started
+            // with an isolated worktree provisioned — unless the assignee is
+            // the owner (the human works through their own harness, not a
+            // Casting worktree) or who is system (trusted seed).
+            let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
+            let assignee = task.assignee.as_deref().unwrap_or("system");
+            let needs_worktree = assignee != OWNER && who != "system";
+            if needs_worktree && !state.worktrees.iter().any(|w| w.task_id == *task_id) {
+                return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
+            }
+            Ok(())
+        }
+        PmAction::ProvisionWorktree { task_id, .. } => {
+            // Only hired agents get worktrees; the owner works through their
+            // own harness. The task must exist and be assigned to a consultant.
+            let task = state
+                .tasks
+                .iter()
+                .find(|t| t.id == *task_id)
+                .ok_or_else(|| PolicyError::TaskNotFound(task_id.clone()))?;
+            let assignee = task
+                .assignee
+                .as_deref()
+                .ok_or_else(|| PolicyError::TaskUnassigned(task_id.clone()))?;
+            if assignee == OWNER {
+                return Err(PolicyError::WorktreeForOwner(task_id.clone()));
+            }
+            if !state.agents.iter().any(|a| a.id == assignee) {
+                return Err(PolicyError::AgentNotHired(assignee.to_string()));
+            }
+            // One worktree per task (fail-closed id uniqueness).
+            if state.worktrees.iter().any(|w| w.task_id == *task_id) {
+                return Err(PolicyError::WorktreeAlreadyProvisioned(task_id.clone()));
+            }
+            Ok(())
+        }
         PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
         // Submitting work for review: the assignee submits their own work, and
