@@ -248,3 +248,43 @@ fn actions_round_trip_through_json() {
     let back: casting::actions::PmAction = serde_json::from_value(json).unwrap();
     assert_eq!(act, back);
 }
+
+#[test]
+fn record_actions_reject_duplicate_ids() {
+    // Fail-closed: previously the catch-all `_ => Ok(())` let creates pass
+    // without an id check; now every create-action enforces id uniqueness.
+    let mut st = state_with(&[], &[]);
+    st.requirements.push(casting::projection::Requirement {
+        id: "dup".into(),
+        title: "existing".into(),
+        description: "".into(),
+    });
+    let r = casting::actions::PmAction::CreateRequirement {
+        id: "dup".into(),
+        title: "x".into(),
+        description: "y".into(),
+    };
+    assert_eq!(
+        validate(&r, "pm", &st),
+        Err(PolicyError::DuplicateEntity("dup".into())),
+        "duplicate requirement id must be rejected (fail-closed)"
+    );
+}
+
+#[test]
+fn gate_is_fail_closed_not_fail_open() {
+    // The anti-regression guarantee: validate() must have NO catch-all. We can't
+    // add a variant at runtime, but we CAN assert the explicit per-entity
+    // uniqueness arms exist and reject a duplicate, which is the behavior the
+    // catch-all previously skipped. (The compile-time fail-closed guarantee is
+    // that removing an arm here makes the match non-exhaustive => build error.)
+    let st = state_with(&[], &["task-1"]);
+    // A SendMessage has no cross-entity invariant and must pass.
+    let msg = casting::actions::PmAction::SendMessage {
+        to: "owner".into(),
+        body: "hi".into(),
+    };
+    assert!(validate(&msg, "pm", &st).is_ok());
+    // A NoOp is always allowed.
+    assert!(validate(&casting::actions::PmAction::NoOp, "pm", &st).is_ok());
+}

@@ -305,6 +305,9 @@ pub enum PolicyError {
     DirectiveAuthority(String),
     /// Hiring/proposing a role that isn't in the catalog.
     UnknownRole(String),
+    /// Creating an entity whose id already exists (fail-closed id uniqueness for
+    /// all create actions, not just tasks/agents).
+    DuplicateEntity(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -360,6 +363,7 @@ impl std::fmt::Display for PolicyError {
                 )
             }
             PolicyError::UnknownRole(role) => write!(f, "unknown role in the cast catalog: {role}"),
+            PolicyError::DuplicateEntity(id) => write!(f, "cannot create {id}: id already exists"),
         }
     }
 }
@@ -548,10 +552,67 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
-        // Hire-less, idempotency-neutral or read-only actions pass through;
-        // NoOp, CreateRequirement, CreateObservation, and SendMessage carry no
-        // cross-entity invariant to check at this layer.
-        _ => Ok(()),
+        // Creating a requirement is idempotency-guarded by id uniqueness.
+        PmAction::CreateRequirement { id, .. } => check_unique_entity(
+            state.requirements.iter().any(|r| r.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        // Raise a risk: id must be fresh.
+        PmAction::RaiseRisk { id, .. } => check_unique_entity(
+            state.risks.iter().any(|r| r.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        // Recording a semantic note / opinion / fact: id must be fresh.
+        PmAction::RecordAssumption { id, .. } => check_unique_entity(
+            state.assumptions.iter().any(|a| a.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        PmAction::RecordConstraint { id, .. } => check_unique_entity(
+            state.constraints.iter().any(|c| c.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        PmAction::RecordOpinion { id, .. } => check_unique_entity(
+            state.opinions.iter().any(|o| o.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        PmAction::RecordFact { id, .. } => check_unique_entity(
+            state.facts.iter().any(|f| f.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        // Importing a briefing / receiving an external request: id must be fresh.
+        PmAction::ImportBriefing { id, .. } => check_unique_entity(
+            state.briefings.iter().any(|b| b.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        PmAction::ReceiveExternalRequest { id, .. } => check_unique_entity(
+            state.external_requests.iter().any(|r| r.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        // Saving a diagram: id must be fresh.
+        PmAction::SaveDiagram { id, .. } => check_unique_entity(
+            state.diagrams.iter().any(|d| d.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        // Creating an observation: id must be fresh.
+        PmAction::CreateObservation { id, .. } => check_unique_entity(
+            state.observations.iter().any(|o| o.id == *id),
+            PolicyError::DuplicateEntity(id.clone()),
+        ),
+        // SendMessage and NoOp carry no cross-entity invariant — but they are
+        // enumerated EXPLICITLY so any future PmAction variant fails to compile
+        // here (fail-closed) rather than silently passing the gate.
+        PmAction::SendMessage { .. } => Ok(()),
+        PmAction::NoOp => Ok(()),
+    }
+}
+
+/// Fail-closed id-uniqueness helper: if `exists`, return the given error (a
+/// DuplicateEntity); else Ok.
+fn check_unique_entity(exists: bool, err: PolicyError) -> Result<(), PolicyError> {
+    if exists {
+        Err(err)
+    } else {
+        Ok(())
     }
 }
 
