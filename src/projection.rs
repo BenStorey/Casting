@@ -323,8 +323,8 @@ pub enum ExternalRequestStatus {
     Closed,
 }
 
-/// A diagram drawn and saved inside the app (tldraw canvas). A durable visual
-/// artifact — the serialized tldraw document (`data`) captured DIRECTLY from
+/// A diagram drawn and saved inside the app (Excalidraw canvas). A durable visual
+/// artifact — the serialized Excalidraw document (`data`) captured DIRECTLY from
 /// the editor at save time (owner 2026-08-10), so there's no export/re-upload.
 /// The PM/owner can view and reload it. It is a documented artifact (like a
 /// briefing asset), not authoritative state.
@@ -333,7 +333,7 @@ pub struct Diagram {
     pub id: String,
     /// Human title the owner gave the diagram, e.g. "Auth flow sketch".
     pub title: String,
-    /// Serialized tldraw JSON (the full returned doc) — reloadable into tldraw.
+    /// Serialized Excalidraw JSON (the full returned doc) — reloadable into Excalidraw.
     pub data: String,
     /// Who saved it (owner/agent id/system).
     pub saved_by: String,
@@ -435,7 +435,7 @@ pub struct Projection {
     /// External requests (product intake surface): issues/PRs raised outside,
     /// carrying provenance so the PM can triage them. See `ExternalRequest`.
     pub external_requests: Vec<ExternalRequest>,
-    /// Diagrams drawn + saved in the app (tldraw). See `Diagram`.
+    /// Diagrams drawn + saved in the app (Excalidraw). See `Diagram`.
     pub diagrams: Vec<Diagram>,
     /// First-class governance objects (docs/INTENT.md).
     pub directives: Vec<crate::directive::Directive>,

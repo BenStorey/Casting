@@ -123,9 +123,9 @@ pub enum EventType {
     /// (source, external_id, reporter) so the PM can triage it; NOT the owner's
     /// own intent. (owner 2026-08-10)
     ExternalRequestReceived,
-    /// A diagram was drawn and saved inside the app (tldraw canvas) — a durable
+    /// A diagram was drawn and saved inside the app (Excalidraw canvas) — a durable
     /// visual artifact captured directly from the editor, not a re-uploaded
-    /// image. Stored as serialized tldraw JSON (`data`) the PM/owner can view
+    /// image. Stored as serialized Excalidraw JSON (`data`) the PM/owner can view
     /// and reload. (owner 2026-08-10)
     DiagramSaved,
     /// A message in the owner↔advisor thread — the owner's private chat with the

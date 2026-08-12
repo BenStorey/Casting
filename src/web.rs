@@ -91,8 +91,8 @@ fn default_reporter() -> String {
     "external".to_string()
 }
 
-/// POST /api/diagram input: a diagram drawn in the app (tldraw), captured
-/// DIRECTLY from the editor at save time. `data` is the serialized tldraw JSON
+/// POST /api/diagram input: a diagram drawn in the app (Excalidraw), captured
+/// DIRECTLY from the editor at save time. `data` is the serialized Excalidraw JSON
 /// (reloadable). No export/re-upload — the editor hands us its own document.
 #[derive(Deserialize)]
 struct DiagramIn {
@@ -513,8 +513,8 @@ async fn request_handler(
     Ok(Json(stored))
 }
 
-/// POST /api/diagram — save a diagram drawn in the app (tldraw). `data` is the
-/// serialized tldraw JSON the editor hands over at save time; we persist it
+/// POST /api/diagram — save a diagram drawn in the app (Excalidraw). `data` is the
+/// serialized Excalidraw JSON the editor hands over at save time; we persist it
 /// directly (no export/re-upload) as a durable, reloadable visual artifact.
 async fn diagram_handler(
     State(state): State<AppState>,
@@ -741,7 +741,11 @@ async fn hire_handler(
         .expect("HireAgent always produces one event");
     Ok(Json(last))
 }
-/// event to connected browsers so the board/chat/activity update live (§35).
+
+/// GET /api/events/stream — a live Server-Sent-Events feed.
+///
+/// Pushes every newly-appended event to connected browsers so the
+/// board/chat/activity update live (§35).
 ///
 /// Supports catch-up via `?after=N`: missed events since sequence N are
 /// replayed from the store *before* the stream switches to live broadcast,

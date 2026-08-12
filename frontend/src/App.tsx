@@ -25,7 +25,7 @@ import {
 
 type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "sketch" | "advisor";
 
-// Lazy: tldraw/excalidraw is ~1MB — never load it unless the owner opens Sketch.
+// Lazy: Excalidraw is ~1MB — never load it unless the owner opens Sketch.
 const Whiteboard = lazy(() => import("./Whiteboard"));
 const Advisor = lazy(() => import("./Advisor"));
 

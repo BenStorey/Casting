@@ -111,7 +111,7 @@ pub struct RequestsView {
 }
 
 /// Diagrams drawn + saved in the app (visual artifacts). Index/titles summary;
-/// the full tldraw JSON lives per-diagram in the projection for reload.
+/// the full Excalidraw JSON lives per-diagram in the projection for reload.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiagramsView {
     /// Total diagrams saved.

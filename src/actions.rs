@@ -165,8 +165,8 @@ pub enum PmAction {
         labels: Vec<String>,
         url: Option<String>,
     },
-    /// Save a diagram drawn in the app (tldraw) as a durable visual artifact.
-    /// `data` is the serialized tldraw JSON captured DIRECTLY from the editor.
+    /// Save a diagram drawn in the app (Excalidraw) as a durable visual artifact.
+    /// `data` is the serialized Excalidraw JSON captured DIRECTLY from the editor.
     SaveDiagram {
         id: String,
         title: String,
