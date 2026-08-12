@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **196 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3),
+"why does this code exist?". **199 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -419,7 +419,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3 = 196 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3 = 199 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -791,6 +791,16 @@ intake surface, alongside Requirement (owner) and AdvisoryBriefing (advisor):
 - `/api/model` surfaces the intake inbox (`requests.open_count` + triaged list).
 - The LLM judgment ("is this a real bug? how bad?"), fixing, and releasing are
   D2 + policy-gated (DecisionPolicy can allow auto-fix/release per class).
+
+**Human-as-consultant — DONE 2026-08-10** (owner: "let the HUMAN implement a
+feature, working through their own harness; a task assignable to the owner is
+all we need"): a task can now be assigned to the owner (`OWNER` pseudo-assignee,
+`is_valid_assignee`), so the owner may take it on personally and deliver via
+git — which the observer already records (ChangeSets + provenance). This is the
+delivery-mirror of ExternalRequest (work going OUT and back through git, not in
+for triage). Explicitly NOT a full agent / NOT multi-user; just "the owner can
+be the doer." Delivery machinery was already in place; the change was the
+intent/gate.
 
 **In-app drawing — DONE 2026-08-10** (owner: "a canvas to sketch architecture
 diagrams or UI quickly, even if just boxes"): a **Sketch** tab runs an
