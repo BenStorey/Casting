@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { identityForAgent } from "./cast";
 import {
   Decision,
   Inbox,
@@ -39,6 +40,15 @@ const AGENT_NAMES: Record<string, string> = {
 
 function agentLabel(id: string): string {
   return AGENT_NAMES[id] ?? id;
+}
+
+function agentName(id: string): string {
+  const identity = identityForAgent(id, "");
+  return identity?.stable_name ?? AGENT_NAMES[id]?.split(" · ")[0] ?? id;
+}
+
+function agentAvatar(id: string): string | undefined {
+  return identityForAgent(id, "")?.avatar;
 }
 
 export default function App() {
@@ -207,25 +217,42 @@ function Team({ agents }: { agents: Projection["agents"] }) {
     <div>
       {agents.length === 0 && <Card className="muted"><CardContent className="pt-6">No one hired yet.</CardContent></Card>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {agents.map((a) => (
-          <Card key={a.id}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <div
-                className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
-                style={{
-                  background: "linear-gradient(135deg,#4f8cff,#7a5cff)",
-                  color: "#fff",
-                }}
-              >
-                {a.id === "pm" ? "SC" : initials(a.id)}
-              </div>
-              <div>
-                <div className="font-semibold">{agentLabel(a.id).split(" · ")[0]}</div>
-                <div className="text-sm text-muted-foreground">{a.role}</div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        {agents.map((a) => {
+          const identity = identityForAgent(a.id, a.role);
+          const avatar = identity?.avatar ?? agentAvatar(a.id);
+          return (
+            <Card key={a.id}>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  {avatar ? (
+                    <img src={avatar} alt={identity?.name ?? a.id} className="h-12 w-12 rounded-xl shrink-0" />
+                  ) : (
+                    <div
+                      className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
+                      style={{ background: "linear-gradient(135deg,#4f8cff,#7a5cff)", color: "#fff" }}
+                    >
+                      {a.id === "pm" ? "SC" : initials(a.id)}
+                    </div>
+                  )}
+                  <div>
+                    <div className="font-semibold">{identity?.name ?? agentName(a.id) ?? agentLabel(a.id).split(" · ")[0]}</div>
+                    <div className="text-sm text-muted-foreground">{a.role}</div>
+                  </div>
+                </div>
+                {identity && identity.cv.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    {identity.cv.map((line, i) => (
+                      <li key={i} className="flex gap-1.5">
+                        <span className="text-primary">•</span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
