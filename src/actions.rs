@@ -153,6 +153,13 @@ pub enum PmAction {
         labels: Vec<String>,
         url: Option<String>,
     },
+    /// Save a diagram drawn in the app (tldraw) as a durable visual artifact.
+    /// `data` is the serialized tldraw JSON captured DIRECTLY from the editor.
+    SaveDiagram {
+        id: String,
+        title: String,
+        data: String,
+    },
     /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
     CreateDirective {
         id: String,
@@ -873,6 +880,26 @@ impl PmAction {
                         "url": url,
                         "classification": classification,
                         "severity": severity,
+                    }),
+                    meta,
+                )]
+            }
+            PmAction::SaveDiagram { id, title, data } => {
+                let saved_by = match &actor {
+                    Actor::Owner => "owner".to_string(),
+                    Actor::Agent { id } => id.clone(),
+                    Actor::System => "system".to_string(),
+                };
+                vec![ev(
+                    project,
+                    actor,
+                    id,
+                    "diagram",
+                    EventType::DiagramSaved,
+                    json!({
+                        "title": title,
+                        "data": data,
+                        "saved_by": saved_by,
                     }),
                     meta,
                 )]

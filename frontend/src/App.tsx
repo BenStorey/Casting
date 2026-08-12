@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import SetupWizard from "./SetupWizard";
 import { useCastStore } from "./store";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,10 @@ import {
   sendMessage,
 } from "./api";
 
-type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity";
+type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "sketch";
+
+// Lazy: tldraw is ~1.4MB — never load it unless the owner opens the Sketch tab.
+const Whiteboard = lazy(() => import("./Whiteboard"));
 
 const TASK_COLUMNS: { key: TaskStatus; label: string }[] = [
   { key: "backlog", label: "Backlog" },
@@ -85,7 +88,7 @@ export default function App() {
       {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
         <>
           <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-            <TabsList className="grid w-full max-w-xl grid-cols-6">
+            <TabsList className="grid w-full max-w-2xl grid-cols-7">
               <TabsTrigger value="chat">Chat</TabsTrigger>
               <TabsTrigger value="board">Board</TabsTrigger>
               <TabsTrigger value="team">Team</TabsTrigger>
@@ -101,6 +104,7 @@ export default function App() {
                 )}
               </TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
+              <TabsTrigger value="sketch">Sketch</TabsTrigger>
             </TabsList>
             {tab === "chat" && <Chat state={state} onSent={refresh} />}
             {tab === "board" && <Board tasks={state.tasks} />}
@@ -110,6 +114,11 @@ export default function App() {
             )}
             {tab === "inbox" && <InboxView inbox={inbox} onDecide={refresh} />}
             {tab === "activity" && <Activity />}
+            {tab === "sketch" && (
+              <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
+                <Whiteboard onSaved={refresh} />
+              </Suspense>
+            )}
           </Tabs>
         </>
       )}

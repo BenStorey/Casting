@@ -91,6 +91,16 @@ fn default_reporter() -> String {
     "external".to_string()
 }
 
+/// POST /api/diagram input: a diagram drawn in the app (tldraw), captured
+/// DIRECTLY from the editor at save time. `data` is the serialized tldraw JSON
+/// (reloadable). No export/re-upload — the editor hands us its own document.
+#[derive(Deserialize)]
+struct DiagramIn {
+    #[serde(default)]
+    title: String,
+    data: String,
+}
+
 #[derive(Deserialize)]
 struct DecisionIn {
     decision_id: String,
@@ -136,6 +146,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/brief", axum::routing::post(brief_handler))
         .route("/api/request", axum::routing::post(request_handler))
+        .route("/api/diagram", axum::routing::post(diagram_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
@@ -471,6 +482,52 @@ async fn request_handler(
         .into_iter()
         .next()
         .expect("ReceiveExternalRequest produces one event");
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
+
+/// POST /api/diagram — save a diagram drawn in the app (tldraw). `data` is the
+/// serialized tldraw JSON the editor hands over at save time; we persist it
+/// directly (no export/re-upload) as a durable, reloadable visual artifact.
+async fn diagram_handler(
+    State(state): State<AppState>,
+    Json(input): Json<DiagramIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let title = input.title.trim().to_string();
+    if input.data.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "diagram data must not be empty".into(),
+        ));
+    }
+    let action = crate::actions::PmAction::SaveDiagram {
+        id: format!("diagram-{}", uuid::Uuid::new_v4()),
+        title,
+        data: input.data,
+    };
+    let proj = state
+        .projection()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::actions::validate(&action, "pm", &proj)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let cause = Event::new(
+        &state.project,
+        Actor::Owner,
+        EventType::DiagramSaved,
+        Aggregate {
+            kind: "diagram".into(),
+            id: "bootstrap".into(),
+        },
+        serde_json::json!({}),
+    );
+    let ev = action
+        .to_events(&state.project, "pm", &cause, "diagram")
+        .into_iter()
+        .next()
+        .expect("SaveDiagram produces one event");
     let stored = state
         .append(ev)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

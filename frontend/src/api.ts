@@ -114,6 +114,14 @@ export function fetchState(): Promise<Projection> {
   return j<Projection>("/api/state");
 }
 
+export function saveDiagram(title: string, data: string): Promise<unknown> {
+  return j("/api/diagram", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, data }),
+  });
+}
+
 export interface EventEnvelope {
   event_id: string;
   project_id: string;

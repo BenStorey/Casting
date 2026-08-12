@@ -30,6 +30,8 @@ pub struct OperatingModel {
     pub context: ContextView,
     /// External requests (product intake surface): issues/PRs raised outside.
     pub requests: RequestsView,
+    /// Diagrams drawn + saved in the app (visual artifacts).
+    pub diagrams: DiagramsView,
     /// Cost attribution (HARNESS #6) — total spend + per-agent, so budget is
     /// visible to the PM/owner, not (only) tracked implicitly.
     pub spend: SpendView,
@@ -106,6 +108,16 @@ pub struct RequestsView {
     pub open_count: usize,
     /// Open requests, triaged: "[classification / severity] title (from reporter)".
     pub open: Vec<String>,
+}
+
+/// Diagrams drawn + saved in the app (visual artifacts). Index/titles summary;
+/// the full tldraw JSON lives per-diagram in the projection for reload.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagramsView {
+    /// Total diagrams saved.
+    pub count: usize,
+    /// "[title] — saved by X (id)" for each, newest-first.
+    pub diagrams: Vec<String>,
 }
 
 /// The environmental state the company reasons about.
@@ -213,6 +225,17 @@ impl crate::projection::Projection {
             open: open_requests,
         };
 
+        // Diagrams: summary index (newest-first) for the operating picture.
+        let diagrams = DiagramsView {
+            count: self.diagrams.len(),
+            diagrams: self
+                .diagrams
+                .iter()
+                .rev()
+                .map(|d| format!("{} — saved by {} ({})", d.title, d.saved_by, d.id))
+                .collect(),
+        };
+
         let open_risks = self
             .risks
             .iter()
@@ -286,6 +309,7 @@ impl crate::projection::Projection {
                 active_agents,
             },
             requests,
+            diagrams,
             spend: SpendView {
                 total_estimated_usd: self.total_spend_usd(),
                 prompt_tokens: self.total_prompt_tokens(),

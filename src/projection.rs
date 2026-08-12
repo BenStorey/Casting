@@ -323,6 +323,23 @@ pub enum ExternalRequestStatus {
     Closed,
 }
 
+/// A diagram drawn and saved inside the app (tldraw canvas). A durable visual
+/// artifact — the serialized tldraw document (`data`) captured DIRECTLY from
+/// the editor at save time (owner 2026-08-10), so there's no export/re-upload.
+/// The PM/owner can view and reload it. It is a documented artifact (like a
+/// briefing asset), not authoritative state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Diagram {
+    pub id: String,
+    /// Human title the owner gave the diagram, e.g. "Auth flow sketch".
+    pub title: String,
+    /// Serialized tldraw JSON (the full returned doc) — reloadable into tldraw.
+    pub data: String,
+    /// Who saved it (owner/agent id/system).
+    pub saved_by: String,
+    pub saved_at: String,
+}
+
 /// A branch in the artifact repo (semantic Git event, ADDENDUM §20/§23).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Branch {
@@ -415,6 +432,8 @@ pub struct Projection {
     /// External requests (product intake surface): issues/PRs raised outside,
     /// carrying provenance so the PM can triage them. See `ExternalRequest`.
     pub external_requests: Vec<ExternalRequest>,
+    /// Diagrams drawn + saved in the app (tldraw). See `Diagram`.
+    pub diagrams: Vec<Diagram>,
     /// First-class governance objects (docs/INTENT.md).
     pub directives: Vec<crate::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
@@ -777,6 +796,15 @@ impl Projection {
                     severity,
                     status: ExternalRequestStatus::Open,
                     received_at: e.timestamp.to_string(),
+                });
+            }
+            EventType::DiagramSaved => {
+                self.diagrams.push(Diagram {
+                    id: e.aggregate.id.clone(),
+                    title: string_field(e, "title").unwrap_or_default(),
+                    data: string_field(e, "data").unwrap_or_default(),
+                    saved_by: string_field(e, "saved_by").unwrap_or_default(),
+                    saved_at: e.timestamp.to_string(),
                 });
             }
             EventType::ProjectDirectiveCreated => {
