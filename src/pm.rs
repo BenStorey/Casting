@@ -706,7 +706,9 @@ impl ApprovedGovernanceChange {
     /// Rebuild the projection, find the decision, and if it's an approved
     /// GovernanceChange, extract the proposed directive change.
     fn from_decision(state: &AppState, decision_id: &str) -> Option<Self> {
-        let proj = Projection::build(&state.store, &state.project).ok()?;
+        // Use AppState::projection() (snapshot-aware) — the single projection
+        // entry point. Never rebuild directly from the store.
+        let proj = state.projection().ok()?;
         let dec = proj.decisions.iter().find(|d| d.id == decision_id)?;
         if dec.class != crate::policy::DecisionClass::GovernanceChange {
             return None;
@@ -742,7 +744,8 @@ fn fmt_note(note: &str) -> String {
 /// An AddConsultant decision that the owner approved: the role to hire.
 /// Parsed from the DecisionProposed's `options`.
 fn approved_consultant_role(state: &AppState, decision_id: &str) -> Option<String> {
-    let proj = Projection::build(&state.store, &state.project).ok()?;
+    // Single projection entry point (snapshot-aware).
+    let proj = state.projection().ok()?;
     let dec = proj.decisions.iter().find(|d| d.id == decision_id)?;
     if dec.class != crate::policy::DecisionClass::AddConsultant {
         return None;
