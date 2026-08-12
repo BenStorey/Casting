@@ -1,36 +1,66 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 222 24% 7%; /* #0e1116 — deep cockpit */
-    --foreground: 220 20% 92%;
-    --card: 221 23% 12%;
-    --card-foreground: 220 20% 92%;
-    --popover: 221 23% 12%;
-    --popover-foreground: 220 20% 92%;
-    --primary: 218 100% 65%; /* #4f8cff — Casting blue */
-    --primary-foreground: 220 20% 98%;
-    --secondary: 222 20% 18%;
-    --secondary-foreground: 220 20% 92%;
-    --muted: 222 20% 18%;
-    --muted-foreground: 221 18% 62%;
-    --accent: 222 24% 18%;
-    --accent-foreground: 220 20% 92%;
-    --destructive: 3 100% 71%; /* #ff6b6b */
-    --destructive-foreground: 220 20% 98%;
-    --border: 221 20% 21%;
-    --input: 221 20% 21%;
-    --ring: 218 100% 65%;
-    --success: 150 60% 53%; /* #3ecf8e */
-    --radius: 0.625rem;
-  }
+/* Tailwind v4 CSS-first config (no tailwind.config.js). Theme tokens are
+   defined with @theme (colors map to --color-<name> → utilities like
+   bg-background, text-foreground). shadcn/ui maps its component vars onto
+   these; edit this block to re-theme the whole app. */
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.14 0.01 258); /* deep cockpit */
+  --foreground: oklch(0.94 0.008 258);
+  --card: oklch(0.17 0.012 258);
+  --card-foreground: oklch(0.94 0.008 258);
+  --popover: oklch(0.17 0.012 258);
+  --popover-foreground: oklch(0.94 0.008 258);
+  --primary: oklch(0.65 0.19 248); /* Casting blue */
+  --primary-foreground: oklch(0.98 0.005 258);
+  --secondary: oklch(0.22 0.015 258);
+  --secondary-foreground: oklch(0.94 0.008 258);
+  --muted: oklch(0.22 0.015 258);
+  --muted-foreground: oklch(0.7 0.02 258);
+  --accent: oklch(0.24 0.015 258);
+  --accent-foreground: oklch(0.94 0.008 258);
+  --destructive: oklch(0.72 0.19 25);
+  --destructive-foreground: oklch(0.98 0.005 258);
+  --border: oklch(0.26 0.02 258);
+  --input: oklch(0.26 0.02 258);
+  --ring: oklch(0.65 0.19 248);
+  --success: oklch(0.72 0.16 155);
+}
+
+/* Map our shadcn component variables onto Tailwind color tokens (v4 @theme).
+   Utilities: bg-background, bg-card, text-foreground, bg-primary, border, etc. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground antialiased;
@@ -67,14 +97,15 @@
 
 .bubble.pm {
   align-self: flex-start;
-  background: hsl(var(--secondary));
-  border: 1px solid hsl(var(--border));
+  background: oklch(0.22 0.015 258);
+  border: 1px solid oklch(0.26 0.02 258);
+  color: oklch(0.94 0.008 258);
 }
 
 .bubble.owner {
   align-self: flex-end;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(0.65 0.19 248);
+  color: oklch(0.98 0.005 258);
 }
 
 .bubble .from {
@@ -90,8 +121,8 @@
 }
 
 .board .col {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
+  background: oklch(0.17 0.012 258);
+  border: 1px solid oklch(0.26 0.02 258);
   border-radius: var(--radius);
   padding: 12px;
 }
@@ -100,11 +131,11 @@
   display: flex;
   gap: 10px;
   padding: 6px 0;
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 1px solid oklch(0.26 0.02 258);
   font-size: 0.9rem;
 }
 
 .stream .seq {
-  color: hsl(var(--muted-foreground));
+  color: oklch(0.7 0.02 258);
   font-variant-numeric: tabular-nums;
 }

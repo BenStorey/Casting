@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 
 // The SPA builds to `dist/` (gitignored) and its contents are embedded into the
 // Rust binary via rust-embed (see src/web.rs + build.rs).
@@ -10,10 +10,10 @@ import path from "node:path";
 // frontend without rebuilding or re-embedding. Start `cast run` first, then
 // open http://127.0.0.1:5173.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": import.meta.dirname + "/src",
     },
   },
   build: {
