@@ -8,7 +8,7 @@ User=ben
 Group=ben
 WorkingDirectory=/home/ben/casting
 Environment=CAST_ADDR=127.0.0.1:8080
-ExecStart=/home/ben/casting/target/debug/cast run --repo /home/ben/casting-workspace/proj --state-dir /home/ben/casting-workspace/state
+ExecStart=/home/ben/casting/target/debug/cast run /home/ben/casting-workspace/proj
 Restart=on-failure
 RestartSec=3
 

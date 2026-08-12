@@ -81,10 +81,12 @@ sudo systemctl stop    cast-frontend cast-backend
 - Both run as user `ben`, `Restart=on-failure`.
 
 Manual run (equivalent, if not using systemd):
+> **Casting is SINGLE-PROJECT (2026-08-12).** There is no registry or project
+> name — the binary runs exactly one project, the dir you pass. The home-dir
+> `~/.casting/projects.json` registry was removed.
 
 ```bash
-cast add dev /home/ben/casting-workspace/proj   # once: register the project
-CAST_ADDR=127.0.0.1:8080 ./target/debug/cast run dev
+CAST_ADDR=127.0.0.1:8080 ./target/debug/cast run /home/ben/casting-workspace/proj
 cd /home/ben/casting/frontend && npm run dev -- --host 127.0.0.1   # separately
 ```
 
@@ -100,24 +102,23 @@ Build and run (from the repo root):
 ```bash
 docker build -t casting .                             # multi-stage: node SPA → rust binary → slim runtime
 docker run --rm -p 8080:8080 \                        # serve on :8080
-  -v "$HOME/.casting:/home/casting/.casting" \        # registry (name → repo)
-  -v "/path/to/project:/home/casting/projects/demo" \ # your project repo(s)
-  casting run my-project
+  -v "/path/to/project:/home/casting/projects/demo" \ # your project repo (single project)
+  casting run /home/casting/projects/demo
 docker run --rm casting --help                        # explore the CLI
 ```
 
-- `~/.casting/` (the registry) and each project repo must be **mounted** so the
-  container sees the same projects as a host run; per-project state stays
-  collocated in `<repo>/.casting/` and persists in the mounted repo.
+- The project repo must be **mounted** so the container sees the same project as
+  a host run; per-project state stays collocated in `<repo>/.casting/` and
+  persists in the mounted repo. (No registry mount — Casting is single-project.)
 - The image runs as a non-root user (`casting`, uid 1000) and ships
   `ca-certificates` + `git` (needed by the workspace git runner). Because the
-  container user is non-root, **mounted project/registry dirs must be writable
-  by uid 1000** — e.g. `sudo chown -R 1000:1000 /path/to/project ~/.casting`, or
+  container user is non-root, **mounted project dirs must be writable
+  by uid 1000** — e.g. `sudo chown -R 1000:1000 /path/to/project`, or
   your `cast run` will hit "Permission denied" creating `<repo>/.casting/`.
 - Internally `CAST_ADDR=0.0.0.0:8080` so the container binds the exposed port.
 
 The image has been verified end-to-end: it builds (`docker build -t casting .`),
-`casting --help` runs, and `casting run <name>` boots a mounted project and
+`casting --help` runs, and `casting run <dir>` boots a mounted project and
 serves the API (state 200) on the published port.
 
 ---

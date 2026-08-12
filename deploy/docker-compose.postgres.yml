@@ -2,7 +2,7 @@
 # the default). To use:
 #   docker compose -f docker-compose.postgres.yml up -d
 # Then register a project on Postgres, e.g.:
-#   cast add <name> <repo> --db "host=127.0.0.1 port=55432 user=casting password=castpw dbname=casting"
+#   cast run /path/to/repo --db "host=127.0.0.1 port=55432 user=casting password=castpw dbname=casting"
 # Integration tests (tests/postgres_backend.rs) use this by default.
 services:
   postgres:

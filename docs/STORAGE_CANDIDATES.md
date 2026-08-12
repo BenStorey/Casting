@@ -28,7 +28,7 @@ a new impl, never a refactor.
   single-owner local model.
 - **Postgres** — the hosted/swappable backend (real concurrency + durability),
   driven on a dedicated thread so the sync traits work inside our tokio server.
-  Selected per project via `cast add <name> <repo> --db <selector>` or
+  Selected per run via `cast run <dir> --db <selector>` or
   `CAST_DB`.
 
 ## Other databases that fit

@@ -63,29 +63,9 @@ impl ProjectPaths {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("list");
+    let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("help");
 
     match cmd {
-        // `cast` with no args, or `cast list`: list registered projects.
-        "list" | "projects" => do_list(),
-        "add" => {
-            let name = args
-                .get(2)
-                .context("usage: cast add <name> <repo-path> [--db <selector>]")?;
-            let repo = args
-                .get(3)
-                .context("usage: cast add <name> <repo-path> [--db <selector>]")?;
-            let db = args
-                .windows(2)
-                .find(|w| w[0] == "--db")
-                .and_then(|w| w.get(1))
-                .map(String::as_str);
-            do_add(name, repo, db)
-        }
-        "remove" => {
-            let name = args.get(2).context("usage: cast remove <name>")?;
-            do_remove(name)
-        }
         "init" => {
             let init = parse_init(&args[2..])?;
             do_init(init)
@@ -95,34 +75,34 @@ fn main() -> Result<()> {
             let dir = Path::new(dir_str);
             do_smoke(dir)
         }
-        // `cast run <project-name>` — resolve the repo via the registry.
+        // `cast run <project-dir>` — boot the ONE project. Single-project model:
+        // the binary only ever relates to one project; multi-project is removed
+        // (owner decision 2026-08-12). `--db <selector>` selects the storage
+        // backend (sqlite default); CAST_DB env also works.
         "run" => {
-            let name = args.get(2).context("usage: cast run <project-name>")?;
-            let reg = casting::registry::Registry::load(None)?;
-            let entry = reg.lookup(name).with_context(|| {
-                format!("no project named {name:?} (add it with `cast add {name} <repo-path>`); pass --db to set the storage backend")
-            })?;
-            do_run(entry.repo.clone(), entry.db.clone())
+            let dir = args
+                .get(2)
+                .context("usage: cast run <project-dir> [--db <selector>]")?;
+            let db = args
+                .windows(2)
+                .find(|w| w[0] == "--db")
+                .and_then(|w| w.get(1))
+                .cloned();
+            do_run(PathBuf::from(dir), db)
         }
-        // `cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->`
-        // — import EXTERNAL advisor content (text file) as an advisory briefing.
+        // `cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->`
         "brief" => {
-            let name = args.get(2).context("usage: cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->")?;
-            let reg = casting::registry::Registry::load(None)?;
-            let entry = reg.lookup(name).with_context(|| {
-                format!("no project named {name:?} (add it with `cast add {name} <repo-path>`)")
-            })?;
-            do_brief(&args[3..], &entry.repo, entry.db.as_deref())
+            let dir = args.get(2).context(
+                "usage: cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->",
+            )?;
+            do_brief(&args[3..], Path::new(dir))
         }
-        // `cast request <project> [--source SRC] [--reporter R] [--label L] <title>`
-        // — receive an EXTERNAL request (issue/PR) into the product's intake.
+        // `cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>`
         "request" => {
-            let name = args.get(2).context("usage: cast request <project-name> [--source SRC] [--reporter R] [--label L] <title>")?;
-            let reg = casting::registry::Registry::load(None)?;
-            let entry = reg.lookup(name).with_context(|| {
-                format!("no project named {name:?} (add it with `cast add {name} <repo-path>`)\n")
-            })?;
-            do_request(&args[3..], &entry.repo, entry.db.as_deref())
+            let dir = args.get(2).context(
+                "usage: cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>",
+            )?;
+            do_request(&args[3..], Path::new(dir))
         }
         "log" => {
             let log = parse_log(&args[2..])?;
@@ -131,9 +111,7 @@ fn main() -> Result<()> {
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company\n\n\
-                 USAGE:\n  cast                          list your projects (from ~/.casting/projects.json)\n  cast add <name> <repo-path>   register a project\n  cast remove <name>            unregister a project\n  cast init <project-dir> [--name=..] [opts]   create + register a project\n  cast run <project-name> [--selfhost]         start the workspace (PM + web UI)\n  cast smoke <dir>              append sample events and replay them\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n\
-                 Multi-project:\n  Projects live in ~/.casting/projects.json (name -> repo). Multi-user is NOT\n  supported — git is the sharing surface; each owner runs their own setup. State\n  lives collocated in <repo>/.casting/ (gitignored).\n\n\
-                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
+                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run <project-dir> [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the one project\n  cast smoke <dir>              append sample events and replay them\n  cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_OWNER_TOKEN owner auth token (or set via `cast init --owner-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
@@ -141,51 +119,10 @@ fn main() -> Result<()> {
     }
 }
 
-fn do_list() -> Result<()> {
-    let reg = casting::registry::Registry::load(None)?;
-    if reg.projects.is_empty() {
-        println!("No projects yet. Register one: `cast add <name> <repo-path>`");
-    } else {
-        println!("Your projects (in ~/.casting/projects.json):");
-        for p in &reg.projects {
-            println!("  {:<20} {}", p.name, p.repo.display());
-        }
-    }
-    Ok(())
-}
-
-fn do_add(name: &str, repo: &str, db: Option<&str>) -> Result<()> {
-    let mut reg = casting::registry::Registry::load(None)?;
-    let new = reg.register_db(name.to_string(), repo.into(), db.map(str::to_string));
-    reg.save(None)?;
-    let db_note = match db {
-        Some("sqlite") | None => " (sqlite)".to_string(),
-        Some(d) => format!(" (postgres: {d})"),
-    };
-    println!(
-        "{} project {name:?} -> {}{}",
-        if new { "registered" } else { "updated" },
-        repo,
-        db_note
-    );
-    Ok(())
-}
-
-fn do_remove(name: &str) -> Result<()> {
-    let mut reg = casting::registry::Registry::load(None)?;
-    if reg.remove(name) {
-        reg.save(None)?;
-        println!("removed project {name:?}");
-    } else {
-        println!("no project named {name:?}");
-    }
-    Ok(())
-}
-
 /// `cast brief` — import EXTERNAL advisor content (a text file, or stdin via
 /// `-`) as an ADVISORY briefing: it can inform context but never sets rules.
 /// Usage: `cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->`
-fn do_brief(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result<()> {
+fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
     let (mut subject, mut source, mut title) = (
         "general".to_string(),
         "advisor".to_string(),
@@ -228,7 +165,7 @@ fn do_brief(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = open_state(repo, db)?;
+        let state = open_state(repo, None)?;
 
         let source_clone = source.clone();
         let body_len = body.len();
@@ -285,7 +222,7 @@ fn do_brief(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result
 /// `cast request` — receive an EXTERNAL request (a GitHub issue/PR, an email,
 /// a form submission) into the product's intake surface. Recorded with
 /// provenance + deterministic triage; NOT the owner's own intent.
-fn do_request(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result<()> {
+fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
     let (mut source, mut reporter) = ("external".to_string(), "external".to_string());
     let mut labels: Vec<String> = Vec::new();
     let mut title: Option<&str> = None;
@@ -318,7 +255,7 @@ fn do_request(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Resu
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = open_state(repo, db)?;
+        let state = open_state(repo, None)?;
 
         let proj = state.projection()?;
         let action = casting::actions::PmAction::ReceiveExternalRequest {
@@ -535,21 +472,10 @@ fn do_init(mut args: InitArgs) -> Result<()> {
     let written = plan.apply(&casting_dir)?;
     // Write a no-secrets config template to the repo root (like .env.example).
     casting::setup::write_template(&args.dir, &plan.spec.name)?;
-    // Auto-register the project in the home-dir registry so it's runnable via
-    // `cast run <name>` (name = --name, else the dir's basename).
-    let proj_name = args.name.clone().unwrap_or_else(|| {
-        args.dir
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "project".to_string())
-    });
-    {
-        let mut reg = casting::registry::Registry::load(None)?;
-        reg.register(proj_name.clone(), args.dir.clone());
-        reg.save(None)?;
-    }
     println!(
-        "   registered as project {proj_name:?} (run `cast {proj_name}` / `cast run {proj_name}`)"
+        "   project ready at {} (run `cast run {}`)",
+        args.dir.display(),
+        args.dir.display()
     );
     if written == 0 {
         println!(
@@ -616,8 +542,8 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
 
     preflight(&ws, created);
 
-    // Open the storage backend: per-project config (registry `db`), else the
-    // CAST_DB env var, else SQLite (the default). Postgres is swappable behind
+    // Open the storage backend: --db flag, else the CAST_DB env var, else
+    // SQLite (the default). Postgres is swappable behind
     // the same traits.
     let backend = {
         let selector = db

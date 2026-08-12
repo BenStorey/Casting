@@ -163,7 +163,6 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── setup.rs                    <- setup engine (SetupSpec + SetupPlan, idempotent onboarding)
 │   ├── snapshot.rs                 <- projection snapshots (pure read optimization, never authoritative)
 │   ├── replay.rs                   <- event-stream dump + integrity verify (`cast log`)
-│   ├── registry.rs                 <- home-dir project registry (~/.casting/projects.json)
 │   ├── reconciler.rs               <- drift reconciler: cursor-gated "every N events" cleanup
 │   ├── backend.rs                  <- storage backend factory (sqlite | postgres)
 │   ├── postgres_store.rs           <- PostgresBackend (EventStore+CursorStore+SnapshotStore)
@@ -243,7 +242,8 @@ events (brief §9/§14, handoff principle 3).
 ## 2.3 `web.rs` — API + realtime + embedded UI
 
 axum router for a single project (project id is currently fixed at
-`project-demo` in `main.rs`; see §5 for multi-project):
+`project-demo` in `main.rs`; the single-project model means the binary only
+ever serves this one project):
 
 - `GET /api/state` — the current projection (drives the UI).
 - `GET /api/events?after=N` — raw event slice (activity/catch-up).
@@ -365,17 +365,18 @@ sequence + event_type + actor — not a reconstruction from the projection.
 ranks each priority's relevance to the receiving actor (own-task + urgent/
 blocked items highest), surfaced in `/api/model`; owner/PM see everything.
 
-## 2.5 `cast` CLI / setup wizard / project registry
+## 2.5 `cast` CLI / setup wizard (SINGLE-project)
 
-Projects are registered in **`~/.casting/projects.json`** (name → repo). The
-registry is the launcher; per-project *state* lives collocated in
-`<repo>/.casting/` (gitignored). **Multi-user is deliberately NOT supported**
-(git is the sharing surface; each owner runs their own setup).
+**Casting is SINGLE-PROJECT (owner decision 2026-08-12).** The binary relates
+to exactly ONE project — the dir you pass to it. There is **no** multi-project
+registry and **no** project name; the home-dir `~/.casting/projects.json`
+registry was **removed**. Rationale: if projects were linked in one window, the
+failure of one could break the others — that must not be possible. The cloud
+service later will be the multi-project-in-one-window *differentiator*; the
+local-first binary stays strictly one-project. **Multi-user is also NOT
+supported** (git is the sharing surface; each owner runs their own setup).
+Per-project *state* lives collocated in `<repo>/.casting/` (gitignored).
 
-- `cast` (no args) / `cast list` — list registered projects.
-- `cast add <name> <repo-path> [--db <selector>]` / `cast remove <name>` —
-  register / unregister. `--db` selects the storage backend: `sqlite` (default)
-  or a libpq Postgres string (hosted).
 - `cast init <project-dir> [--interactive] [--name=..] [--objective=..]
   [--cast=engineer,qa] [--owner-token=..] [--directive=stmt|scope]` — the
   setup wizard/engine (owner decision: CLI + first-run UI share ONE engine, no
@@ -383,23 +384,24 @@ registry is the launcher; per-project *state* lives collocated in
   any missing field on stdin. Creates `<project-dir>/.casting/` (self-ignored),
   writes `ProjectCreated`, hires the chosen cast roles (`AgentHired`), optional
   starting directives, persists `config.json` (name + owner token), writes a
-  no-secrets `casting.example.json` template to the repo root, and
-  **auto-registers** the project (name = `--name`, else dir basename) so it's
-  immediately runnable. Idempotent. Does NOT fire the objective (that stays the
-  owner's first UI message → `plan_onboard`).
-- `cast run <project-name> [--selfhost]` — resolve the repo via the registry,
-  enforce the ownership boundary (D5), open/create stores in
-  `<repo>/.casting/` (collocated + gitignored), seed if empty, spawn the PM
-  loop, serve API + embedded UI at `http://127.0.0.1:8080` (`CAST_ADDR` env
-  overrides). No prior `cast init` needed (bare run auto-hires the default cast
-  on first message). Owner auth: token from `config.json` first, else
-  `CAST_OWNER_TOKEN`.
+  no-secrets `casting.example.json` template to the repo root. Idempotent. Does
+  NOT fire the objective (that stays the owner's first UI message →
+  `plan_onboard`).
+- `cast run <project-dir> [--db <selector>] [--selfhost]` — boot the ONE
+  project directly (no registry, no name resolution). Enforce the ownership
+  boundary (D5), open/create stores in `<project-dir>/.casting/` (collocated +
+  gitignored), seed if empty, spawn the PM loop, serve API + embedded UI at
+  `http://127.0.0.1:8080` (`CAST_ADDR` env overrides). `--db <selector>` (or
+  `CAST_DB` env) selects the storage backend: `sqlite` (default) or a libpq
+  Postgres string (hosted). No prior `cast init` needed (bare run auto-hires
+  the default cast on first message). Owner auth: token from `config.json`
+  first, else `CAST_OWNER_TOKEN`.
 - `cast smoke <dir>` — headless-core smoke test (append/replay/cursor).
-- `cast brief <project> [--subject S] [--source SRC] [--title T] <file|->` —
+- `cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->` —
   import EXTERNAL advisor content (a text file, or stdin via `-`) as an
   ADVISORY briefing: it can inform context but NEVER sets rules (provenance
   `source` keeps it distinct from the owner's own intent).
-- `cast request <project> [--source SRC] [--reporter R] [--label L] <title>` —
+- `cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>` —
   receive an EXTERNAL request (issue/PR) into the product's intake surface;
   triaged deterministically and recorded with provenance.
 - `cast log --db <events.db> [--project <id>] [--verify]` — dump / verify.
@@ -715,8 +717,8 @@ backend, we do NOT carry two concrete paths in AppState):
   thread (its own runtime + connection), so the sync traits work from any
   thread incl. our tokio server (the sync `postgres` crate's nested-runtime
   limitation made this necessary).
-- Runtime selection: registry project `db` field (`cast add <name> <repo>
-  --db <selector>`) or `CAST_DB`. Verified against real Postgres (docker).
+- Runtime selection: `cast run <dir> --db <selector>` or `CAST_DB`.
+  Verified against real Postgres (docker).
 - `deploy/docker-compose.postgres.yml`; integration tests
   `tests/postgres_backend.rs` (real PG round-trip, full company boot+onboard).
 
@@ -850,15 +852,19 @@ Then, only after the core matures:
 6. ~~**Persona / CV rendering** (brief §2.2)~~ — **DONE 2026-08-10**
    (`Projection::persona_for`, `GET /api/persona/{id}`): the friendly identity
    layer, a pure renderer over the underlying agent configuration.
-7. ~~**Auth + multi-project** (brief §2.1/§31).~~ **RETHOUGHT 2026-08-10**:
+7. ~~**Auth + multi-project** (brief §2.1/§31).~~ **RETHOUGHT 2026-08-10, then
+   MULTI-PROJECT REMOVED 2026-08-12**:
    - **Multi-user is DROPPED.** Git is the sharing surface — each human runs
      their own Casting setup. Single-owner auth (token today; password/signed
      key later) is always enough. No users/roles/permissions to build.
-   - **Multi-project narrowed to a registry + multi-project support in the
-     interface.** The home-dir registry (`~/.casting/projects.json`, name →
-     repo) is **DONE** — `cast` lists, `cast run <name>` resolves. Remaining:
-     a single UI that lists projects and switches between them, which stays
-     deferred until the product surface is complete (⚡ directive). Owner auth
+   - **Multi-project is REMOVED (owner decision 2026-08-12).** Casting is
+     strictly SINGLE-PROJECT: the binary relates to exactly ONE project (the
+     dir you pass to `cast run <dir>`). The home-dir registry
+     (`~/.casting/projects.json`, `cast add/remove/list`, `cast run <name>`)
+     was **deleted**. Rationale: linking projects in one window means the
+     failure of one can break the others — that must not be possible. The
+     cloud service later will be the multi-project-in-one-window
+     *differentiator*; the local-first binary stays one-project. Owner auth
      is done.
 8. ~~**Cost capture** (brief §6) — spend/budget/forecast.~~ **DEPRIORITIZED**
    (not urgent).
@@ -922,9 +928,12 @@ workflow; Git owns artifacts; Casting owns the organization.
 - ~~**SSE catch-up**: stream only pushes new events; replay missed on
   reconnect.~~ **DONE** (`?after=N` + frontend tracking).
 - ~~**Task `review` status**~~ **DONE** (2026-08-10).
-- **Multi-project + multi-user + LLM integration** — **explicitly deferred until
+- **Multi-user + LLM integration** — **explicitly deferred until
   the rest of the product surface is complete** (per the ⚡ directive at the top
-  of this roadmap). Owner auth alone is done.
+  of this roadmap). Owner auth alone is done. **Multi-project is not deferred —
+  it is REMOVED** (owner decision 2026-08-12): Casting is strictly
+  single-project; the cloud service later will be the multi-project
+  differentiator.
 
 ### Later: Postgres, realtime dashboard polish, external owner messaging
 (Telegram/WhatsApp), context-assembly scoring — these remain LLM-free surface

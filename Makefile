@@ -27,8 +27,9 @@ export PATH := $(CARGO_HOME)/bin:$(PATH)
 
 # The workspace `cast run` drives. Always outside the source tree (D5
 # ownership-boundary guard refuses any repo nested under /home/ben/casting).
+# Casting is SINGLE-PROJECT (2026-08-12): run the project dir directly — there
+# is no registry / project name anymore.
 REPO_DIR := $(HOME)/casting-workspace/proj
-PROJECT  := dev            # name in the ~/.casting/ registry
 CAST_ADDR ?= 127.0.0.1:8080
 
 .PHONY: all dev run frontend test lint fmt clean deploy-dev restart
@@ -55,22 +56,19 @@ lint:
 fmt:
 	cargo fmt
 
-# Register the project in ~/.casting/ if missing, then run it by name.
-# `cast add` is idempotent (upsert), so calling it every time is safe.
-# Run the whole workspace from ONE binary (API + embedded UI).
+# Run the whole workspace from ONE binary (API + embedded UI) on the single
+# project dir (no registry — Casting is single-project).
 run: build
 	mkdir -p $(REPO_DIR)
-	cast add $(PROJECT) $(REPO_DIR)
-	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(PROJECT)
+	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(REPO_DIR)
 
 # Live UI dev: cast run (API on :8080) + Vite HMR (on :5173, proxies /api).
 # Both in one shell; Ctrl-C stops both.
 dev: build
 	mkdir -p $(REPO_DIR)
-	cast add $(PROJECT) $(REPO_DIR)
 	@echo "→ starting cast run (API :$(CAST_ADDR)) + Vite HMR (:5173); Ctrl-C to stop both"
 	trap 'kill 0' INT TERM EXIT; \
-	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(PROJECT) & \
+	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(REPO_DIR) & \
 	cd frontend && npm run dev
 
 # --- Dev-host deploy (dev.benstorey.com) ------------------------------------
