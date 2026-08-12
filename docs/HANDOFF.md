@@ -295,6 +295,15 @@ Team, Decisions, Inbox (badge with unread count), Activity. Realtime via
 SSE — on every event the app refetches `/api/state` + `/api/inbox`.
 TypeScript types in `frontend/src/api.ts` mirror the Rust projection.
 Dark themed, single CSS file, no CSS framework.
+**Client state (owner decision 2026-08-10): Zustand** (`frontend/src/store.ts`).
+The Rust backend is the single source of truth; the store holds the `/api/state`
+snapshot and treats the SSE stream as "something changed → refetch" — it does
+NOT re-derive the projection in TypeScript (that would create two authorities).
+`useCastStore` exposes `{state, inbox, error, streamReady, refresh, start}`;
+`App.tsx` selects slices via `useCastStore((s) => …)`.
+**UI look (owner direction):** Tailwind + hand-rolled components (NOT antd/MUI —
+that reads as enterprise/finance chrome; the plan is a crafted "company cockpit"
+feel). UI-styling pass is a separate follow-up; the store is in place first.
 **First-run wizard:** when no cast is hired yet (only the seed PM), the SPA
 shows `SetupWizard.tsx` (name, objective, role picker, owner token) instead of
 the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
