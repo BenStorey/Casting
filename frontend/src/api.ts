@@ -83,6 +83,7 @@ export interface Projection {
   tasks: Task[];
   decisions: Decision[];
   messages: Message[];
+  advisor_thread: Message[];
   observations: Observation[];
   branches: Branch[];
   commits: Commit[];
@@ -119,6 +120,22 @@ export function saveDiagram(title: string, data: string): Promise<unknown> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, data }),
+  });
+}
+
+export function sendToAdvisor(body: string): Promise<unknown> {
+  return j("/api/advisor/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function handoffAdvisor(summary: string, title?: string): Promise<unknown> {
+  return j("/api/advisor/handoff", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ summary, title: title || "Advisor handoff" }),
   });
 }
 

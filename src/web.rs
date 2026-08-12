@@ -101,6 +101,23 @@ struct DiagramIn {
     data: String,
 }
 
+/// POST /api/advisor/message input: an owner→advisor message. Appends to the
+/// private advisor thread, ISOLATED from the PM's context until a handoff.
+#[derive(Deserialize)]
+struct AdvisorMsgIn {
+    body: String,
+}
+
+/// POST /api/advisor/handoff input: turn the advisor thread into a Briefing
+/// the PM reads. `summary` is the (owner/LLM) distilled take; we record it as
+/// an AdvisoryBriefing provenanced "advisor".
+#[derive(Deserialize)]
+struct AdvisorHandoffIn {
+    title: Option<String>,
+    subject: Option<String>,
+    summary: String,
+}
+
 #[derive(Deserialize)]
 struct DecisionIn {
     decision_id: String,
@@ -147,6 +164,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/brief", axum::routing::post(brief_handler))
         .route("/api/request", axum::routing::post(request_handler))
         .route("/api/diagram", axum::routing::post(diagram_handler))
+        .route(
+            "/api/advisor/message",
+            axum::routing::post(advisor_message_handler),
+        )
+        .route(
+            "/api/advisor/handoff",
+            axum::routing::post(advisor_handoff_handler),
+        )
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
@@ -528,6 +553,71 @@ async fn diagram_handler(
         .into_iter()
         .next()
         .expect("SaveDiagram produces one event");
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
+
+/// POST /api/advisor/message — an owner→advisor message. Appends to the PRIVATE
+/// advisor thread, which is isolated from the PM's context until a handoff.
+async fn advisor_message_handler(
+    State(state): State<AppState>,
+    Json(input): Json<AdvisorMsgIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let body = input.body.trim().to_string();
+    if body.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "advisor message must not be empty".into(),
+        ));
+    }
+    let ev = Event::new(
+        &state.project,
+        Actor::Owner,
+        EventType::AdvisorMessageSent,
+        Aggregate {
+            kind: "advisor_thread".into(),
+            id: format!("am-{}", uuid::Uuid::new_v4()),
+        },
+        serde_json::json!({ "to": "advisor", "body": body }),
+    );
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
+
+/// POST /api/advisor/handoff — turn the owner↔advisor strategic conversation into
+/// an AdvisoryBriefing the PM DOES read (source "advisor"). This is the explicit
+/// integration point between the owner's two direct roles (PM + advisor).
+async fn advisor_handoff_handler(
+    State(state): State<AppState>,
+    Json(input): Json<AdvisorHandoffIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let summary = input.summary.trim().to_string();
+    if summary.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "handoff summary must not be empty".into(),
+        ));
+    }
+    let subject = input.subject.unwrap_or_default().trim().to_string();
+    let ev = Event::new(
+        &state.project,
+        Actor::Owner,
+        EventType::AdvisorHandoff,
+        Aggregate {
+            kind: "briefing".into(),
+            id: format!("brief-{}", uuid::Uuid::new_v4()),
+        },
+        serde_json::json!({
+            "source": "advisor",
+            "subject": subject,
+            "title": input.title.unwrap_or_else(|| "Advisor handoff".into()),
+            "body": summary,
+        }),
+    );
     let stored = state
         .append(ev)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

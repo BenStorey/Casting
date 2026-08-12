@@ -32,6 +32,24 @@ export const PM_IDENTITY: CastIdentity = {
   avatar: `${AV}pm.svg`,
 };
 
+/// The DIRECTION ADVISOR — a special second role the owner talks to directly,
+/// separate from the PM. It thinks about product direction as a whole (not task
+/// priorities); reads high-level state and asks/advises. Its thread is isolated
+/// from the PM's context until the owner hands it off (which becomes a Briefing).
+export const ADVISOR_IDENTITY: CastIdentity = {
+  id: "advisor",
+  name: "Amara Okafor",
+  stable_name: "Amara Okafor",
+  role: "Strategic Advisor",
+  persona: "Your thinking partner on product direction",
+  cv: [
+    "Sees the whole product, not the task list",
+    "Questions assumptions and surfaces what you haven't considered",
+    "Stays out of day-to-day priorities — you decide when to bring it in",
+  ],
+  avatar: `${AV}advisor.svg`,
+};
+
 export const ROLE_IDENTITIES: Record<string, CastIdentity> = {
   engineer: {
     id: "marcus-reed",

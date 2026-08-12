@@ -128,6 +128,17 @@ pub enum EventType {
     /// image. Stored as serialized tldraw JSON (`data`) the PM/owner can view
     /// and reload. (owner 2026-08-10)
     DiagramSaved,
+    /// A message in the owner↔advisor thread — the owner's private chat with the
+    /// direction-advisor (a special second role the owner interacts with
+    /// directly). This thread is ISOLATED from the PM's context by design: it
+    /// only reaches the PM when the owner explicitly hands it off via
+    /// `AdvisorHandoff` (which becomes an AdvisoryBriefing). (owner 2026-08-10)
+    AdvisorMessageSent,
+    /// The owner asked the advisor thread to be summarized and handed off to the
+    /// PM — converting the private strategic conversation into an
+    /// `AdvisoryBriefing` (provenanced "advisor") the PM DOES read. This is the
+    /// explicit integration point between the two direct owner roles.
+    AdvisorHandoff,
 }
 
 /// The entity primarily affected by an event.

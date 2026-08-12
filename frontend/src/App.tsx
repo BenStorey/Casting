@@ -23,10 +23,11 @@ import {
   sendMessage,
 } from "./api";
 
-type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "sketch";
+type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "sketch" | "advisor";
 
-// Lazy: tldraw is ~1.4MB — never load it unless the owner opens the Sketch tab.
+// Lazy: tldraw/excalidraw is ~1MB — never load it unless the owner opens Sketch.
 const Whiteboard = lazy(() => import("./Whiteboard"));
+const Advisor = lazy(() => import("./Advisor"));
 
 const TASK_COLUMNS: { key: TaskStatus; label: string }[] = [
   { key: "backlog", label: "Backlog" },
@@ -88,7 +89,7 @@ export default function App() {
       {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
         <>
           <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-            <TabsList className="grid w-full max-w-2xl grid-cols-7">
+            <TabsList className="grid w-full max-w-3xl grid-cols-8">
               <TabsTrigger value="chat">Chat</TabsTrigger>
               <TabsTrigger value="board">Board</TabsTrigger>
               <TabsTrigger value="team">Team</TabsTrigger>
@@ -104,6 +105,7 @@ export default function App() {
                 )}
               </TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
+              <TabsTrigger value="advisor">Advisor</TabsTrigger>
               <TabsTrigger value="sketch">Sketch</TabsTrigger>
             </TabsList>
             {tab === "chat" && <Chat state={state} onSent={refresh} />}
@@ -117,6 +119,11 @@ export default function App() {
             {tab === "sketch" && (
               <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
                 <Whiteboard onSaved={refresh} />
+              </Suspense>
+            )}
+            {tab === "advisor" && (
+              <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading advisor…</CardContent></Card>}>
+                <Advisor thread={state.advisor_thread} onChanged={refresh} />
               </Suspense>
             )}
           </Tabs>

@@ -415,6 +415,9 @@ pub struct Projection {
     pub tasks: Vec<Task>,
     pub decisions: Vec<Decision>,
     pub messages: Vec<Message>,
+    /// The owner↔advisor private thread. ISOLATED from PM context by design —
+    /// only reaches the PM via an `AdvisorHandoff` (which becomes a Briefing).
+    pub advisor_thread: Vec<Message>,
     pub observations: Vec<Observation>,
     /// First-class semantic objects (SEMANTIC_EVENTS §8).
     pub risks: Vec<Risk>,
@@ -903,6 +906,30 @@ impl Projection {
                 to: string_field(e, "to").unwrap_or_else(|| "owner".into()),
                 body: string_field(e, "body").unwrap_or_default(),
             }),
+            EventType::AdvisorMessageSent => {
+                self.advisor_thread.push(Message {
+                    id: e.aggregate.id.clone(),
+                    from: actor_name(e),
+                    to: string_field(e, "to").unwrap_or_else(|| "advisor".into()),
+                    body: string_field(e, "body").unwrap_or_default(),
+                });
+            }
+            EventType::AdvisorHandoff => {
+                // The owner turned the private advisor thread into a Briefing the
+                // PM reads: advisory (source "advisor"), summarizing the thread.
+                self.briefings.push(Briefing {
+                    id: e.aggregate.id.clone(),
+                    source: "advisor".to_string(),
+                    subject: string_field(e, "subject").unwrap_or_default(),
+                    title: string_field(e, "title").unwrap_or_default(),
+                    body: string_field(e, "body").unwrap_or_default(),
+                    assets: Vec::new(),
+                    brought_in_by: "owner".to_string(),
+                    status: BriefingStatus::Active,
+                    supersedes: None,
+                    imported_at: e.timestamp.to_string(),
+                });
+            }
             EventType::DecisionPolicyChanged => {
                 // Rebind the owner-involvement for the decision class (brief §5).
                 // Event-sourced: the projection's policy is derived from the log.
