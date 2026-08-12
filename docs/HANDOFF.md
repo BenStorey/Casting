@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **199 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3),
+"why does this code exist?". **202 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -250,6 +250,10 @@ axum router for a single project (project id is currently fixed at
 - `POST /api/diagram` `{title?, data}` — save a diagram drawn in the app; `data`
   is the serialized tldraw JSON captured directly from the editor at save time
   (no export/re-upload), stored as a durable `DiagramSaved` artifact.
+- `POST /api/advisor/message` `{body}` — owner→advisor; appends to the PRIVATE
+  advisor thread, isolated from PM context until a handoff.
+- `POST /api/advisor/handoff` `{summary, title?}` — turn the advisor thread into
+  an `AdvisorHandoff` briefing (source "advisor") the PM DOES read.
 - `GET /api/inbox` — decisions awaiting the owner.
 - `POST /api/message` `{body}` — owner → PM; persists a durable
   `MessageSent` and wakes the PM.
@@ -340,6 +344,12 @@ keys/watermarks. (Also chosen over React Flow: it's node/edge-bound and wrong
 for freeform UI sketches.) Known: 2 HIGH npm-audit items are transitive pins
 inside Excalidraw (lodash-es, nanoid) — low real-world risk here, track not
 block.
+**Direction Advisor DONE 2026-08-10:** an **Advisor** tab (lazy) — Amara Okafor,
+Strategic Advisor, a special SECOND role the owner talks to directly (after the
+PM). Free chat is **isolated** from PM context by design (`advisor_thread`);
+only `Hand off to the PM` converts it into an AdvisorBriefing (provenanced
+"advisor") the PM reads. She reads high-level state + asks/advises — cheap to run
+top-tier because low-volume. Her replies are D2 (LLM).
 **Cockpit polish DONE 2026-08-10:** all six views on full shadcn components
 (Board task-cards + status Badges, Team Card grid, Decisions/Inbox Cards +
 approve/reject Buttons, Chat Card shell). **Activity** is a genuine live event
@@ -419,7 +429,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3 = 199 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3+3 = 202 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -801,6 +811,17 @@ delivery-mirror of ExternalRequest (work going OUT and back through git, not in
 for triage). Explicitly NOT a full agent / NOT multi-user; just "the owner can
 be the doer." Delivery machinery was already in place; the change was the
 intent/gate.
+
+**Direction Advisor — DONE 2026-08-10** (owner: "a permanent advisor who runs the
+highest model but is cheap because it only reads high-level state and asks;
+chat freely without affecting PM context, with a mechanism to hand off to the
+PM"): a special second owner-interaction role, separate from the PM. Its chat is
+ISOLATED (`advisor_thread`) — advising never pollutes PM context — until the
+owner explicitly hands off (`AdvisorHandoff` → an AdvisoryBriefing provenanced
+"advisor" the PM reads). Rationale for the separate role: (1) altitude — the PM
+is inside task machinery; the advisor is elevated above it; (2) model-tier
+economics — low-volume, top-tier is cheap precisely because it's NOT fused with
+the PM's constant loop. Her replies are D2 (LLM); the seam + isolation are built.
 
 **In-app drawing — DONE 2026-08-10** (owner: "a canvas to sketch architecture
 diagrams or UI quickly, even if just boxes"): a **Sketch** tab runs an
