@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import SetupWizard from "./SetupWizard";
 import { useCastStore } from "./store";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Decision,
   Inbox,
@@ -63,53 +67,36 @@ export default function App() {
       )}
       {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
         <>
-          <nav className="tabs">
-            <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>Chat</TabButton>
-            <TabButton active={tab === "board"} onClick={() => setTab("board")}>Board</TabButton>
-            <TabButton active={tab === "team"} onClick={() => setTab("team")}>Team</TabButton>
-            <TabButton active={tab === "decisions"} onClick={() => setTab("decisions")}>Decisions</TabButton>
-            <TabButton
-              active={tab === "inbox"}
-              onClick={() => setTab("inbox")}
-              badge={inbox?.unread}
-            >
-              Inbox
-            </TabButton>
-            <TabButton active={tab === "activity"} onClick={() => setTab("activity")}>Activity</TabButton>
-          </nav>
-
-          {tab === "chat" && <Chat state={state} onSent={refresh} />}
-          {tab === "board" && <Board tasks={state.tasks} />}
-          {tab === "team" && <Team agents={state.agents} />}
-          {tab === "decisions" && (
-            <Decisions decisions={state.decisions} onDecide={refresh} />
-          )}
-          {tab === "inbox" && (
-            <InboxView inbox={inbox} onDecide={refresh} />
-          )}
-          {tab === "activity" && <Activity state={state} />}
+          <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+            <TabsList className="grid w-full max-w-xl grid-cols-6">
+              <TabsTrigger value="chat">Chat</TabsTrigger>
+              <TabsTrigger value="board">Board</TabsTrigger>
+              <TabsTrigger value="team">Team</TabsTrigger>
+              <TabsTrigger value="decisions">Decisions</TabsTrigger>
+              <TabsTrigger value="inbox" className="relative">
+                Inbox
+                {inbox && inbox.unread > 0 && (
+                  <span className="absolute -right-1 -top-1">
+                    <Badge className="bg-primary text-primary-foreground">
+                      {inbox.unread}
+                    </Badge>
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
+            {tab === "chat" && <Chat state={state} onSent={refresh} />}
+            {tab === "board" && <Board tasks={state.tasks} />}
+            {tab === "team" && <Team agents={state.agents} />}
+            {tab === "decisions" && (
+              <Decisions decisions={state.decisions} onDecide={refresh} />
+            )}
+            {tab === "inbox" && <InboxView inbox={inbox} onDecide={refresh} />}
+            {tab === "activity" && <Activity state={state} />}
+          </Tabs>
         </>
       )}
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  badge?: number;
-}) {
-  return (
-    <button className={active ? "active" : ""} onClick={onClick}>
-      {children}
-      {badge != null && badge > 0 && <span className="badge">{badge}</span>}
-    </button>
   );
 }
 
@@ -150,16 +137,16 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
         ))}
         <div ref={bottomRef} />
       </div>
-      <div className="composer">
-        <input
+      <div className="composer" style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <Input
           value={draft}
           placeholder='e.g. "Build me a todo app"'
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
         />
-        <button className="primary" onClick={send} disabled={busy || !draft.trim()}>
+        <Button className="primary" onClick={send} disabled={busy || !draft.trim()}>
           Send
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -257,13 +244,22 @@ function Decisions({
           {d.recommendation && <div className="small muted">Pm recommends: {d.recommendation}</div>}
           {d.owner_verdict && <div className="small muted">Owner: {d.owner_verdict}</div>}
           {d.status === "proposed" && (
-            <div className="actions">
-              <button className="approve" onClick={() => void decide(d.id, d.subject, true).then(onDecide)}>
+            <div className="actions" style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <Button
+                size="sm"
+                className="bg-emerald-500 text-white hover:bg-emerald-600"
+                onClick={() => void decide(d.id, d.subject, true).then(onDecide)}
+              >
                 Approve
-              </button>
-              <button className="reject" onClick={() => void decide(d.id, d.subject, false).then(onDecide)}>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive"
+                onClick={() => void decide(d.id, d.subject, false).then(onDecide)}
+              >
                 Reject
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -296,13 +292,22 @@ function InboxView({
               ))}
             </ul>
           )}
-          <div className="actions">
-            <button className="approve" onClick={() => void decide(it.id, it.subject, true).then(onDecide)}>
+          <div className="actions" style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <Button
+              size="sm"
+              className="bg-emerald-500 text-white hover:bg-emerald-600"
+              onClick={() => void decide(it.id, it.subject, true).then(onDecide)}
+            >
               Approve
-            </button>
-            <button className="reject" onClick={() => void decide(it.id, it.subject, false).then(onDecide)}>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-destructive"
+              onClick={() => void decide(it.id, it.subject, false).then(onDecide)}
+            >
               Reject
-            </button>
+            </Button>
           </div>
         </div>
       ))}

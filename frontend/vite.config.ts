@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import path from "node:path";
 
 // The SPA builds to `dist/` (gitignored) and its contents are embedded into the
 // Rust binary via rust-embed (see src/web.rs + build.rs).
@@ -10,6 +11,11 @@ import react from "@vitejs/plugin-react";
 // open http://127.0.0.1:5173.
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,
