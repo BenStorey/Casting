@@ -329,13 +329,17 @@ Team view shows avatar + CV. Avatars are `/avatars/*.svg` monograms now; cartoon
 PHOTOS are staged but blocked until the image backend is reachable (OpenRouter
 image model 403 → enable OpenAI image access or set
 `OPENROUTER_IMAGE_MODEL=google/gemini-3-pro-image`; then drop-in .png).
-**In-app drawing DONE 2026-08-10:** a **Sketch** tab runs a **tldraw** (5.3.0)
-canvas for freeform architecture diagrams / UI sketches. Save serializes the
-entire tldraw doc DIRECTLY from the editor (`serializeTldrawJson`) and POSTs to
-`/api/diagram` — no download/re-upload — producing a durable, reloadable
-`DiagramSaved` artifact in `proj.diagrams`. Lazy-loaded (React.lazy) so the
-~1.4MB tldraw chunk only loads on demand. (Chosen over React Flow: it's
-node/edge-bound and wrong for freeform UI sketches.)
+**In-app drawing DONE 2026-08-10 (Excalidraw):** a **Sketch** tab runs an
+**Excalidraw (0.18.x, MIT)** canvas for freeform architecture diagrams / UI
+sketches. Save serializes the scene DIRECTLY (`serializeAsJSON`) and POSTs to
+`/api/diagram` — no download/re-upload — a durable, reloadable `DiagramSaved`
+artifact in `proj.diagrams`. Lazy-loaded (React.lazy). **Chosen over tldraw for
+LICENSING:** tldraw needs a paid production license ($6k/yr commercial, and
+even OSS downstream users each need one); Excalidraw is MIT — free forever, no
+keys/watermarks. (Also chosen over React Flow: it's node/edge-bound and wrong
+for freeform UI sketches.) Known: 2 HIGH npm-audit items are transitive pins
+inside Excalidraw (lodash-es, nanoid) — low real-world risk here, track not
+block.
 **Cockpit polish DONE 2026-08-10:** all six views on full shadcn components
 (Board task-cards + status Badges, Team Card grid, Decisions/Inbox Cards +
 approve/reject Buttons, Chat Card shell). **Activity** is a genuine live event
@@ -789,14 +793,15 @@ intake surface, alongside Requirement (owner) and AdvisoryBriefing (advisor):
   D2 + policy-gated (DecisionPolicy can allow auto-fix/release per class).
 
 **In-app drawing — DONE 2026-08-10** (owner: "a canvas to sketch architecture
-diagrams or UI quickly, even if just boxes"): a **Sketch** tab runs a **tldraw
-5.3.0** freeform canvas. Save captures the tldraw doc DIRECTLY from the editor
-(`serializeTldrawJson`) into a durable `DiagramSaved` artifact (`proj.diagrams`,
-`POST /api/diagram`) — no export/upload. Chosen over React Flow specifically
-because a UI sketch is freeform, not node/edge-bound. Lazy-loaded so the heavy
-tldraw chunk only downloads when the tab opens. Diagrams are durable visual
-artifacts (like briefing assets), reloadable, surfaceable; vision-derivation of
-them is a D2 item.
+diagrams or UI quickly, even if just boxes"): a **Sketch** tab runs an
+**Excalidraw 0.18.x** freeform canvas. Save serializes the scene DIRECTLY
+(`serializeAsJSON` → `POST /api/diagram`, durable `DiagramSaved` artifact in
+`proj.diagrams`) — no export/upload. **Excalidraw (MIT) was chosen over tldraw
+for licensing**: tldraw demands a paid production license ($6k/yr; each OSS
+downstream user needs one), which is incompatible with an open-source product.
+Lazy-loaded so the heavy editor chunk only downloads when the tab opens.
+Diagrams are durable visual artifacts (like briefing assets), reloadable,
+surfaceable; vision-derivation of them is a D2 item.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
