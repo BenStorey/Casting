@@ -36,5 +36,6 @@ pub mod snapshot;
 pub mod sqlite_store;
 pub mod store;
 pub mod triage;
+pub mod types;
 pub mod web;
 pub mod workspace;

@@ -15,6 +15,35 @@ use casting::web;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
 
+/// Open a project's storage backend from the CLI (workspace + selector), then
+/// build an integrity-enforcing, snapshot-aware AppState. Shared by the
+/// command-line write paths (brief/request) so they can't drift (review
+/// refactor 2026-08-10).
+fn open_state(repo: &Path, db: Option<&str>) -> Result<AppState> {
+    let ws = Workspace::open(repo, Selfhost::Disabled)?;
+    let selector = db
+        .map(str::to_string)
+        .or_else(|| std::env::var("CAST_DB").ok())
+        .unwrap_or_else(|| "sqlite".to_string());
+    let backend = casting::backend::from_selector(&selector, ws.casting_dir())?;
+    let store = backend.events();
+    let cursors = backend.cursors();
+    let snapshots = backend.snapshots();
+    Ok(setup_state(store, cursors, snapshots))
+}
+
+fn setup_state(
+    store: std::sync::Arc<dyn EventStore>,
+    cursors: std::sync::Arc<dyn CursorStore>,
+    snapshots: Option<std::sync::Arc<dyn casting::snapshot::SnapshotStore>>,
+) -> AppState {
+    let mut state = AppState::new(store, cursors, PROJECT_ID).with_integrity();
+    if let Some(snaps) = snapshots {
+        state = state.with_snapshots(snaps);
+    }
+    state
+}
+
 const PROJECT_DIR: &str = ".casting";
 const PROJECT_ID: &str = "project-demo";
 const DEFAULT_ADDR: &str = "127.0.0.1:8080";
@@ -197,23 +226,9 @@ fn do_brief(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result
         anyhow::bail!("briefing body is empty");
     }
 
-    // Open the backend (same selection as `cast run`), enforce integrity.
-    let ws = crate::Workspace::open(repo, Selfhost::Disabled)?;
-    let selector = db
-        .map(str::to_string)
-        .or_else(|| std::env::var("CAST_DB").ok())
-        .unwrap_or_else(|| "sqlite".to_string());
-    let backend = casting::backend::from_selector(&selector, ws.casting_dir())?;
-    let store = backend.events();
-    let cursors = backend.cursors();
-    let snapshots = backend.snapshots();
-
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let mut state = casting::pm::AppState::new(store, cursors, PROJECT_ID).with_integrity();
-        if let Some(snaps) = snapshots {
-            state = state.with_snapshots(snaps);
-        }
+        let state = open_state(repo, db)?;
 
         let source_clone = source.clone();
         let body_len = body.len();
@@ -301,22 +316,9 @@ fn do_request(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Resu
         anyhow::bail!("request title is empty");
     }
 
-    let ws = crate::Workspace::open(repo, Selfhost::Disabled)?;
-    let selector = db
-        .map(str::to_string)
-        .or_else(|| std::env::var("CAST_DB").ok())
-        .unwrap_or_else(|| "sqlite".to_string());
-    let backend = casting::backend::from_selector(&selector, ws.casting_dir())?;
-    let store = backend.events();
-    let cursors = backend.cursors();
-    let snapshots = backend.snapshots();
-
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let mut state = casting::pm::AppState::new(store, cursors, PROJECT_ID).with_integrity();
-        if let Some(snaps) = snapshots {
-            state = state.with_snapshots(snaps);
-        }
+        let state = open_state(repo, db)?;
 
         let proj = state.projection()?;
         let action = casting::actions::PmAction::ReceiveExternalRequest {
