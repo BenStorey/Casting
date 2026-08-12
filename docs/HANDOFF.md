@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **193 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5),
+"why does this code exist?". **196 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -247,6 +247,9 @@ axum router for a single project (project id is currently fixed at
   url?}` — an EXTERNAL request (a GitHub issue/PR, email, web) enters the
   product's intake surface; triaged deterministically (classification + severity)
   and recorded with provenance (NOT the owner's own intent). Returns the event.
+- `POST /api/diagram` `{title?, data}` — save a diagram drawn in the app; `data`
+  is the serialized tldraw JSON captured directly from the editor at save time
+  (no export/re-upload), stored as a durable `DiagramSaved` artifact.
 - `GET /api/inbox` — decisions awaiting the owner.
 - `POST /api/message` `{body}` — owner → PM; persists a durable
   `MessageSent` and wakes the PM.
@@ -326,6 +329,13 @@ Team view shows avatar + CV. Avatars are `/avatars/*.svg` monograms now; cartoon
 PHOTOS are staged but blocked until the image backend is reachable (OpenRouter
 image model 403 → enable OpenAI image access or set
 `OPENROUTER_IMAGE_MODEL=google/gemini-3-pro-image`; then drop-in .png).
+**In-app drawing DONE 2026-08-10:** a **Sketch** tab runs a **tldraw** (5.3.0)
+canvas for freeform architecture diagrams / UI sketches. Save serializes the
+entire tldraw doc DIRECTLY from the editor (`serializeTldrawJson`) and POSTs to
+`/api/diagram` — no download/re-upload — producing a durable, reloadable
+`DiagramSaved` artifact in `proj.diagrams`. Lazy-loaded (React.lazy) so the
+~1.4MB tldraw chunk only loads on demand. (Chosen over React Flow: it's
+node/edge-bound and wrong for freeform UI sketches.)
 **Cockpit polish DONE 2026-08-10:** all six views on full shadcn components
 (Board task-cards + status Badges, Team Card grid, Decisions/Inbox Cards +
 approve/reject Buttons, Chat Card shell). **Activity** is a genuine live event
@@ -405,7 +415,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5 = 193 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3 = 196 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -777,6 +787,16 @@ intake surface, alongside Requirement (owner) and AdvisoryBriefing (advisor):
 - `/api/model` surfaces the intake inbox (`requests.open_count` + triaged list).
 - The LLM judgment ("is this a real bug? how bad?"), fixing, and releasing are
   D2 + policy-gated (DecisionPolicy can allow auto-fix/release per class).
+
+**In-app drawing — DONE 2026-08-10** (owner: "a canvas to sketch architecture
+diagrams or UI quickly, even if just boxes"): a **Sketch** tab runs a **tldraw
+5.3.0** freeform canvas. Save captures the tldraw doc DIRECTLY from the editor
+(`serializeTldrawJson`) into a durable `DiagramSaved` artifact (`proj.diagrams`,
+`POST /api/diagram`) — no export/upload. Chosen over React Flow specifically
+because a UI sketch is freeform, not node/edge-bound. Lazy-loaded so the heavy
+tldraw chunk only downloads when the tab opens. Diagrams are durable visual
+artifacts (like briefing assets), reloadable, surfaceable; vision-derivation of
+them is a D2 item.
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
