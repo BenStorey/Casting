@@ -109,6 +109,13 @@ pub enum EventType {
     /// A batch of work is ready for review (task + branch + commits assembled
     /// into a ChangeSet). Emitted by the ChangeSet layer (increment 3).
     ChangeSetReady,
+    /// An isolated worktree was provisioned for a task (owner 2026-08-12): the
+    /// platform gave a summoned consultant a dedicated working tree on its own
+    /// branch, with a private build target and a distinct API port. Carries the
+    /// task_id, branch, path, cargo_target_dir, and port. Isolation is a PLATFORM
+    /// property, not an agent behavior — the observer no longer has to guess
+    /// task_id from the branch name; the mapping is recorded exactly.
+    WorktreeProvisioned,
 
     // --- External advisory context (owner, 2026-08-10) ---
     /// Advisor content (text and/or image/diagram references) brought INTO the

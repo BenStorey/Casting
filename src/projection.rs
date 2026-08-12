@@ -14,7 +14,7 @@ pub use crate::types::{
     Agent, Assumption, Branch, Briefing, BriefingAsset, BriefingStatus, ChangeSet, ChangeSetStatus,
     Commit, Constraint, CostEntry, Decision, DecisionStatus, Diagram, ExternalRequest,
     ExternalRequestStatus, Fact, Merge, Message, Observation, Opinion, OpinionStatus, Requirement,
-    Risk, RiskStatus, Task, TaskReview, TaskStatus,
+    Risk, RiskStatus, Task, TaskReview, TaskStatus, Worktree,
 };
 
 /// The full current-state projection for a project.
@@ -58,6 +58,10 @@ pub struct Projection {
     pub merges: Vec<Merge>,
     /// ChangeSets — the unit of agent output (ADDENDUM §21–22).
     pub changesets: Vec<ChangeSet>,
+    /// Isolated worktrees provisioned for summoned consultants (owner,
+    /// 2026-08-12). One per task; the platform provisions them so concurrent
+    /// consultants can't collide (distinct branch/build-target/port).
+    pub worktrees: Vec<Worktree>,
     /// The project's decision policy (delegated authority, brief §5),
     /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
     /// per-class autonomy configuration is durable history, not a default.
@@ -512,6 +516,44 @@ impl Projection {
                             id: cs_id,
                             task_id: tid.clone(),
                             branch: name,
+                            commits: Vec::new(),
+                            agent: None,
+                            status: ChangeSetStatus::Open,
+                        });
+                    }
+                }
+            }
+            EventType::WorktreeProvisioned => {
+                // The platform provisioned an isolated workspace for a task.
+                // Record it, and auto-create/refresh the Open ChangeSet with
+                // the EXACT branch mapping (no derive_task_id guessing — the
+                // platform knows the association because it created it).
+                let task_id = string_field(e, "task_id").unwrap_or_default();
+                let branch = string_field(e, "branch").unwrap_or_default();
+                let path = string_field(e, "path").unwrap_or_default();
+                let cargo_target_dir = string_field(e, "cargo_target_dir").unwrap_or_default();
+                let port = e.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                if !task_id.is_empty() {
+                    let wt = Worktree {
+                        task_id: task_id.clone(),
+                        branch: branch.clone(),
+                        path,
+                        cargo_target_dir,
+                        port,
+                    };
+                    if let Some(existing) = self.worktrees.iter_mut().find(|w| w.task_id == task_id)
+                    {
+                        *existing = wt; // refresh (idempotent re-provision)
+                    } else {
+                        self.worktrees.push(wt);
+                    }
+                    // Auto-create an Open ChangeSet for the task if none yet.
+                    let cs_id = format!("changeset-{task_id}");
+                    if !self.changesets.iter().any(|c| c.id == cs_id) {
+                        self.changesets.push(ChangeSet {
+                            id: cs_id,
+                            task_id: task_id.clone(),
+                            branch,
                             commits: Vec::new(),
                             agent: None,
                             status: ChangeSetStatus::Open,

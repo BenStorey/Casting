@@ -178,3 +178,54 @@ fn provisioned_worktree_is_structurally_correct() {
     assert!(wt.cargo_target_dir.starts_with(&wt.path));
     assert_eq!(wt.port, 9000);
 }
+
+/// A WorktreeProvisioned event projects into `Projection.worktrees` and
+/// auto-creates the Open ChangeSet with the exact branch mapping (no
+/// branch-name guessing).
+#[test]
+fn worktree_provisioned_event_projects_worktree_and_change_set() {
+    use casting::event::{Actor, Aggregate, Event, EventType};
+    use casting::projection::{ChangeSetStatus, Projection};
+    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::EventStore;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteEventStore::open(dir.path().join("events.db")).unwrap();
+    store
+        .append(Event::new(
+            "proj",
+            Actor::System,
+            EventType::WorktreeProvisioned,
+            Aggregate {
+                kind: "worktree".into(),
+                id: "wt-task-381".into(),
+            },
+            serde_json::json!({
+                "task_id": "task-381",
+                "branch": "casting/task-381-authentication",
+                "path": "/repo/.casting/worktrees/task-381",
+                "cargo_target_dir": "/repo/.casting/worktrees/task-381/target",
+                "port": 8090,
+            }),
+        ))
+        .unwrap();
+
+    let proj = Projection::build(&store, "proj").unwrap();
+    assert_eq!(proj.worktrees.len(), 1);
+    let wt = proj.worktrees.first().unwrap();
+    assert_eq!(wt.task_id, "task-381");
+    assert_eq!(wt.branch, "casting/task-381-authentication");
+    assert_eq!(wt.port, 8090);
+    assert!(wt.cargo_target_dir.ends_with("target"));
+
+    // Auto-created Open ChangeSet with the exact branch + task mapping.
+    let cs = proj
+        .changesets
+        .iter()
+        .find(|c| c.task_id == "task-381")
+        .unwrap();
+    assert_eq!(cs.id, "changeset-task-381");
+    assert_eq!(cs.branch, "casting/task-381-authentication");
+    assert_eq!(cs.status, ChangeSetStatus::Open);
+    assert!(cs.commits.is_empty());
+}

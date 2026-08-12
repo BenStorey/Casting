@@ -403,3 +403,22 @@ pub struct ChangeSet {
     pub agent: Option<String>,
     pub status: ChangeSetStatus,
 }
+
+/// An isolated worktree provisioned for a summoned consultant (owner,
+/// 2026-08-12). The "consultant's desk": a dedicated working tree on its own
+/// branch, with a private build target and a distinct API port so concurrent
+/// consultants cannot collide. Isolation is a PLATFORM property — the platform
+/// provisions it, the agent just works here.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Worktree {
+    /// The task this workspace serves.
+    pub task_id: String,
+    /// The worktree's own branch (casting/task-<id>-<slug>).
+    pub branch: String,
+    /// Filesystem path to the worktree (under <repo>/.casting/worktrees/).
+    pub path: String,
+    /// Private CARGO_TARGET_DIR so concurrent builds don't stomp each other.
+    pub cargo_target_dir: String,
+    /// Distinct API port so concurrent dev servers can run in parallel.
+    pub port: u16,
+}
