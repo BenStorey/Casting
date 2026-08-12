@@ -135,6 +135,32 @@ impl Workspace {
         cmd
     }
 
+    /// The ONLY way to invoke Git *inside a worktree*. Worktrees share the
+    /// repo's `.git` metadata but have their own working tree, so the pinned
+    /// runner here points `GIT_WORK_TREE`/`GIT_DIR` at the worktree path (whose
+    /// `.git` is a file/gitdir pointer into the shared metadata). Used by the
+    /// agent git surface so a build/dev/commit in a worktree can never leak
+    /// into the shared checkout or another consultant's tree.
+    pub fn git_command_for(&self, worktree: &Path) -> std::process::Command {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("-C")
+            .arg(worktree)
+            .env("GIT_WORK_TREE", worktree)
+            .env("GIT_DIR", worktree.join(".git"));
+        cmd
+    }
+
+    /// Where per-task worktrees live: `<repo>/.casting/worktrees/` (inside the
+    /// collocated, self-ignored casting dir so they never pollute git status).
+    pub fn worktrees_root(&self) -> PathBuf {
+        self.state_dir.join("worktrees")
+    }
+
+    /// The worktree path for a given task id: `<root>/<task_id>`.
+    pub fn worktree_path(&self, task_id: &str) -> PathBuf {
+        self.worktrees_root().join(task_id)
+    }
+
     /// The repo's current HEAD (or `None` if it is not yet a git repo or has no
     /// commits yet). Uses the pinned runner, so exercizes the boundary on the
     /// correct repo only.
@@ -199,6 +225,126 @@ impl Workspace {
             None
         }
     }
+
+    /// Deterministically compute the branch name for a task, following the
+    /// `casting/task-<id>-<slug>` convention the git observer recognizes
+    /// (ADDENDUM §20). e.g. `(task-381, authentication)` →
+    /// `casting/task-381-authentication`.
+    pub fn task_branch(&self, task_id: &str, slug: &str) -> String {
+        let id = task_id.strip_prefix("task-").unwrap_or(task_id);
+        let slug = slug.trim().replace(char::is_whitespace, "-");
+        let slug = if slug.is_empty() {
+            "task".to_string()
+        } else {
+            slug
+        };
+        format!("casting/task-{id}-{slug}")
+    }
+
+    /// Provision an isolated worktree for a task: a dedicated working tree on
+    /// its own branch off the current HEAD, with a private build target and a
+    /// distinct API port so concurrent consultants cannot collide. Idempotent
+    /// per task id (a second call for the same task returns the existing one).
+    ///
+    /// Worktrees live under `<repo>/.casting/worktrees/` (self-ignored). The
+    /// branch is created off the current HEAD; `main` (the protected branch) is
+    /// never touched. Returns the provisioned workspace.
+    pub fn provision_worktree(
+        &self,
+        task_id: &str,
+        slug: &str,
+        port: u16,
+    ) -> Result<ProvisionedWorktree> {
+        let path = self.worktree_path(task_id);
+        let branch = self.task_branch(task_id, slug);
+
+        // Idempotent: if the worktree already exists, reuse it.
+        if path.exists()
+            && self
+                .git_command_for(&path)
+                .arg("rev-parse")
+                .arg("HEAD")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        {
+            let existing = ProvisionedWorktree {
+                task_id: task_id.to_string(),
+                branch: branch.clone(),
+                path: path.clone(),
+                cargo_target_dir: path.join("target"),
+                port,
+            };
+            return Ok(existing);
+        }
+
+        // Ensure the worktrees root exists before `git worktree add`.
+        std::fs::create_dir_all(self.worktrees_root())
+            .with_context(|| format!("create {}", self.worktrees_root().display()))?;
+
+        // `git worktree add <path> -b <branch>` off the current HEAD.
+        let out = self
+            .git_command()
+            .arg("worktree")
+            .arg("add")
+            .arg(&path)
+            .arg("-b")
+            .arg(&branch)
+            .output()
+            .with_context(|| format!("git worktree add {branch} in {}", self.repo.display()))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            bail!("git worktree add failed: {stderr}");
+        }
+
+        Ok(ProvisionedWorktree {
+            task_id: task_id.to_string(),
+            branch,
+            path: path.clone(),
+            cargo_target_dir: path.join("target"),
+            port,
+        })
+    }
+
+    /// Remove a task's worktree (and prune the now-dangling worktree metadata).
+    /// Called by the reconciler when a task is done/merged. Idempotent — a
+    /// missing worktree is not an error.
+    pub fn remove_worktree(&self, task_id: &str) -> Result<()> {
+        let path = self.worktree_path(task_id);
+        if path.exists() {
+            let out = self
+                .git_command()
+                .arg("worktree")
+                .arg("remove")
+                .arg("--force")
+                .arg(&path)
+                .output()
+                .with_context(|| format!("git worktree remove {}", path.display()))?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                bail!("git worktree remove failed: {stderr}");
+            }
+        }
+        // Prune dangling worktree metadata regardless.
+        let _ = self.git_command().arg("worktree").arg("prune").output();
+        Ok(())
+    }
+}
+
+/// The isolated workspace provisioned for one task: a worktree on its own
+/// branch, with a private build target and a distinct API port. This is the
+/// "summoned consultant's desk" — the agent works here, never in the shared
+/// checkout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvisionedWorktree {
+    pub task_id: String,
+    pub branch: String,
+    pub path: PathBuf,
+    /// Private `CARGO_TARGET_DIR` so concurrent consultants' builds can't
+    /// stomp each other.
+    pub cargo_target_dir: PathBuf,
+    /// Distinct API port so each consultant's dev server can run in parallel.
+    pub port: u16,
 }
 
 fn is_casting_source(repo: &Path) -> bool {

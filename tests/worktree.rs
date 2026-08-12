@@ -1,0 +1,180 @@
+//! Tests for worktree provisioning — each summoned consultant's isolated
+//! workspace: a git worktree on its own branch, a private Rust build target,
+//! and a distinct API port so concurrent consultants can't collide (owner
+//! requirements 2026-08-12).
+//!
+//! All use throwaway repos under tempdir; none touch the real artifact repo.
+
+use casting::workspace::{ProvisionedWorktree, Selfhost, Workspace};
+use std::path::Path;
+
+/// A fresh, existing `repo` dir inside a tempdir (state collocated in
+/// `<repo>/.casting/`), with a real git repo and one commit so worktrees can
+/// branch off HEAD.
+fn repo_dir() -> (tempfile::TempDir, std::path::PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    ws.ensure_repo().unwrap();
+    std::fs::write(repo.join("README.md"), "hello\n").unwrap();
+    ws.git_command().arg("add").arg(".").output().unwrap();
+    ws.git_command()
+        .arg("commit")
+        .arg("-m")
+        .arg("initial")
+        .output()
+        .unwrap();
+    (tmp, repo)
+}
+
+fn ws(repo: &Path) -> Workspace {
+    Workspace::open(repo, Selfhost::Disabled).unwrap()
+}
+
+#[test]
+fn provision_creates_an_isolated_worktree_on_its_own_branch() {
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+
+    let wt = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+
+    // Branch follows the casting/task-<id>-<slug> convention.
+    assert_eq!(wt.branch, "casting/task-381-authentication");
+    // Worktree lives under <repo>/.casting/worktrees/<task_id> (self-ignored).
+    assert_eq!(wt.path, repo.join(".casting/worktrees/task-381"));
+    assert!(wt.path.exists(), "worktree dir must exist");
+
+    // The worktree's checked-out branch is its own (not main).
+    let branch = ws
+        .git_command_for(&wt.path)
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .output()
+        .unwrap();
+    let branch = String::from_utf8_lossy(&branch.stdout).trim().to_string();
+    assert_eq!(branch, "casting/task-381-authentication");
+}
+
+#[test]
+fn each_worktree_gets_a_private_build_target() {
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+
+    let a = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+    let b = ws.provision_worktree("task-382", "billing", 8091).unwrap();
+
+    // Distinct CARGO_TARGET_DIRs, each inside its own worktree.
+    assert_ne!(a.cargo_target_dir, b.cargo_target_dir);
+    assert_eq!(a.cargo_target_dir, a.path.join("target"));
+    assert_eq!(b.cargo_target_dir, b.path.join("target"));
+    assert!(a.cargo_target_dir.starts_with(&a.path));
+    assert!(b.cargo_target_dir.starts_with(&b.path));
+}
+
+#[test]
+fn each_worktree_gets_a_distinct_port() {
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+
+    let a = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+    let b = ws.provision_worktree("task-382", "billing", 8091).unwrap();
+
+    assert_ne!(
+        a.port, b.port,
+        "concurrent consultants must not share a port"
+    );
+    assert_eq!(a.port, 8090);
+    assert_eq!(b.port, 8091);
+}
+
+#[test]
+fn worktrees_do_not_touch_main_or_the_shared_checkout() {
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+    let main_head = ws.head().unwrap();
+
+    ws.provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+
+    // Protected branch (main) is untouched.
+    assert_eq!(ws.head().unwrap(), main_head, "HEAD must not move");
+
+    // A change made inside the worktree is isolated: it does not appear in the
+    // shared checkout's working tree.
+    let wt = ws.worktree_path("task-381");
+    std::fs::write(wt.join("change.txt"), "in worktree\n").unwrap();
+    let shared = ws
+        .git_command()
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .unwrap();
+    let shared_out = String::from_utf8_lossy(&shared.stdout);
+    assert!(
+        !shared_out.contains("change.txt"),
+        "worktree change must not leak into the shared checkout: {shared_out}"
+    );
+}
+
+#[test]
+fn provision_is_idempotent_per_task() {
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+
+    let a = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+    let b = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+
+    assert_eq!(a.path, b.path, "same task reuses the same worktree path");
+    assert_eq!(a.branch, b.branch);
+}
+
+#[test]
+fn remove_worktree_deletes_the_worktree() {
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+
+    let wt = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+    assert!(wt.path.exists());
+
+    ws.remove_worktree("task-381").unwrap();
+    assert!(
+        !wt.path.exists(),
+        "worktree should be removed after cleanup"
+    );
+    // Idempotent: removing again is fine.
+    ws.remove_worktree("task-381").unwrap();
+}
+
+#[test]
+fn provisioned_worktree_is_structurally_correct() {
+    let wt = ProvisionedWorktree {
+        task_id: "task-9".into(),
+        branch: "casting/task-9-auth".into(),
+        path: Path::new("/x/wt").to_path_buf(),
+        cargo_target_dir: Path::new("/x/wt/target").to_path_buf(),
+        port: 9000,
+    };
+    assert_eq!(wt.task_id, "task-9");
+    assert!(wt.cargo_target_dir.starts_with(&wt.path));
+    assert_eq!(wt.port, 9000);
+}
