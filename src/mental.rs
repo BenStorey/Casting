@@ -28,6 +28,8 @@ pub struct OperatingModel {
     pub knowledge: KnowledgeView,
     /// The environmental state the company reasons about.
     pub context: ContextView,
+    /// External requests (product intake surface): issues/PRs raised outside.
+    pub requests: RequestsView,
     /// Cost attribution (HARNESS #6) — total spend + per-agent, so budget is
     /// visible to the PM/owner, not (only) tracked implicitly.
     pub spend: SpendView,
@@ -93,6 +95,17 @@ pub struct AdvisoryView {
     pub superseded: Vec<String>,
     /// How many advisory items are currently shaping context.
     pub active_count: usize,
+}
+
+/// External requests (product intake surface) — issues/PRs raised OUTSIDE, kept
+/// separate from the owner's own Requirements. Each is triaged deterministically
+/// (classification + severity). The PM later decides whether to act (D2).
+#[derive(Debug, Clone, Serialize)]
+pub struct RequestsView {
+    /// Count of open (un-triaged/not-closed) requests.
+    pub open_count: usize,
+    /// Open requests, triaged: "[classification / severity] title (from reporter)".
+    pub open: Vec<String>,
 }
 
 /// The environmental state the company reasons about.
@@ -182,6 +195,24 @@ impl crate::projection::Projection {
             superseded: superseded_briefings,
         };
 
+        // External requests: deterministic triage summary for the operating picture.
+        use crate::projection::ExternalRequestStatus;
+        let open_requests = self
+            .external_requests
+            .iter()
+            .filter(|r| r.status == ExternalRequestStatus::Open)
+            .map(|r| {
+                format!(
+                    "[{}/{}] {} (from {})",
+                    r.classification, r.severity, r.title, r.reporter
+                )
+            })
+            .collect::<Vec<_>>();
+        let requests = RequestsView {
+            open_count: open_requests.len(),
+            open: open_requests,
+        };
+
         let open_risks = self
             .risks
             .iter()
@@ -254,6 +285,7 @@ impl crate::projection::Projection {
                 },
                 active_agents,
             },
+            requests,
             spend: SpendView {
                 total_estimated_usd: self.total_spend_usd(),
                 prompt_tokens: self.total_prompt_tokens(),

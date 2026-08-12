@@ -118,6 +118,11 @@ pub enum EventType {
     /// with the owner's own intent. Supersedable (`status`/`supersedes`), so
     /// stale advice decays instead of dominating context forever.
     AdvisoryBriefingImported,
+    /// A request arrived from an EXTERNAL source (e.g. a GitHub issue/PR a
+    /// product user opened). The product's intake surface. Carries provenance
+    /// (source, external_id, reporter) so the PM can triage it; NOT the owner's
+    /// own intent. (owner 2026-08-10)
+    ExternalRequestReceived,
 }
 
 /// The entity primarily affected by an event.

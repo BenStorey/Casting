@@ -140,6 +140,19 @@ pub enum PmAction {
         body: String,
         assets: Vec<crate::projection::BriefingAsset>,
     },
+    /// Receive an EXTERNAL request (e.g. a GitHub issue/PR) — the product's
+    /// intake surface. Recorded with provenance + deterministic triage, NEVER
+    /// as authoritative owner intent. (owner 2026-08-10)
+    ReceiveExternalRequest {
+        id: String,
+        source: String,
+        external_id: Option<String>,
+        title: String,
+        body: String,
+        reporter: String,
+        labels: Vec<String>,
+        url: Option<String>,
+    },
     /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
     CreateDirective {
         id: String,
@@ -799,6 +812,67 @@ impl PmAction {
                         "assets": assets,
                         "brought_in_by": brought_in_by,
                         "supersedes": null,
+                    }),
+                    meta,
+                )]
+            }
+            PmAction::ReceiveExternalRequest {
+                id,
+                source,
+                external_id,
+                title,
+                body,
+                reporter,
+                labels,
+                url,
+            } => {
+                // Deterministic triage (same heuristic as Projection::triage_request).
+                let haystack = format!("{} {}", title, body).to_lowercase();
+                let classification = if labels.iter().any(|l| {
+                    l.to_lowercase().contains("security") || l.to_lowercase().contains("vuln")
+                }) {
+                    "security"
+                } else if labels.iter().any(|l| {
+                    l.to_lowercase().contains("feature") || l.to_lowercase().contains("enhancement")
+                }) {
+                    "feature"
+                } else if labels.iter().any(|l| l.to_lowercase().contains("bug"))
+                    || [
+                        "crash", "broken", "fail", "error", "can't", "cannot", "bug", "wrong",
+                    ]
+                    .iter()
+                    .any(|w| haystack.contains(w))
+                {
+                    "bug"
+                } else {
+                    "feature"
+                };
+                let severity = if classification == "security"
+                    || haystack.contains("crash")
+                    || haystack.contains("data loss")
+                {
+                    "high"
+                } else if classification == "bug" {
+                    "medium"
+                } else {
+                    "low"
+                };
+                vec![ev(
+                    project,
+                    actor,
+                    id,
+                    "external_request",
+                    EventType::ExternalRequestReceived,
+                    json!({
+                        "source": source,
+                        "external_id": external_id,
+                        "title": title,
+                        "body": body,
+                        "reporter": reporter,
+                        "labels": labels,
+                        "url": url,
+                        "classification": classification,
+                        "severity": severity,
                     }),
                     meta,
                 )]

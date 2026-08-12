@@ -64,6 +64,33 @@ struct BriefIn {
     assets: Vec<crate::projection::BriefingAsset>,
 }
 
+/// POST /api/request input: an EXTERNAL request (e.g. a GitHub issue/PR a
+/// product user opened). `source` + `external_id` + `reporter` record where it
+/// came from so the PM can triage it. NOT the owner's own intent.
+#[derive(Deserialize)]
+struct RequestIn {
+    /// e.g. "github" | "email" | "web".
+    #[serde(default = "default_source")]
+    source: String,
+    external_id: Option<String>,
+    title: String,
+    #[serde(default)]
+    body: String,
+    /// Who raised it (e.g. GitHub username). Defaults to "external".
+    #[serde(default = "default_reporter")]
+    reporter: String,
+    #[serde(default)]
+    labels: Vec<String>,
+    url: Option<String>,
+}
+
+fn default_source() -> String {
+    "external".to_string()
+}
+fn default_reporter() -> String {
+    "external".to_string()
+}
+
 #[derive(Deserialize)]
 struct DecisionIn {
     decision_id: String,
@@ -108,6 +135,7 @@ pub fn router(state: AppState) -> Router {
     let guarded = Router::new()
         .route("/api/message", axum::routing::post(message_handler))
         .route("/api/brief", axum::routing::post(brief_handler))
+        .route("/api/request", axum::routing::post(request_handler))
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
@@ -392,6 +420,57 @@ async fn brief_handler(
         .into_iter()
         .next()
         .expect("ImportBriefing produces one event");
+    let stored = state
+        .append(ev)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(stored))
+}
+
+/// POST /api/request — an EXTERNAL request (e.g. a GitHub issue/PR a user
+/// opened). Recorded with provenance + deterministic triage; the PM can triage
+/// it without it pretending to be the owner's own intent.
+async fn request_handler(
+    State(state): State<AppState>,
+    Json(input): Json<RequestIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "request title must not be empty".into(),
+        ));
+    }
+    let action = crate::actions::PmAction::ReceiveExternalRequest {
+        id: format!("req-{}", uuid::Uuid::new_v4()),
+        source: input.source,
+        external_id: input.external_id,
+        title,
+        body: input.body,
+        reporter: input.reporter,
+        labels: input.labels,
+        url: input.url,
+    };
+    let proj = state
+        .projection()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::actions::validate(&action, "pm", &proj)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let cause = Event::new(
+        &state.project,
+        Actor::System,
+        EventType::ExternalRequestReceived,
+        Aggregate {
+            kind: "external_request".into(),
+            id: "bootstrap".into(),
+        },
+        serde_json::json!({}),
+    );
+    let ev = action
+        .to_events(&state.project, "pm", &cause, "request")
+        .into_iter()
+        .next()
+        .expect("ReceiveExternalRequest produces one event");
     let stored = state
         .append(ev)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

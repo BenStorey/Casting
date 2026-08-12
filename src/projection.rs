@@ -278,6 +278,51 @@ pub struct BriefingAsset {
     pub location: String,
 }
 
+/// A request raised from an EXTERNAL source (e.g. a GitHub issue/PR a product
+/// user opened). This is the product's INTAKE surface — the analog of a
+/// Requirement (owner message) and an AdvisoryBriefing (advisor import) but for
+/// "what a user reported". Deliberately NOT authoritative: it's a request from
+/// outside, recorded with provenance (`source`, `external_id`, `reporter`) so
+/// the PM can triage it without it pretending to be the owner's own intent.
+/// Deterministic triage (classification/priority) is a projection concern; the
+/// LLM later decides whether to act on it (docs/HARNESS.md, D2).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExternalRequest {
+    pub id: String,
+    /// Where the request came from, e.g. "github".
+    pub source: String,
+    /// The id in the external system (e.g. GitHub issue #42), if any.
+    #[serde(default)]
+    pub external_id: Option<String>,
+    pub title: String,
+    pub body: String,
+    /// Who raised it (e.g. GitHub username).
+    pub reporter: String,
+    /// Labels/tags from the source (e.g. ["bug", "security"]).
+    #[serde(default)]
+    pub labels: Vec<String>,
+    /// The source URL (e.g. the GitHub issue link), if any.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Deterministic classification (triage): "bug" | "feature" | "other".
+    pub classification: String,
+    /// Deterministic severity estimate: low | medium | high.
+    pub severity: String,
+    /// Whether the PM has acted on it yet (open) or closed it.
+    pub status: ExternalRequestStatus,
+    pub received_at: String,
+}
+
+/// Lifecycle of an external request (intake surface; see ExternalRequest).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ExternalRequestStatus {
+    /// Received from outside; not yet triaged/acted on.
+    #[default]
+    Open,
+    /// Triaged and closed (decided no action, duplicate, resolved upstream).
+    Closed,
+}
+
 /// A branch in the artifact repo (semantic Git event, ADDENDUM §20/§23).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Branch {
@@ -367,6 +412,9 @@ pub struct Projection {
     /// External advisor briefings imported into the project (advisory, NOT
     /// authoritative — see `Briefing`).
     pub briefings: Vec<Briefing>,
+    /// External requests (product intake surface): issues/PRs raised outside,
+    /// carrying provenance so the PM can triage them. See `ExternalRequest`.
+    pub external_requests: Vec<ExternalRequest>,
     /// First-class governance objects (docs/INTENT.md).
     pub directives: Vec<crate::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
@@ -442,6 +490,85 @@ impl Projection {
             .filter(|c| c.agent_id == agent_id)
             .map(|c| c.estimated_usd)
             .sum()
+    }
+
+    /// Deterministic triage of an external request (intake surface, D2-free):
+    /// classify bug/feature/security, estimate severity, and detect duplicates.
+    pub fn triage_request(
+        &self,
+        source: &str,
+        external_id: Option<&str>,
+        title: &str,
+        body: &str,
+        labels: &[String],
+    ) -> (String, String, bool) {
+        let haystack = format!("{} {}", title, body).to_lowercase();
+
+        // Classification: security first, then bug, then feature, else other.
+        let classification = if labels
+            .iter()
+            .any(|l| l.to_lowercase().contains("security") || l.to_lowercase().contains("vuln"))
+        {
+            "security"
+        } else if labels.iter().any(|l| {
+            l.to_lowercase().contains("feature") || l.to_lowercase().contains("enhancement")
+        }) {
+            "feature"
+        } else if labels.iter().any(|l| l.to_lowercase().contains("bug"))
+            || [
+                "crash", "broken", "fail", "error", "can't", "cannot", "bug", "wrong",
+            ]
+            .iter()
+            .any(|w| haystack.contains(w))
+        {
+            "bug"
+        } else {
+            "feature"
+        };
+
+        // Severity: security + crash words => high; some-bug words => medium; else low.
+        let severity = if classification == "security"
+            || haystack.contains("crash")
+            || haystack.contains("data loss")
+            || haystack.contains("cannot log")
+        {
+            "high"
+        } else if classification == "bug" {
+            "medium"
+        } else if labels.iter().any(|l| {
+            l.to_lowercase().contains("severe")
+                || l.to_lowercase().contains("urgent")
+                || l.to_lowercase().contains("p0")
+        }) {
+            "high"
+        } else {
+            "low"
+        };
+
+        // Duplicate: same source + external_id, or same source + normalized (lowercased) title.
+        let dup = self.external_requests.iter().any(|r| {
+            (r.source == source
+                && r.external_id.is_some()
+                && r.external_id == external_id.map(str::to_owned))
+                || (r.source == source
+                    && !r.title.is_empty()
+                    && r.title.to_lowercase() == title.trim().to_lowercase())
+        });
+
+        (classification.to_string(), severity.to_string(), dup)
+    }
+
+    /// Open (not-yet-closed) external requests, optionally filtered by classification.
+    pub fn open_external_requests(&self, classification: Option<&str>) -> Vec<&ExternalRequest> {
+        self.external_requests
+            .iter()
+            .filter(|r| r.status == ExternalRequestStatus::Open)
+            .filter(|r| {
+                classification
+                    .map(|c| r.classification == c)
+                    .unwrap_or(true)
+            })
+            .collect()
     }
 
     /// Apply a single event to the running projection.
@@ -624,6 +751,32 @@ impl Projection {
                     status: BriefingStatus::Active,
                     supersedes: string_field(e, "supersedes"),
                     imported_at: e.timestamp.to_string(),
+                });
+            }
+            EventType::ExternalRequestReceived => {
+                fn str(e: &Event, k: &str) -> String {
+                    string_field(e, k).unwrap_or_default()
+                }
+                let labels: Vec<String> = e
+                    .data
+                    .get("labels")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                let classification = str(e, "classification");
+                let severity = str(e, "severity");
+                self.external_requests.push(ExternalRequest {
+                    id: e.aggregate.id.clone(),
+                    source: str(e, "source"),
+                    external_id: string_field(e, "external_id"),
+                    title: str(e, "title"),
+                    body: str(e, "body"),
+                    reporter: str(e, "reporter"),
+                    labels,
+                    url: string_field(e, "url"),
+                    classification,
+                    severity,
+                    status: ExternalRequestStatus::Open,
+                    received_at: e.timestamp.to_string(),
                 });
             }
             EventType::ProjectDirectiveCreated => {

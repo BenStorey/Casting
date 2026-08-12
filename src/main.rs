@@ -85,6 +85,16 @@ fn main() -> Result<()> {
             })?;
             do_brief(&args[3..], &entry.repo, entry.db.as_deref())
         }
+        // `cast request <project> [--source SRC] [--reporter R] [--label L] <title>`
+        // — receive an EXTERNAL request (issue/PR) into the product's intake.
+        "request" => {
+            let name = args.get(2).context("usage: cast request <project-name> [--source SRC] [--reporter R] [--label L] <title>")?;
+            let reg = casting::registry::Registry::load(None)?;
+            let entry = reg.lookup(name).with_context(|| {
+                format!("no project named {name:?} (add it with `cast add {name} <repo-path>`)\n")
+            })?;
+            do_request(&args[3..], &entry.repo, entry.db.as_deref())
+        }
         "log" => {
             let log = parse_log(&args[2..])?;
             do_log(log)
@@ -252,6 +262,111 @@ fn do_brief(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result
         println!(
             "imported advisory briefing {} (from {source_clone}, {body_len} bytes)",
             stored.aggregate.id
+        );
+        Ok(())
+    })
+}
+
+/// `cast request` — receive an EXTERNAL request (a GitHub issue/PR, an email,
+/// a form submission) into the product's intake surface. Recorded with
+/// provenance + deterministic triage; NOT the owner's own intent.
+fn do_request(args: &[String], repo: &std::path::Path, db: Option<&str>) -> Result<()> {
+    let (mut source, mut reporter) = ("external".to_string(), "external".to_string());
+    let mut labels: Vec<String> = Vec::new();
+    let mut title: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => {
+                source = args.get(i + 1).context("--source needs a value")?.clone();
+                i += 2;
+            }
+            "--reporter" => {
+                reporter = args.get(i + 1).context("--reporter needs a value")?.clone();
+                i += 2;
+            }
+            "--label" => {
+                let l = args.get(i + 1).context("--label needs a value")?.clone();
+                labels.push(l);
+                i += 2;
+            }
+            other => {
+                title = Some(other);
+                i += 1;
+            }
+        }
+    }
+    let title = title.context("usage: cast request <project> [flags] <title>")?;
+    if title.trim().is_empty() {
+        anyhow::bail!("request title is empty");
+    }
+
+    let ws = crate::Workspace::open(repo, Selfhost::Disabled)?;
+    let selector = db
+        .map(str::to_string)
+        .or_else(|| std::env::var("CAST_DB").ok())
+        .unwrap_or_else(|| "sqlite".to_string());
+    let backend = casting::backend::from_selector(&selector, ws.casting_dir())?;
+    let store = backend.events();
+    let cursors = backend.cursors();
+    let snapshots = backend.snapshots();
+
+    let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
+    rt.block_on(async move {
+        let mut state = casting::pm::AppState::new(store, cursors, PROJECT_ID).with_integrity();
+        if let Some(snaps) = snapshots {
+            state = state.with_snapshots(snaps);
+        }
+
+        let proj = state.projection()?;
+        let action = casting::actions::PmAction::ReceiveExternalRequest {
+            id: format!("req-{}", uuid::Uuid::new_v4()),
+            source,
+            external_id: None,
+            title: title.to_string(),
+            body: String::new(),
+            reporter,
+            labels,
+            url: None,
+        };
+        casting::actions::validate(&action, "pm", &proj)?;
+
+        {
+            use casting::event::{Actor, Aggregate, Event, EventType};
+            let previous = state.store.latest_sequence(&state.project)?;
+            let cause = state
+                .store
+                .read_since(&state.project, previous.saturating_sub(1))?
+                .pop()
+                .unwrap_or_else(|| {
+                    Event::new(
+                        &state.project,
+                        Actor::System,
+                        EventType::ExternalRequestReceived,
+                        Aggregate {
+                            kind: "external_request".into(),
+                            id: "bootstrap".into(),
+                        },
+                        serde_json::json!({}),
+                    )
+                });
+            let ev = action
+                .to_events(&state.project, "pm", &cause, "request")
+                .into_iter()
+                .next()
+                .expect("ReceiveExternalRequest produces one event");
+            state.append(ev)?;
+        }
+
+        // Rebuild projection to report the recorded triage (classification/severity).
+        let proj = state.projection()?;
+        let r = proj
+            .external_requests
+            .last()
+            .expect("request just appended");
+        println!(
+            "received {} request {} — {} ({} / {}) from {}",
+            r.source, r.id, r.title, r.classification, r.severity, r.reporter
         );
         Ok(())
     })
