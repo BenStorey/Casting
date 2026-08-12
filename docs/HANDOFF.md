@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **202 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3+3),
+"why does this code exist?". **204 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3+3+2),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -142,7 +142,11 @@ see it recorded permanently, reload — everything persists (verified).
 ├── src/
 │   ├── lib.rs                      <- module root
 │   ├── event.rs                    <- typed domain events (Actor, EventType, Aggregate, Metadata)
-│   ├── actions.rs                  <- PM action vocabulary (PmAction) + policy gate (ADDENDUM §16)
+│   ├── actions/                    <- PM action vocabulary + policy gate (ADDENDUM §16); mod.rs facade over
+│   │   │                              action.rs (enum) / policy.rs (gate) / events.rs (to_events) / owner.rs
+│   ├── types.rs                    <- shared derived DATA types (Agent, Task, Decision, …) moved out of
+│   │                                  projection.rs (used across src/ + tests)
+│   ├── triage.rs                   <- deterministic external-request triage (single source of truth)
 │   ├── auth.rs                     <- owner bearer-token auth (opt-in, CAST_OWNER_TOKEN)
 │   ├── store.rs                    <- EventStore trait (append, read_since, latest_sequence)
 │   ├── sqlite_store.rs             <- SQLite impl (WAL, append-only, per-project sequences)
@@ -164,7 +168,9 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── backend.rs                  <- storage backend factory (sqlite | postgres)
 │   ├── postgres_store.rs           <- PostgresBackend (EventStore+CursorStore+SnapshotStore)
 │   ├── pm.rs                       <- simulated PM control loop + shared AppState (§2.2)
-│   ├── web.rs                      <- axum server: JSON API, SSE, embedded SPA (§2.3)
+│   ├── web.rs                      <- axum facade: `mod routes; pub use routes::router` (§2.3)
+│   ├── web/routes/                 <- handlers + DTOs by concern: auth, setup, state, inbox, intake,
+│   │   │                              advisor, owner, provenance, views, static_files
 │   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
 │   ├── git_observer.rs             <- semantic Git events from raw repo state (Git inc 2)
 │   ├── provenance.rs               <- "why does this code exist?" queries (Git inc 4)
@@ -429,7 +435,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3+3 = 202 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5+3+3+3+2 = 204 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -860,6 +866,20 @@ Then, only after the core matures:
 Design note: every one of these is LLM-free and independently testable, exactly
 like the Git slice. Keep `EventType` a curated enum and extend it deliberately.
 
+> **2026-08-12: FULL CODE REVIEW + REFACTOR (10k+ LOC)** — a parallel 3-agent
+> review + restructuring pass. Correctness fixes: the policy gate is now
+> FAIL-CLOSED (no `_ => Ok(())` catch-all; every create-action enforces id
+> uniqueness via `DuplicateEntity`); external-request triage is single-source in
+> `src/triage.rs` (was duplicated, had drifted); `DecisionMade` shape unified;
+> all projection access routed through snapshot-aware `AppState::projection()`;
+> stale `tldraw`→`Excalidraw` docs fixed. Structure: `src/actions.rs` split into
+> `src/actions/` (mod.rs facade + action/policy/events/owner); 28 data types
+> moved from `projection.rs` to `src/types.rs`; `src/web.rs` split into
+> `src/web/routes/` (auth/setup/state/inbox/intake/advisor/owner/provenance/
+> views/static_files) + shared `append_json`; `main.rs` bootstrap deduped into
+> `open_state()/setup_state()`. **204 tests**, clippy 0, fmt clean. Deferred:
+> `pm.rs` `plan_onboard` policy extraction, `ev`/`linked`/`str` renames, a typed
+> `TriageVerdict` return.
 
 ### Local Git (addendum §28, 18–27) — COMPLETE (4 increments built)
 All four increments are built, tested, and committed. The Git slice is
