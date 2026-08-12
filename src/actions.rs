@@ -1096,9 +1096,12 @@ impl PmAction {
                 decision_id,
                 "decision",
                 EventType::DecisionMade,
+                // Same shape as the owner-authored builder (owner_decision_made /
+                // decision_made_event): note normalized to a string field.
                 json!({
+                    "subject": "",
                     "approved": approved,
-                    "note": note,
+                    "note": note.as_deref().unwrap_or(""),
                 }),
                 meta,
             )],
@@ -1205,9 +1208,25 @@ pub fn owner_decision_made(
     approved: bool,
     note: Option<String>,
 ) -> Event {
+    decision_made_event(Actor::Owner, project, decision_id, subject, approved, note)
+}
+
+/// The single shared `DecisionMade` builder. Both the owner-authored path
+/// (`owner_decision_made`) and the generic action→event path (MakeDecision in
+/// to_events) go through here so the event SHAPE can never drift between
+/// PM/agent-made and owner-made decisions. `note` is emitted as a string field
+/// (None => ""), which the reducer reads via string_field.
+pub(crate) fn decision_made_event(
+    actor: Actor,
+    project: &str,
+    decision_id: &str,
+    subject: &str,
+    approved: bool,
+    note: Option<String>,
+) -> Event {
     Event::new(
         project,
-        Actor::Owner,
+        actor,
         EventType::DecisionMade,
         Aggregate {
             kind: "decision".into(),
