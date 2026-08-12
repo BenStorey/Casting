@@ -25,6 +25,7 @@ pub mod persona;
 pub mod plan;
 pub mod pm;
 pub mod policy;
+pub mod port;
 pub mod postgres_store;
 pub mod projection;
 pub mod provenance;
