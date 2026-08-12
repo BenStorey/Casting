@@ -24,6 +24,18 @@ use crate::projection::Projection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+/// The pseudo-assignee representing the HUMAN OWNER (the boss). When a task is
+/// assigned to `"owner"`, the human — possibly working through their own
+/// harness — executes and delivers it, rather than a hired agent. Distinct from
+/// any agent id (roles are "engineer"/"qa"...; agents are "marcus-reed"...).
+pub const OWNER: &str = "owner";
+
+/// True if `candidate` is a valid task assignee: either the human owner or a
+/// hired agent. (owner 2026-08-10 — human-as-consultant delivery.)
+pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
+    candidate == OWNER || state.agents.iter().any(|a| a.id == candidate)
+}
+
 /// One organizational move the PM may propose. Serde-tagged so an LLM can emit
 /// it as JSON and it round-trips 1:1 with what a scripted policy builds.
 ///
@@ -385,8 +397,10 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             if !task_exists {
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
             }
-            let assignee_hired = state.agents.iter().any(|a| a.id == *assignee);
-            if !assignee_hired {
+            // The assignee is either a hired agent OR the human owner (owner can
+            // take a task on personally and deliver via their harness). Anything
+            // else is rejected.
+            if !is_valid_assignee(state, assignee) {
                 return Err(PolicyError::AgentNotHired(assignee.clone()));
             }
             Ok(())
