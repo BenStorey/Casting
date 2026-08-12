@@ -313,6 +313,14 @@ composer, approve/reject `Button`s.
 **First-run wizard:** when no cast is hired yet (only the seed PM), the SPA
 shows `SetupWizard.tsx` (name, objective, role picker, owner token) instead of
 the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
+**Cockpit polish DONE 2026-08-10:** all six views on full shadcn components
+(Board task-cards + status Badges, Team Card grid, Decisions/Inbox Cards +
+approve/reject Buttons, Chat Card shell). **Activity** is a genuine live event
+log — powered by `/api/events` (in the Zustand store), newest-first, showing
+sequence + event_type + actor — not a reconstruction from the projection.
+**Context-assembly scoring DONE 2026-08-10:** `AgentContext.scored_priorities`
+ranks each priority's relevance to the receiving actor (own-task + urgent/
+blocked items highest), surfaced in `/api/model`; owner/PM see everything.
 
 ## 2.5 `cast` CLI / setup wizard / project registry
 
