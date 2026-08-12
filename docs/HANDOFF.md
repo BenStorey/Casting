@@ -24,7 +24,7 @@ design itself.
 > `<dir>/.casting/`) and ensures a real git repo at
 > startup; a git observer turns raw branches/commits/merges into semantic domain
 events; the projection renders ChangeSets; and `/api/provenance/*` answers
-"why does this code exist?". **186 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4),
+"why does this code exist?". **193 tests** (6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5),
 > clippy <0 warnings, fmt clean, slice suites run in ~0s. Read on.
 >
 > **2026-08-09 follow-up fix:** the provenance routes were committed with axum 0.7
@@ -243,6 +243,10 @@ axum router for a single project (project id is currently fixed at
 - `GET /api/events?after=N` — raw event slice (activity/catch-up).
 - `GET /api/events/stream` — Server-Sent Events, pushes every appended
   event live (SSE built with `futures::stream::unfold` on the broadcast).
+- `POST /api/request` `{source, external_id?, title, body?, reporter?, labels?,
+  url?}` — an EXTERNAL request (a GitHub issue/PR, email, web) enters the
+  product's intake surface; triaged deterministically (classification + severity)
+  and recorded with provenance (NOT the owner's own intent). Returns the event.
 - `GET /api/inbox` — decisions awaiting the owner.
 - `POST /api/message` `{body}` — owner → PM; persists a durable
   `MessageSent` and wakes the PM.
@@ -365,6 +369,9 @@ registry is the launcher; per-project *state* lives collocated in
   import EXTERNAL advisor content (a text file, or stdin via `-`) as an
   ADVISORY briefing: it can inform context but NEVER sets rules (provenance
   `source` keeps it distinct from the owner's own intent).
+- `cast request <project> [--source SRC] [--reporter R] [--label L] <title>` —
+  receive an EXTERNAL request (issue/PR) into the product's intake surface;
+  triaged deterministically and recorded with provenance.
 - `cast log --db <events.db> [--project <id>] [--verify]` — dump / verify.
 
 Known wart: the scripted titles read "Design Build me a todo app" (the
@@ -398,7 +405,7 @@ Under the hood (kept documented for clarity / CI):
 
 ```bash
 cargo build          # embeds frontend/dist (real SPA) -> target/debug/cast
-cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4 = 186 tests (all pass; ~0s)
+cargo test           # 6+4+12+3+14+6+11+5+2+8+5+10+4+5+12+10+6+4+4+5+5+5+3+3+7+5+8+6+3+1+4+5 = 193 tests (all pass; ~0s)
 cargo clippy --all-targets -- -D warnings   # keep at zero
 cargo fmt            # format (rustfmt)
 ```
@@ -757,6 +764,19 @@ provenance failure where an imported .md became authoritative by default):
 - The rule: advisory can INFORM context, never SETS rules (directives remain the
   only authority mechanism). Images/diagrams are reference assets (caption +
   path/URL); vision-derivation is a D2 item.
+
+**ExternalRequest intake — DONE 2026-08-10** (owner: "eventually all feature and
+bug requests go to the PM"): the deterministic half of the autonomous-company
+vision. A user's GitHub issue/PR (or email/web) becomes the product's third
+intake surface, alongside Requirement (owner) and AdvisoryBriefing (advisor):
+- `ExternalRequestReceived` event + `proj.external_requests` (provenance:
+  source, external_id, reporter, labels, url) with deterministic triage
+  (`triage_request`: classify bug/feature/security + severity + dedup by
+  external_id or lowercased title).
+- `PmAction::ReceiveExternalRequest`; `POST /api/request`; `cast request`.
+- `/api/model` surfaces the intake inbox (`requests.open_count` + triaged list).
+- The LLM judgment ("is this a real bug? how bad?"), fixing, and releasing are
+  D2 + policy-gated (DecisionPolicy can allow auto-fix/release per class).
 
 Then, only after the core matures:
 5. ~~**Task `review` status**~~ — **DONE 2026-08-10**: `TaskStatus::InReview` +
