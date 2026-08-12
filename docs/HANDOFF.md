@@ -311,8 +311,17 @@ TypeScript 7, Tailwind 4.3, latest shadcn. `src/components/ui/*` are shadcn
 components; App.tsx applies `Tabs` nav + Inbox unread `Badge`, `Button`/`Input`
 composer, approve/reject `Button`s.
 **First-run wizard:** when no cast is hired yet (only the seed PM), the SPA
-shows `SetupWizard.tsx` (name, objective, role picker, owner token) instead of
-the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
+shows `SetupWizard.tsx` — an **in-character, 4-step onboarding** where the PM
+(Sarah Chen) introduces herself by avatar and explains the steps: meet the
+team → pick the cast (role buttons show name + avatar) → set the objective →
+optional owner token. It drives the SAME setup engine as `cast init` via
+`/api/setup`.
+**Cast identities & avatars DONE 2026-08-10:** `frontend/src/cast.ts` gives each
+PM + catalog role a stable name, role title, persona, 3-line CV, and avatar.
+Team view shows avatar + CV. Avatars are `/avatars/*.svg` monograms now; cartoon
+PHOTOS are staged but blocked until the image backend is reachable (OpenRouter
+image model 403 → enable OpenAI image access or set
+`OPENROUTER_IMAGE_MODEL=google/gemini-3-pro-image`; then drop-in .png).
 **Cockpit polish DONE 2026-08-10:** all six views on full shadcn components
 (Board task-cards + status Badges, Team Card grid, Decisions/Inbox Cards +
 approve/reject Buttons, Chat Card shell). **Activity** is a genuine live event
