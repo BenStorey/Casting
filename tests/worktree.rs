@@ -229,3 +229,183 @@ fn worktree_provisioned_event_projects_worktree_and_change_set() {
     assert_eq!(cs.status, ChangeSetStatus::Open);
     assert!(cs.commits.is_empty());
 }
+
+/// PM onboarding plans a ProvisionWorktree for each consultant-assigned task,
+/// allocating distinct ports, so StartTask can pass the fail-closed gate.
+#[tokio::test]
+async fn pm_onboarding_provisions_distinct_worktrees() {
+    use casting::cursor::CursorStore as _;
+    use casting::pm::AppState;
+    use casting::store::EventStore as _;
+    use std::time::Duration;
+
+    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let state = AppState::new(store, cursors, "proj").with_step_delay(Duration::ZERO);
+
+    // Hire the default cast + seed project so plan_onboard sees requirements
+    // empty and kicks off (mirrors the vertical-slice happy path but checks
+    // worktrees). Drive one owner message.
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::System,
+            casting::event::EventType::ProjectCreated,
+            casting::event::Aggregate {
+                kind: "project".into(),
+                id: "proj".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
+    for (id, role) in [
+        ("pm", "Project Manager"),
+        ("marcus-reed", "Engineer"),
+        ("maya-patel", "QA"),
+    ] {
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::AgentHired,
+                casting::event::Aggregate {
+                    kind: "agent".into(),
+                    id: id.into(),
+                },
+                serde_json::json!({ "role": role }),
+            ))
+            .unwrap();
+    }
+    // The PM's cursor must start before the seed events so it reacts to the
+    // owner message (not just seeds). Advance it past what we appended.
+    state
+        .cursors
+        .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
+        .unwrap();
+
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::Owner,
+            casting::event::EventType::MessageSent,
+            casting::event::Aggregate {
+                kind: "message".into(),
+                id: "m1".into(),
+            },
+            serde_json::json!({ "body": "Build me an app" }),
+        ))
+        .unwrap();
+
+    let authored = casting::pm::drive_pm(&state).await.unwrap();
+    assert!(authored > 0, "PM should author onboarding work");
+
+    let proj = state.projection().unwrap();
+    // Consultant-assigned tasks got worktrees with DISTINCT ports.
+    assert!(
+        !proj.worktrees.is_empty(),
+        "onboarding should provision worktrees"
+    );
+    let ports: std::collections::HashSet<u16> = proj.worktrees.iter().map(|w| w.port).collect();
+    assert_eq!(
+        ports.len(),
+        proj.worktrees.len(),
+        "worktrees must have distinct ports"
+    );
+    // Each consultant task has its own branch in the casting/task-* convention.
+    for wt in &proj.worktrees {
+        assert!(wt.branch.starts_with("casting/task-"), "branch {wt:?}");
+    }
+    // Fail-closed StartTask would have been rejected if a worktree were missing,
+    // so the fact onboarding completed proves every StartTask had a worktree.
+}
+
+/// Full path with a REAL workspace: drive the PM against a real git repo and
+/// confirm consultant worktrees are physically created (own dir + branch), with
+/// distinct ports.
+#[tokio::test]
+async fn pm_physically_provisions_worktrees_with_workspace() {
+    use casting::cursor::CursorStore as _;
+    use casting::pm::AppState;
+    use casting::store::EventStore as _;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let (_tmp, repo) = repo_dir(); // real git repo with an initial commit
+    let ws = ws(&repo);
+    let state = {
+        let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
+        let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+        AppState::new(store, cursors, "proj")
+            .with_step_delay(Duration::ZERO)
+            .with_workspace(Arc::new(ws.clone()))
+    };
+
+    // Seed + owner message (same as above).
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::System,
+            casting::event::EventType::ProjectCreated,
+            casting::event::Aggregate {
+                kind: "project".into(),
+                id: "proj".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
+    for (id, role) in [
+        ("pm", "Project Manager"),
+        ("marcus-reed", "Engineer"),
+        ("maya-patel", "QA"),
+    ] {
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::AgentHired,
+                casting::event::Aggregate {
+                    kind: "agent".into(),
+                    id: id.into(),
+                },
+                serde_json::json!({ "role": role }),
+            ))
+            .unwrap();
+    }
+    state
+        .cursors
+        .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
+        .unwrap();
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::Owner,
+            casting::event::EventType::MessageSent,
+            casting::event::Aggregate {
+                kind: "message".into(),
+                id: "m1".into(),
+            },
+            serde_json::json!({ "body": "Build me an app" }),
+        ))
+        .unwrap();
+
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = state.projection().unwrap();
+    assert!(!proj.worktrees.is_empty());
+    for wt in &proj.worktrees {
+        // The worktree dir physically exists on its own branch.
+        let path = std::path::Path::new(&wt.path);
+        assert!(path.exists(), "worktree dir {} should exist", wt.path);
+        let branch = ws
+            .git_command_for(path)
+            .arg("rev-parse")
+            .arg("--abbrev-ref")
+            .arg("HEAD")
+            .output()
+            .unwrap();
+        let branch = String::from_utf8_lossy(&branch.stdout).trim().to_string();
+        assert_eq!(branch, wt.branch, "worktree should be on its own branch");
+        // Private build target inside the worktree.
+        assert!(Path::new(&wt.cargo_target_dir).starts_with(path));
+    }
+}

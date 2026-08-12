@@ -13,7 +13,7 @@
 //! appended events) and drains EVERYTHING since its cursor in one pass, then
 //! advances the cursor — it never reasons per-event (docs/PM_INVOCATION_TRIGGERS.md).
 
-use crate::actions::{self, PmAction};
+use crate::actions::{self, PmAction, OWNER};
 use crate::event::{Actor, Event, EventType};
 use crate::policy::DecisionClass;
 use crate::projection::Projection;
@@ -71,6 +71,10 @@ pub struct AppState {
     /// derived state (e.g. same-subject opinion contradictions). Cursor-gated,
     /// mirrors the PM loop. Set low in tests.
     pub reconcile_interval: u64,
+    /// The workspace (set by `cast run`). Lets the PM physically provision
+    /// worktrees (git worktree add) when a consultant is summoned. `None` in
+    /// tests without a real repo.
+    pub workspace: Option<Arc<crate::workspace::Workspace>>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -92,6 +96,7 @@ impl AppState {
             auth_token: None,
             state_dir: None,
             reconcile_interval: 25,
+            workspace: None,
             events: Arc::new(tx),
         }
     }
@@ -100,6 +105,13 @@ impl AppState {
     /// runs. Low in tests; tuned at runtime.
     pub fn with_reconcile_interval(mut self, n: u64) -> Self {
         self.reconcile_interval = n;
+        self
+    }
+
+    /// Builder-style: attach the workspace so the PM can physically provision
+    /// isolated worktrees when a consultant is summoned.
+    pub fn with_workspace(mut self, workspace: Arc<crate::workspace::Workspace>) -> Self {
+        self.workspace = Some(workspace);
         self
     }
 
@@ -330,6 +342,25 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             }
         }
         for event in action.to_events(&state.project, &who, cause, &correlation) {
+            // Structural isolation side-effect: when a WorktreeProvisioned
+            // event is about to land, physically create the worktree via the
+            // workspace (if one is attached). The event records it; the git op
+            // makes it real. Idempotent at the Workspace level.
+            if event.event_type == crate::event::EventType::WorktreeProvisioned {
+                if let Some(ws) = &state.workspace {
+                    let task_id = event
+                        .data
+                        .get("task_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let slug = "";
+                    let port = event.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                    if let Err(e) = ws.provision_worktree(&task_id, slug, port) {
+                        eprintln!("[pm] worktree provision failed: {e:#}");
+                    }
+                }
+            }
             state.append(event.clone())?;
             projection.apply(&event);
             authored += 1;
@@ -343,6 +374,46 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         eprintln!("[pm] rejected {rejected} invalid action(s) this pass");
     }
     Ok(authored)
+}
+
+/// Build a `ProvisionWorktree` action for a task, allocating a distinct port
+/// from the pool (the lowest free one not already used by a provisioned
+/// worktree OR allocated earlier in the same plan — plans can provision several
+/// worktrees before any event executes, so we must exclude already-claimed
+/// ports of this plan too). Isolated workspaces are the platform's structural
+/// guarantee (2026-08-12) — the action the PM plans so a consultant is handed
+/// a ready desk, never asked to "remember" to isolate.
+fn plan_worktree_provision(
+    state: &AppState,
+    task_id: &str,
+    slug: &str,
+    claimed_in_plan: &mut std::collections::HashSet<u16>,
+) -> PmAction {
+    let projection = state
+        .projection()
+        .unwrap_or_else(|_| crate::projection::Projection::default());
+    let used_in_projection: std::collections::HashSet<u16> =
+        projection.worktrees.iter().map(|w| w.port).collect();
+    let base = crate::port::worktree_base_port();
+    let span = crate::port::WORKTREE_PORT_POOL;
+    let port = (base..base.saturating_add(span))
+        .find(|p| !used_in_projection.contains(p) && !claimed_in_plan.contains(p))
+        .unwrap_or(crate::port::DEFAULT_WORKTREE_BASE_PORT);
+    claimed_in_plan.insert(port);
+    let cargo_target_dir = match &state.workspace {
+        Some(ws) => ws
+            .worktree_path(task_id)
+            .join("target")
+            .to_string_lossy()
+            .into_owned(),
+        None => format!(".casting/worktrees/{task_id}/target"),
+    };
+    PmAction::ProvisionWorktree {
+        task_id: task_id.to_string(),
+        slug: slug.to_string(),
+        cargo_target_dir,
+        port,
+    }
 }
 
 /// First owner message: onboard the company and kick off a build. Plans the
@@ -561,6 +632,33 @@ fn plan_onboard(
                 kind: "feature".into(),
             },
         ));
+    }
+
+    let mut claimed_ports: std::collections::HashSet<u16> = std::collections::HashSet::new();
+
+    // Structural isolation (2026-08-12): before any consultant STARTS a task,
+    // the platform provisions its isolated worktree (own branch/build-target/
+    // port). Walk the plan and insert ProvisionWorktree ahead of each StartTask
+    // for a task assigned to a hired agent (not the owner). The gate already
+    // rejects StartTask without a worktree, so this is what makes onboarding
+    // actually work.
+    let mut i = 0;
+    while i < plan.len() {
+        if let (_, PmAction::StartTask { task_id }) = &plan[i] {
+            let assigned_to_consultant = plan.iter().any(|(_, a)| {
+                matches!(a, PmAction::AssignTask { task_id: tid, assignee }
+                    if tid == task_id && assignee != OWNER)
+            });
+            if assigned_to_consultant {
+                let prov = (
+                    AGENT_PM.into(),
+                    plan_worktree_provision(state, task_id, "", &mut claimed_ports),
+                );
+                plan.insert(i, prov);
+                i += 1; // skip the just-inserted provision
+            }
+        }
+        i += 1;
     }
 
     plan

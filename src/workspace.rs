@@ -227,18 +227,18 @@ impl Workspace {
     }
 
     /// Deterministically compute the branch name for a task, following the
-    /// `casting/task-<id>-<slug>` convention the git observer recognizes
+    /// `casting/task-<id>[-<slug>]` convention the git observer recognizes
     /// (ADDENDUM §20). e.g. `(task-381, authentication)` →
-    /// `casting/task-381-authentication`.
+    /// `casting/task-381-authentication`; `(task-design, "")` →
+    /// `casting/task-design`. A task id is used as-is (it already carries the
+    /// `task-` prefix); slug is an optional human suffix.
     pub fn task_branch(&self, task_id: &str, slug: &str) -> String {
-        let id = task_id.strip_prefix("task-").unwrap_or(task_id);
         let slug = slug.trim().replace(char::is_whitespace, "-");
-        let slug = if slug.is_empty() {
-            "task".to_string()
+        if slug.is_empty() {
+            format!("casting/{task_id}")
         } else {
-            slug
-        };
-        format!("casting/task-{id}-{slug}")
+            format!("casting/{task_id}-{slug}")
+        }
     }
 
     /// Provision an isolated worktree for a task: a dedicated working tree on

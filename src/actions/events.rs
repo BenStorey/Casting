@@ -63,22 +63,40 @@ impl PmAction {
                 slug,
                 cargo_target_dir,
                 port,
-            } => vec![ev(
-                project,
-                actor,
-                // aggregate keyed by the worktree (one per task)
-                &format!("wt-{task_id}"),
-                "worktree",
-                EventType::WorktreeProvisioned,
-                json!({
-                    "task_id": task_id,
-                    "branch": format!("casting/task-{slug}"),
-                    "path": cargo_target_dir,
-                    "cargo_target_dir": cargo_target_dir,
-                    "port": port,
-                }),
-                meta,
-            )],
+            } => {
+                // The worktree ROOT is the parent of the cargo target dir (the
+                // build target is a private subdir inside the worktree). The
+                // projection records both: `path` = the worktree root (which
+                // physically exists), `cargo_target_dir` = its private target.
+                let path = cargo_target_dir
+                    .strip_suffix("/target")
+                    .or_else(|| cargo_target_dir.strip_suffix("\\target"))
+                    .unwrap_or(cargo_target_dir)
+                    .to_string();
+                // Branch follows the casting/task-* convention: the slug is an
+                // optional suffix on the task id.
+                let branch = if slug.is_empty() {
+                    format!("casting/{task_id}")
+                } else {
+                    format!("casting/{task_id}-{slug}")
+                };
+                vec![ev(
+                    project,
+                    actor,
+                    // aggregate keyed by the worktree (one per task)
+                    &format!("wt-{task_id}"),
+                    "worktree",
+                    EventType::WorktreeProvisioned,
+                    json!({
+                        "task_id": task_id,
+                        "branch": branch,
+                        "path": path,
+                        "cargo_target_dir": cargo_target_dir,
+                        "port": port,
+                    }),
+                    meta,
+                )]
+            }
             PmAction::StartTask { task_id } => vec![ev(
                 project,
                 actor,

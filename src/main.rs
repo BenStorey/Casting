@@ -558,12 +558,18 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
     let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
+    let ws = std::sync::Arc::new(ws);
+    let ws_for_pm = ws.clone();
     rt.block_on(async move {
         let mut state = AppState::new(store, cursors, PROJECT_ID).with_integrity();
         if let Some(snaps) = snapshots {
             state = state.with_snapshots(snaps);
         }
-        let state = state.with_state_dir(ws.casting_dir().to_path_buf());
+        let state = state
+            .with_state_dir(ws.casting_dir().to_path_buf())
+            // Attach the workspace so the PM can physically provision isolated
+            // worktrees when a consultant is summoned (2026-08-12).
+            .with_workspace(ws.clone());
         // Owner auth: the token comes from the persisted setup config.json
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:
@@ -590,7 +596,7 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
 
         // Start the simulated PM control loop (background, durable cursor).
         // The loop also triggers the git observer on each drain pass.
-        tokio::spawn(pm::run_pm(state.clone(), ws.clone()));
+        tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));
 
         // Serve the workspace.
         let app = web::router(state);
