@@ -301,9 +301,13 @@ snapshot and treats the SSE stream as "something changed → refetch" — it doe
 NOT re-derive the projection in TypeScript (that would create two authorities).
 `useCastStore` exposes `{state, inbox, error, streamReady, refresh, start}`;
 `App.tsx` selects slices via `useCastStore((s) => …)`.
-**UI look (owner direction):** Tailwind + hand-rolled components (NOT antd/MUI —
-that reads as enterprise/finance chrome; the plan is a crafted "company cockpit"
-feel). UI-styling pass is a separate follow-up; the store is in place first.
+**UI look (owner direction):** Tailwind + shadcn/ui (Radix-based, copy-in,
+fully themeable via CSS variables) — NOT antd/MUI (enterprise/finance chrome).
+`frontend/src/components/ui/*` are shadcn components; design tokens are CSS
+variables in `index.css` (dark cockpit + Casting blue accent). App.tsx applies:
+`Tabs` nav (six views + Inbox unread `Badge`), `Button`/`Input` composer,
+approve/reject `Button`s. Theming by editing `:root` CSS vars — shadcn makes
+restyling trivial.
 **First-run wizard:** when no cast is hired yet (only the seed PM), the SPA
 shows `SetupWizard.tsx` (name, objective, role picker, owner token) instead of
 the tabs. It drives the SAME setup engine as `cast init` via `/api/setup`.
