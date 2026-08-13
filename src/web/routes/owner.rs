@@ -151,3 +151,49 @@ pub(crate) async fn hire_handler(
         .expect("HireAgent always produces one event");
     Ok(Json(last))
 }
+
+// --- Harness guards (2026-08-13, docs/plans/2026-08-13_harness-guards.md) ---
+
+#[derive(Deserialize)]
+pub(crate) struct BudgetIn {
+    limit_usd: f64,
+    #[serde(default)]
+    warn_at: Option<f64>,
+}
+
+/// POST /api/budget — the OWNER sets the hard spend circuit breaker. Once set,
+/// the dispatch gate refuses LLM calls when `total_spend >= limit_usd` (and
+/// warns at `warn_at * limit_usd`). Durable `BudgetSet` (actor = Owner). The
+/// breaker is OUTSIDE the PM's control by construction.
+pub(crate) async fn budget_handler(
+    State(state): State<AppState>,
+    Json(input): Json<BudgetIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let warn_at = input.warn_at.unwrap_or(0.80);
+    let ev = crate::actions::owner_budget_set(&state.project, input.limit_usd, warn_at);
+    append_json(&state, ev)
+}
+
+#[derive(Deserialize)]
+pub(crate) struct PauseIn {
+    reason: String,
+}
+
+/// POST /api/pause — the OWNER pauses all side-effecting work (resumable via
+/// /api/resume). The liveness watchdog issues the same `WorkPaused` internally.
+pub(crate) async fn pause_handler(
+    State(state): State<AppState>,
+    Json(input): Json<PauseIn>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let ev = crate::actions::owner_work_paused(&state.project, &input.reason);
+    append_json(&state, ev)
+}
+
+/// POST /api/resume — the OWNER clears a `WorkPaused`. A BUDGET halt (derived
+/// from spend) is NOT cleared by this — only a higher budget limit un-halts it.
+pub(crate) async fn resume_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Event>, (StatusCode, String)> {
+    let ev = crate::actions::owner_work_resumed(&state.project);
+    append_json(&state, ev)
+}

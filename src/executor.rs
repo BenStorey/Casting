@@ -136,6 +136,24 @@ pub fn execute(
     actor: Actor,
     activity: &Activity,
 ) -> Result<ActivityResult> {
+    // Harness gate (2026-08-13, guard.rs): refuse NEW side-effecting work while
+    // work is paused or the budget is exhausted. Inline (derived) work touches
+    // no external resource and is always allowed. Fail-closed: mark the
+    // activity failed so it won't auto-re-dispatch while the guard still blocks.
+    if !matches!(activity.kind, ActivityKind::Inline) {
+        let proj = state.projection()?;
+        if let Err(reason) = crate::guard::llm_dispatch_allowed(&proj) {
+            let message = format!("guard blocked {}: {reason}", activity.id);
+            state.append(build_event(
+                state,
+                actor,
+                EventType::ActivityFailed,
+                activity,
+                json!({ "error": message }),
+            ))?;
+            return Err(anyhow!("{message}"));
+        }
+    }
     // Idempotency guard: already done before a crash → skip.
     if has_completed(state, &activity.id)? {
         return Ok(ActivityResult::default());

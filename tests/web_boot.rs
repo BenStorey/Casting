@@ -65,6 +65,9 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/diagram",
         "/api/advisor/message",
         "/api/advisor/handoff",
+        "/api/budget",
+        "/api/pause",
+        "/api/resume",
     ] {
         let req = Request::builder().uri(path).body(Body::empty()).unwrap();
         let resp = app

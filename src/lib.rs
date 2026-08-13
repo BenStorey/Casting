@@ -20,6 +20,7 @@ pub mod event;
 pub mod executor;
 pub mod git_observer;
 pub mod graph;
+pub mod guard;
 pub mod integrity;
 pub mod mental;
 pub mod orchestrator;

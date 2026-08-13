@@ -181,6 +181,15 @@ pub enum EventType {
     /// The executor's activity errored: `{ id, error }`. Feeds a retry DECISION
     /// (PM layer), never a machinery-side retry counter.
     ActivityFailed,
+    // --- Harness guards (2026-08-13, docs/plans/2026-08-13_harness-guards.md) ---
+    /// The owner set a hard token budget: `{ limit_usd, warn_at }`. Folds into
+    /// `proj.budget`; the dispatch gate refuses LLM calls once spend >= limit.
+    BudgetSet,
+    /// A resumable pause of all side-effecting work: `{ reason, by }`. Cleared
+    /// by `WorkResumed`. (The budget halt is DERIVED from spend, not this event.)
+    WorkPaused,
+    /// The owner (or a guard clearing its own pause) resumes work.
+    WorkResumed,
 }
 
 /// The entity primarily affected by an event.

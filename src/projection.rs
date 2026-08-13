@@ -44,6 +44,10 @@ pub struct Projection {
     pub facts: Vec<Fact>,
     /// Cost entries (HARNESS #6): provider metering so spend is attributable.
     pub spend: Vec<CostEntry>,
+    /// The owner-set hard token budget (guard circuit breaker). None = unset.
+    pub budget: Option<crate::guard::Budget>,
+    /// A resumable pause in effect (owner- or watchdog-set). None = running.
+    pub paused: Option<crate::guard::PauseInfo>,
     /// External advisor briefings imported into the project (advisory, NOT
     /// authoritative — see `Briefing`).
     pub briefings: Vec<Briefing>,
@@ -344,6 +348,29 @@ impl Projection {
                         .unwrap_or(0.0),
                     incurred_at: e.timestamp.to_string(),
                 });
+            }
+            EventType::BudgetSet => {
+                let limit_usd = e
+                    .data
+                    .get("limit_usd")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let warn_at = e
+                    .data
+                    .get("warn_at")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.80);
+                self.budget = Some(crate::guard::Budget { limit_usd, warn_at });
+            }
+            EventType::WorkPaused => {
+                self.paused = Some(crate::guard::PauseInfo {
+                    reason: string_field(e, "reason").unwrap_or_default(),
+                    by: string_field(e, "by").unwrap_or_default(),
+                    at: e.timestamp.to_string(),
+                });
+            }
+            EventType::WorkResumed => {
+                self.paused = None;
             }
             EventType::AdvisoryBriefingImported => {
                 fn str(e: &Event, k: &str) -> String {

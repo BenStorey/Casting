@@ -23,7 +23,10 @@ use advisor::{advisor_handoff_handler, advisor_message_handler};
 use auth::{login_handler, require_auth};
 use inbox::inbox_handler;
 use intake::{brief_handler, diagram_handler, message_handler, request_handler};
-use owner::{decision_handler, directive_handler, hire_handler, policy_handler};
+use owner::{
+    budget_handler, decision_handler, directive_handler, hire_handler, pause_handler,
+    policy_handler, resume_handler,
+};
 use provenance::{provenance_commit_handler, provenance_decision_handler, provenance_task_handler};
 use setup::{setup_handler, setup_status_handler};
 use state::{events_handler, events_stream, state_handler};
@@ -66,6 +69,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/policy", axum::routing::post(policy_handler))
         .route("/api/directive", axum::routing::post(directive_handler))
         .route("/api/hire", axum::routing::post(hire_handler))
+        .route("/api/budget", axum::routing::post(budget_handler))
+        .route("/api/pause", axum::routing::post(pause_handler))
+        .route("/api/resume", axum::routing::post(resume_handler))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_auth,

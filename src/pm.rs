@@ -296,9 +296,18 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             // response (the LLM, or the mock in tests). Otherwise use the
             // scripted plans.
             if let Some(orch) = &state.orchestrator {
-                let context = projection.context_for("pm");
-                let out = orch.plan(&context, e);
-                (out.actions, out.metering)
+                // Hard harness gate (2026-08-13, guard.rs): the circuit breaker
+                // sits OUTSIDE the PM. If work is paused or the budget is
+                // exhausted, do NOT issue the provider call (no spend) and skip
+                // planning entirely.
+                if let Err(reason) = crate::guard::llm_dispatch_allowed(projection) {
+                    eprintln!("[pm] guard blocked LLM dispatch: {reason}");
+                    (Vec::new(), None)
+                } else {
+                    let context = projection.context_for("pm");
+                    let out = orch.plan(&context, e);
+                    (out.actions, out.metering)
+                }
             } else if projection.requirements.is_empty() {
                 (plan_onboard(state, e, body, &projection.policy), None)
             } else {

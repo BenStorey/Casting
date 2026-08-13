@@ -35,6 +35,10 @@ pub struct OperatingModel {
     /// Cost attribution (HARNESS #6) — total spend + per-agent, so budget is
     /// visible to the PM/owner, not (only) tracked implicitly.
     pub spend: SpendView,
+    /// Harness guard rails (2026-08-13): the budget-breaker phase + any active
+    /// pause. The owner reads this to see whether the cast is self-halted and
+    /// why, especially while traveling / unattended.
+    pub guards: GuardsView,
     /// Per-actor operating context — EXACTLY what each model is handed when it
     /// plans. This is the heart of "see what the models are seeing".
     pub actor_contexts: Vec<crate::context::AgentContext>,
@@ -80,6 +84,28 @@ pub struct SpendView {
     /// Per-agent spend (agent_id -> total USD), so individual consultants can
     /// be budgeted.
     pub by_agent: std::collections::BTreeMap<String, f64>,
+}
+
+/// Harness guard-rail status (2026-08-13, docs/plans/2026-08-13_harness-guards.md):
+/// the budget breaker phase + any active pause. Read-only derivation; the event
+/// log is the authority.
+#[derive(Debug, Clone, Serialize)]
+pub struct GuardsView {
+    /// The owner-set budget, if any.
+    pub budget: Option<BudgetView>,
+    /// An active resumable pause, if any (reason/by/at).
+    pub paused: Option<crate::guard::PauseInfo>,
+}
+
+/// The curated budget phase, as the owner reads it.
+#[derive(Debug, Clone, Serialize)]
+pub struct BudgetView {
+    pub limit_usd: f64,
+    pub warn_at: f64,
+    /// One of: disabled | ok | warn | halted.
+    pub status: String,
+    /// Current spend as a fraction of the limit (0..1+, 0 when unset).
+    pub spend_fraction: f64,
 }
 
 /// Governance posture (directives + decision policy + open decisions).
@@ -381,6 +407,18 @@ impl crate::projection::Projection {
                     }
                     m
                 },
+            },
+            guards: GuardsView {
+                budget: self.budget.as_ref().map(|b| {
+                    let status = crate::guard::budget_status(self);
+                    BudgetView {
+                        limit_usd: b.limit_usd,
+                        warn_at: b.warn_at,
+                        status: status.label().to_string(),
+                        spend_fraction: crate::guard::budget_fraction(self),
+                    }
+                }),
+                paused: self.paused.clone(),
             },
             actor_contexts,
             worktrees: self

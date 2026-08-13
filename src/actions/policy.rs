@@ -45,6 +45,10 @@ pub enum PolicyError {
     /// Creating an entity whose id already exists (fail-closed id uniqueness for
     /// all create actions, not just tasks/agents).
     DuplicateEntity(String),
+    /// A non-authoritative actor (not owner, or not system for a watchdog
+    /// pause) trying to change the harness guards (budget / pause / resume).
+    /// Budget + resume are owner-only; pause also permits the system watchdog.
+    GuardAuthority(String),
     /// Starting a task that has no provisioned worktree (fail-closed isolation:
     /// a consultant cannot work un-isolated — the platform provisions the
     /// workspace at summon). "Task X has no isolated worktree".
@@ -117,6 +121,10 @@ impl std::fmt::Display for PolicyError {
             }
             PolicyError::UnknownRole(role) => write!(f, "unknown role in the cast catalog: {role}"),
             PolicyError::DuplicateEntity(id) => write!(f, "cannot create {id}: id already exists"),
+            PolicyError::GuardAuthority(who) => write!(
+                f,
+                "{who} lacks authority to change the harness guards (budget/pause/resume)"
+            ),
             PolicyError::TaskHasNoWorktree(id) => write!(
                 f,
                 "cannot start task {id}: no isolated worktree provisioned (the platform provisions it at summon)"
@@ -465,6 +473,23 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             state.observations.iter().any(|o| o.id == *id),
             PolicyError::DuplicateEntity(id.clone()),
         ),
+        // --- Harness guards (2026-08-13) ---
+        // Budget + resume are OWNER-only: the circuit breaker sits outside PM
+        // control. PauseWork additionally permits the system (liveness
+        // watchdog); a plain agent or the PM can never pause/resume work.
+        PmAction::SetBudget { limit_usd, .. } => {
+            if *limit_usd < 0.0 {
+                return Err(PolicyError::GuardAuthority(
+                    "budget limit must be >= 0".into(),
+                ));
+            }
+            check_guard_authority(who)
+        }
+        PmAction::ResumeWork => check_guard_authority(who),
+        PmAction::PauseWork { .. } => match who {
+            "owner" | "system" => Ok(()),
+            other => Err(PolicyError::GuardAuthority(other.to_string())),
+        },
         // SendMessage and NoOp carry no cross-entity invariant — but they are
         // enumerated EXPLICITLY so any future PmAction variant fails to compile
         // here (fail-closed) rather than silently passing the gate.
@@ -491,6 +516,16 @@ fn check_directive_authority(who: &str) -> Result<(), PolicyError> {
     match who {
         "owner" => Ok(()),
         other => Err(PolicyError::DirectiveAuthority(other.to_string())),
+    }
+}
+
+/// Guard control (budget set / resume) is OWNER-only — the hard rails sit
+/// OUTSIDE the PM's control (the PM can be confused, compromised, or just
+/// wrong). PauseWork is handled inline (owner OR the system watchdog).
+fn check_guard_authority(who: &str) -> Result<(), PolicyError> {
+    match who {
+        "owner" => Ok(()),
+        other => Err(PolicyError::GuardAuthority(other.to_string())),
     }
 }
 

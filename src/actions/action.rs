@@ -283,6 +283,23 @@ pub enum PmAction {
     },
     /// Explicitly conclude "nothing to do" (anti-thrash).
     NoOp,
+    // --- Harness guards (2026-08-13) ---
+    /// Owner sets the hard token budget (`POST /api/budget`). Only the owner may
+    /// set it (it's the circuit breaker, outside PM control). `warn_at` is the
+    /// fraction of `limit_usd` at which to warn (default 0.80).
+    SetBudget {
+        limit_usd: f64,
+        #[serde(default)]
+        warn_at: Option<f64>,
+    },
+    /// Pause all side-effecting work (owner action, or the liveness watchdog as
+    /// system). Resumable via `ResumeWork`.
+    PauseWork {
+        reason: String,
+    },
+    /// Clear a `WorkPaused` (owner action). A BUDGET halt is NOT resumable by
+    /// this — spend doesn't decrease; only a higher budget limit un-halts it.
+    ResumeWork,
 }
 
 /// Specification for a child task created by `DecomposeTask`.

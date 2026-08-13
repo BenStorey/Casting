@@ -590,6 +590,37 @@ impl PmAction {
                 json!({ "to": to, "body": body }),
                 meta,
             )],
+            // --- Harness guards (2026-08-13) ---
+            PmAction::SetBudget { limit_usd, warn_at } => vec![ev(
+                project,
+                actor,
+                "budget",
+                "budget",
+                EventType::BudgetSet,
+                json!({
+                    "limit_usd": limit_usd,
+                    "warn_at": warn_at.unwrap_or(0.80),
+                }),
+                meta,
+            )],
+            PmAction::PauseWork { reason } => vec![ev(
+                project,
+                actor,
+                "work-pause",
+                "guard",
+                EventType::WorkPaused,
+                json!({ "reason": reason, "by": who }),
+                meta,
+            )],
+            PmAction::ResumeWork => vec![ev(
+                project,
+                actor,
+                "work-pause",
+                "guard",
+                EventType::WorkResumed,
+                json!({ "by": who }),
+                meta,
+            )],
             PmAction::NoOp => vec![],
         }
     }

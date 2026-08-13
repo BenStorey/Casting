@@ -27,7 +27,10 @@ mod owner;
 mod policy;
 
 pub use action::{is_valid_assignee, PmAction, TaskSpec, OWNER};
-pub use owner::{owner_decision_made, owner_directive_created, owner_policy_changed};
+pub use owner::{
+    owner_budget_set, owner_decision_made, owner_directive_created, owner_policy_changed,
+    owner_work_paused, owner_work_resumed,
+};
 pub use policy::{validate, PolicyError};
 
 /// Resolve the acting `Actor` from a `who` label ("owner" / agent id). Used by
