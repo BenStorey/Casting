@@ -106,7 +106,13 @@ jobs:
           git config --global user.email "ci@casting.dev"
 
       - name: Test (Postgres service up -> integration tests run, not skip)
-        run: cargo test
+        run: |
+          set +e
+          cargo test 2>&1 | tee /tmp/test.out
+          status=${PIPESTATUS[0]}
+          echo "## Test failure tail" >> "$GITHUB_STEP_SUMMARY"
+          tail -n 80 /tmp/test.out >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          exit $status
 
       - name: Confirm the embedded SPA is the real build, not the placeholder
         run: |
