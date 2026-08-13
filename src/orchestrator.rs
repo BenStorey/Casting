@@ -16,6 +16,7 @@ use crate::actions::PmAction;
 use crate::context::AgentContext;
 use crate::event::Event;
 use crate::pm::PlannedAction;
+use anyhow::Result;
 
 /// Provider metering for one orchestrator call (HARNESS #6 — cost attribution
 /// & token budgeting). Returned alongside actions so the PM can land it in the
@@ -61,10 +62,16 @@ pub struct PlanOutput {
 /// The D2 contract: turn an assembled operating context + the triggering event
 /// into planned actions. The output is still validated by the policy gate, so
 /// an LLM (or anything) can only do what it's authorized to.
+///
+/// Async + fallible: a real provider call is a network round-trip that can fail
+/// (timeout, rate limit, malformed reply). An `Err` means the pass produced no
+/// actions and (for a real call) the metering/audit records the failure — the
+/// caller decides how to surface it.
+#[async_trait::async_trait]
 pub trait Orchestrator: Send + Sync {
     /// Plan the PM's response to `cause`, given the assembled context for the
     /// actor being orchestrated.
-    fn plan(&self, context: &AgentContext, cause: &Event) -> PlanOutput;
+    async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput>;
 }
 
 /// A deterministic stand-in for the LLM. Drives a minimal, scripted PM loop:
@@ -74,8 +81,9 @@ pub trait Orchestrator: Send + Sync {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MockOrchestrator;
 
+#[async_trait::async_trait]
 impl Orchestrator for MockOrchestrator {
-    fn plan(&self, context: &AgentContext, cause: &Event) -> PlanOutput {
+    async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
         let mut actions: Vec<PlannedAction> = Vec::new();
 
         if context.objective.is_none() {
@@ -92,12 +100,12 @@ impl Orchestrator for MockOrchestrator {
                     body: format!("On it — \u{201c}{body}\u{201d}. I'll scope it into tasks."),
                 },
             ));
-            return PlanOutput {
+            return Ok(PlanOutput {
                 actions,
                 // The mock is deterministic/stateless — no real provider call, so
                 // no cost to record (the seam is exercised but spend stays zero).
                 metering: None,
-            };
+            });
         }
 
         // There's an objective: narrow the task backlog (mock "reasoning").
@@ -124,7 +132,7 @@ impl Orchestrator for MockOrchestrator {
             ));
         }
 
-        PlanOutput {
+        Ok(PlanOutput {
             actions,
             metering: Some(CostMetering {
                 agent_id: "pm".into(),
@@ -141,6 +149,6 @@ impl Orchestrator for MockOrchestrator {
                 output_price_per_mtok: Some(1.25),
                 estimated_usd: 0.0018,
             }),
-        }
+        })
     }
 }

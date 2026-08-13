@@ -37,6 +37,11 @@ tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
 tower = "0.5"
 futures = "0.3"
 
+# D2: real LLM provider client (OpenAI-compatible chat/completions; OpenRouter
+# day-one, LiteLLM/local later — provider is config (base_url+key+model), not code).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+async-trait = "0.1"
+
 # Embed the built React SPA into the binary so `cast run` ships one artifact.
 rust-embed = "8"
 

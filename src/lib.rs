@@ -23,6 +23,7 @@ pub mod git_observer;
 pub mod graph;
 pub mod guard;
 pub mod integrity;
+pub mod llm;
 pub mod mental;
 pub mod orchestrator;
 pub mod persona;

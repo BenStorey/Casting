@@ -611,7 +611,13 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
             // The consultant registry: curated embedded defaults overlaid by
             // any user-supplied packages in <project>/.casting/consultants/
             // (drop a .toml to add a consultant, reuse an id to override one).
-            .with_consultants(load_consultants(&ws));
+            .with_consultants(load_consultants(&ws))
+            // D2 LLM wiring: when CAST_LLM_API_KEY is set, attach the real
+            // OpenAI-compatible orchestrator (OpenRouter day-one; provider is
+            // config — base_url+key+model — so a local LiteLLM swaps in without
+            // code). Unconfigured → the deterministic scripted PM stays the
+            // default (off by default, no spend, backwards compatible).
+            .pipe_llm_orchestrator();
         // Owner auth: the token comes from the persisted setup config.json
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:

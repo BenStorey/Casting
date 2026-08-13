@@ -69,6 +69,11 @@ pub struct ModelConfig {
     /// e.g. "anthropic/claude-sonnet-5". **D2 wiring sets the real id.**
     #[serde(default)]
     pub model_id: Option<String>,
+    /// Optional per-consultant endpoint override (e.g. a package that must hit
+    /// a local LiteLLM). When unset, the provider resolver supplies the default
+    /// base_url (openrouter → api/v1, litellm → localhost:4000/v1).
+    #[serde(default)]
+    pub base_url: Option<String>,
     #[serde(default)]
     pub cost_tier: CostTier,
     #[serde(default)]

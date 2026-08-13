@@ -211,6 +211,45 @@ impl AppState {
         self
     }
 
+    /// D2 LLM wiring helper (used by `cast run`): when the environment carries
+    /// an LLM API key, build the real OpenAI-compatible orchestrator from
+    /// `ProviderConfig::from_env()` and attach it. Unconfigured → the state is
+    /// returned unchanged (deterministic scripted PM stays the default, no
+    /// spend). The consultant registry's default system prompt seeds the LLM's
+    /// persona when one is available.
+    pub fn pipe_llm_orchestrator(self) -> Self {
+        match crate::llm::config::from_env() {
+            Ok(Some(cfg)) => {
+                // The PM persona: prefer a consultant bound to the pm role if one
+                // exists, else the canonical PM identity (the registry holds the
+                // agent cast — Marcus/Maya/etc. — so don't borrow an engineer's
+                // persona for the Project Manager).
+                let persona = self
+                    .consultants
+                    .for_role("pm")
+                    .and_then(|c| c.system_prompt.clone())
+                    .unwrap_or_else(|| {
+                        "You are Sarah Chen, the Project Manager. You organize a team of \
+                         specialist consultants to turn the owner's intent into a working \
+                         plan."
+                            .to_string()
+                    });
+                println!(
+                    "🧠 LLM orchestrator enabled: provider={} model={} base={}",
+                    cfg.provider, cfg.model, cfg.base_url
+                );
+                self.with_orchestrator(Arc::new(crate::llm::LlmOrchestrator::new(cfg, persona)))
+            }
+            Ok(None) => self,
+            Err(e) => {
+                // Misconfiguration (e.g. a key but no model): warn loudly but
+                // keep the deterministic PM rather than failing a run.
+                eprintln!("⚠️  LLM misconfigured, using scripted PM: {e:#}");
+                self
+            }
+        }
+    }
+
     /// Build the current projection, using the snapshot store when present.
     /// Reads come from snapshot + tail (or full fold); we also (re)store a
     /// snapshot as a side effect so the read path stays warm — but the event
@@ -339,7 +378,35 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     (Vec::new(), None)
                 } else {
                     let context = projection.context_for("pm");
-                    let out = orch.plan(&context, e);
+                    // The orchestrator is async + fallible now (a real provider
+                    // call). On an LLM/provider error, record the failed pass in
+                    // the diagnostics audit trail and produce no actions — no
+                    // spend beyond the failed call, no panics.
+                    let out = match orch.plan(&context, e).await {
+                        Ok(out) => out,
+                        Err(err) => {
+                            eprintln!("[pm] orchestrator error: {err:#}");
+                            let correlation = format!("run-{}", e.sequence);
+                            let _ = state.append(crate::event::Event::new(
+                                &state.project,
+                                crate::event::Actor::System,
+                                crate::event::EventType::OrchestrationRun,
+                                crate::event::Aggregate {
+                                    kind: "plan".into(),
+                                    id: correlation.clone(),
+                                },
+                                serde_json::json!({
+                                    "trigger": format!("{:?}", e.event_type),
+                                    "actor": "pm",
+                                    "correlation": correlation,
+                                    "context_summary": crate::context::summary(&context),
+                                    "error": format!("{err:#}"),
+                                    "metered": false,
+                                }),
+                            ));
+                            crate::orchestrator::PlanOutput::default()
+                        }
+                    };
                     // Audit the planning pass: what the model saw + decided.
                     // The "what did the LLM do on this trigger" trace.
                     let correlation = format!("run-{}", e.sequence);
