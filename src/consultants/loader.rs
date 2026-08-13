@@ -7,7 +7,9 @@
 //! -range temperature is rejected loudly (a broken package must be visible, not
 //! silently dropped).
 
-use super::{ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig, VerificationConfig};
+use super::{
+    ConsultantConfig, ConsultantRegistry, ModelConfig, NewRole, RoutingConfig, VerificationConfig,
+};
 use crate::cast::role_by_id;
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
@@ -34,6 +36,9 @@ struct RawConsultant {
     name: String,
     #[serde(default)]
     title: Option<String>,
+    /// Catalog role id this binds to. Optional: a package may define its own
+    /// role via `[consultant.new_role]` instead of binding to the catalog.
+    #[serde(default)]
     role: String,
     #[serde(default)]
     avatar: Option<String>,
@@ -48,6 +53,10 @@ struct RawConsultant {
     model: ModelConfig,
     #[serde(default)]
     verification: VerificationConfig,
+    /// An OPTIONAL self-defined role. When present, this consultant OWNS a new
+    /// capability (role id/title/scope) instead of binding to a catalog role.
+    #[serde(default)]
+    new_role: Option<NewRole>,
 }
 
 impl ConsultantRegistry {
@@ -159,8 +168,37 @@ fn from_raw(
     if raw.name.trim().is_empty() {
         bail!("consultant '{id}' has an empty name");
     }
-    let role = role_by_id(&raw.role)
-        .with_context(|| format!("consultant '{id}' references unknown role '{}'", raw.role))?;
+
+    // The effective role: an inline `new_role` marks this consultant as the
+    // owner of a brand-new capability; otherwise it binds to a catalog role.
+    let (role_id, role_title, scope) = match raw.new_role {
+        Some(nr) => {
+            let rid = nr.id.trim().to_string();
+            if rid.is_empty() {
+                bail!("consultant '{id}' new_role needs a non-empty id");
+            }
+            let title = if nr.title.trim().is_empty() {
+                rid.clone()
+            } else {
+                nr.title
+            };
+            (rid, title, nr.scope)
+        }
+        None => {
+            if raw.role.trim().is_empty() {
+                bail!("consultant '{id}' must bind to a `role` or define a `new_role`");
+            }
+            let role = role_by_id(&raw.role).with_context(|| {
+                format!("consultant '{id}' references unknown role '{}'", raw.role)
+            })?;
+            (
+                role.id.to_string(),
+                role.title.to_string(),
+                role.scope.to_string(),
+            )
+        }
+    };
+
     if let Some(t) = raw.model.temperature {
         if !(0.0..=2.0).contains(&t) {
             bail!("consultant '{id}' temperature {t} out of range [0, 2]");
@@ -179,10 +217,10 @@ fn from_raw(
     Ok(ConsultantConfig {
         id,
         name: raw.name,
-        title: raw.title.unwrap_or_else(|| role.title.to_string()),
-        role: role.id.to_string(),
-        role_title: role.title.to_string(),
-        scope: role.scope.to_string(),
+        title: raw.title.unwrap_or_else(|| role_title.clone()),
+        role: role_id,
+        role_title,
+        scope,
         avatar: raw.avatar,
         summary: raw.summary,
         system_prompt_file,

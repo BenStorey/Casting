@@ -89,21 +89,26 @@ pub(crate) struct HireIn {
     role_id: String,
 }
 
-/// POST /api/hire — the OWNER adds an agent of a curated role to the cast
-/// (delegated authority: the CEO grows the team). Validates the role exists in
-/// the catalog, generates a unique agent id, and persists `AgentHired` (actor =
-/// Owner) via the validated `HireAgent` action.
+/// POST /api/hire — the OWNER adds an agent of a role to the cast (delegated
+/// authority: the CEO grows the team). Resolves the role against the dynamic
+/// role set — the catalog PLUS any roles defined by loaded consultant packages
+/// (`[consultant.new_role]`) — so an owner can hire a custom consultant. It
+/// then generates a unique agent id and persists `AgentHired` (actor = Owner)
+/// via the validated `HireAgent` action.
 pub(crate) async fn hire_handler(
     State(state): State<AppState>,
     Json(input): Json<HireIn>,
 ) -> Result<Json<Event>, (StatusCode, String)> {
-    // The role must be a real catalog role.
-    let role = crate::cast::role_by_id(&input.role_id).ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("unknown role {:?}", input.role_id),
-        )
-    })?;
+    // The role must be known: a catalog role OR one a consultant package defined.
+    let role = state
+        .consultants
+        .resolve_role(&input.role_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("unknown role {:?}", input.role_id),
+            )
+        })?;
 
     // Unique agent id: role id + a monotonic counter of existing agents.
     let proj = state

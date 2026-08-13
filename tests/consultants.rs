@@ -157,3 +157,98 @@ fn overlay_replaces_a_default_by_id_and_adds_a_new_specialist() {
     // The roster grew past the embedded four.
     assert!(reg.count() >= 5);
 }
+
+#[test]
+fn new_role_package_defines_and_exposes_a_role() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("compliance.toml"),
+        "[consultant]\nid = \"compliance-1\"\nname = \"Priya Compliance\"\n\n[consultant.new_role]\nid = \"compliance\"\ntitle = \"Compliance Consultant\"\nscope = \"legal\"\n",
+    )
+    .unwrap();
+
+    let mut reg = ConsultantRegistry::from_embedded().unwrap();
+    assert_eq!(reg.overlay_dir(dir.path()).unwrap(), 1);
+
+    // The new role is first-class in the dynamic role set.
+    let role = reg
+        .resolve_role("compliance")
+        .expect("package-defined role resolves");
+    assert_eq!(role.title, "Compliance Consultant");
+    assert_eq!(role.scope, "legal");
+    // It appears alongside the catalog roles, which stay intact.
+    let ids: Vec<String> = reg.known_roles().into_iter().map(|r| r.id).collect();
+    assert!(ids.contains(&"engineer".to_string()));
+    assert!(ids.contains(&"compliance".to_string()));
+
+    // The consultant is bound to its own role (not a catalog one).
+    let c = reg.by_id("compliance-1").unwrap();
+    assert_eq!(c.role, "compliance");
+    assert_eq!(c.role_title, "Compliance Consultant");
+    assert_eq!(c.scope, "legal");
+}
+
+#[test]
+fn owner_can_hire_into_a_package_defined_role() {
+    use casting::cursor::SqliteCursorStore;
+    use casting::pm::AppState;
+    use casting::projection::Projection;
+    use casting::sqlite_store::SqliteEventStore;
+    use futures::FutureExt;
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    // A registry carrying a brand-new role, not in the hardcoded catalog.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("compliance.toml"),
+        "[consultant]\nid = \"compliance-1\"\nname = \"Priya Compliance\"\n\n[consultant.new_role]\nid = \"compliance\"\ntitle = \"Compliance Consultant\"\nscope = \"legal\"\n",
+    )
+    .unwrap();
+    let mut reg = ConsultantRegistry::from_embedded().unwrap();
+    reg.overlay_dir(dir.path()).unwrap();
+
+    let store = SqliteEventStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
+    let state = AppState::new(store, cursors, "proj-newrole").with_consultants(Arc::new(reg));
+    state
+        .append(casting::event::Event::new(
+            "proj-newrole",
+            casting::event::Actor::System,
+            casting::event::EventType::ProjectCreated,
+            casting::event::Aggregate {
+                kind: "project".into(),
+                id: "proj-newrole".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
+
+    // Owner hires a compliance consultant through the real route.
+    let app = casting::web::router(state.clone());
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/api/hire")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "role_id": "compliance" }).to_string(),
+        ))
+        .unwrap();
+    let resp = app
+        .oneshot(req)
+        .now_or_never()
+        .expect("dispatch should not block")
+        .expect("infallible");
+    assert_eq!(resp.status(), 200, "owner may hire a package-defined role");
+
+    let proj = Projection::build(&state.store, "proj-newrole").unwrap();
+    let hired = proj
+        .agents
+        .iter()
+        .find(|a| a.role == "Compliance Consultant");
+    assert!(
+        hired.is_some(),
+        "the new-role agent is hired: {:?}",
+        proj.agents
+    );
+}

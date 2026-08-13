@@ -85,6 +85,32 @@ pub struct VerificationConfig {
     pub review_required: bool,
 }
 
+/// An OPTIONAL role a consultant package can define for itself, instead of
+/// binding to a catalog role. This is how a user builds & shares a consultant
+/// with a NEW capability (the deferred "owner-creates-new-role-types" item).
+/// `id`/`title`/`scope` become the consultant's effective role.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NewRole {
+    /// Role id (the machine key, e.g. "compliance").
+    pub id: String,
+    /// Display title (e.g. "Compliance Consultant").
+    #[serde(default)]
+    pub title: String,
+    /// Governance scope this role operates in (drives directive filtering).
+    #[serde(default)]
+    pub scope: String,
+}
+
+/// A resolved role identity: either a catalog role, or a role a consultant
+/// package defined via `[consultant.new_role]`. Owned (not `&'static`) so it
+/// can come from loaded configuration.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoleInfo {
+    pub id: String,
+    pub title: String,
+    pub scope: String,
+}
+
 /// A normalized, validated consultant — the runtime/API shape (also what the
 /// D2 orchestrator reads for model + prompt + routing).
 #[derive(Debug, Clone, Serialize)]
@@ -201,5 +227,42 @@ impl ConsultantRegistry {
             .filter(|(_, s)| *s > 0)
             .map(|(c, _)| c)
             .collect()
+    }
+
+    /// Every known role: the built-in catalog PLUS any roles defined by loaded
+    /// consultant packages via `[consultant.new_role]`. This is the dynamic role
+    /// set an owner can hire into (custom consultants carry their own roles).
+    pub fn known_roles(&self) -> Vec<RoleInfo> {
+        let mut out: Vec<RoleInfo> = crate::cast::ROLE_CATALOG
+            .iter()
+            .map(|r| RoleInfo {
+                id: r.id.to_string(),
+                title: r.title.to_string(),
+                scope: r.scope.to_string(),
+            })
+            .collect();
+        let mut seen: std::collections::HashSet<String> =
+            out.iter().map(|r| r.id.clone()).collect();
+        for c in self.by_id.values() {
+            let ri = RoleInfo {
+                id: c.role.clone(),
+                title: c.role_title.clone(),
+                scope: c.scope.clone(),
+            };
+            if seen.insert(c.role.clone()) {
+                out.push(ri);
+            }
+        }
+        out
+    }
+
+    /// Resolve a role id (catalog OR package-defined) to its identity.
+    pub fn resolve_role(&self, id: &str) -> Option<RoleInfo> {
+        self.known_roles().into_iter().find(|r| r.id == id)
+    }
+
+    /// Resolve a role by its exact title (catalog OR package-defined).
+    pub fn resolve_role_by_title(&self, title: &str) -> Option<RoleInfo> {
+        self.known_roles().into_iter().find(|r| r.title == title)
     }
 }
