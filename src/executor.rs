@@ -112,10 +112,23 @@ fn is_terminated(state: &AppState, activity_id: &str) -> Result<bool> {
     Ok(has_completed(state, activity_id)? || has_failed(state, activity_id)?)
 }
 
+/// Refuse to schedule/execute an activity that embeds a raw secret value
+/// (2026-08-13, secrets.rs): the no-secret-in-log invariant. No-op when no
+/// secret store is attached (local/test runs). Fail-closed — a leak is refused
+/// rather than persisted to the append-only log (which can never be scrubbed).
+fn ensure_no_leaked_secrets(state: &AppState, activity: &Activity) -> Result<()> {
+    if let Some(s) = &state.secrets {
+        crate::secrets::ensure_no_raw_secrets(s, activity)?;
+    }
+    Ok(())
+}
+
 /// Append an `ActivityScheduled` event — the durable *intent* record. Call once
 /// before the first execution of an activity. The event's `data` carries the
 /// full `Activity` so a crash-triggered re-dispatch can reconstruct it.
 pub fn schedule(state: &AppState, actor: Actor, activity: &Activity) -> Result<()> {
+    // No-secret-in-log invariant: refuse BEFORE the Activity lands in the log.
+    ensure_no_leaked_secrets(state, activity)?;
     state.append(build_event(
         state,
         actor,
@@ -157,6 +170,15 @@ pub fn execute(
     // Idempotency guard: already done before a crash → skip.
     if has_completed(state, &activity.id)? {
         return Ok(ActivityResult::default());
+    }
+    // No-secret-in-log invariant (2026-08-13): refuse to RUN an activity that
+    // embeds a raw secret value (belt-and-suspenders after schedule). We
+    // deliberately do NOT append ActivityFailed here — the failure event embeds
+    // the full activity payload, which would itself leak the value into the
+    // log. Refuse silently (stderr only) and leave no trace containing it.
+    if let Err(e) = ensure_no_leaked_secrets(state, activity) {
+        eprintln!("[executor] {e}");
+        return Err(e);
     }
     let result = match runner.run(activity) {
         Ok(r) => r,

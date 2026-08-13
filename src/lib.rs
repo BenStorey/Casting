@@ -34,6 +34,7 @@ pub mod projection;
 pub mod provenance;
 pub mod reconciler;
 pub mod replay;
+pub mod secrets;
 pub mod setup;
 pub mod snapshot;
 pub mod sqlite_store;

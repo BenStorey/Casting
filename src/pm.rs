@@ -84,6 +84,10 @@ pub struct AppState {
     /// flat by default; flip to default-on once the decomposed flow is proven.
     /// Enabled via `with_decompose` / the `CAST_DECOMPOSE` env var.
     pub decompose: bool,
+    /// The per-project secret store (2026-08-13). `None` when unset (local
+    /// runs / tests). When present, the executor refuses to schedule/execute an
+    /// activity that embeds a raw secret value (the no-secret-in-log invariant).
+    pub secrets: Option<Arc<crate::secrets::SecretStore>>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -108,6 +112,7 @@ impl AppState {
             reconcile_passes: crate::reconciler::default_passes(),
             workspace: None,
             decompose: false,
+            secrets: None,
             events: Arc::new(tx),
         }
     }
@@ -161,6 +166,14 @@ impl AppState {
     /// (cross-cutting requirements fan out into parallel ordered children).
     pub fn with_decompose(mut self) -> Self {
         self.decompose = true;
+        self
+    }
+
+    /// Builder-style: attach the per-project secret store (2026-08-13). The
+    /// executor then refuses to schedule/execute an activity that embeds a raw
+    /// secret value (the no-secret-in-log invariant).
+    pub fn with_secrets(mut self, secrets: crate::secrets::SecretStore) -> Self {
+        self.secrets = Some(Arc::new(secrets));
         self
     }
 

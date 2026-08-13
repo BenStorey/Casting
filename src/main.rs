@@ -29,7 +29,13 @@ fn open_state(repo: &Path, db: Option<&str>) -> Result<AppState> {
     let store = backend.events();
     let cursors = backend.cursors();
     let snapshots = backend.snapshots();
-    Ok(setup_state(store, cursors, snapshots))
+    let mut state = setup_state(store, cursors, snapshots);
+    // Harness guard (2026-08-13, secrets.rs): attach the per-project secret
+    // store (gitignored, NEVER in the event log). The executor then refuses to
+    // schedule/execute an activity that embeds a raw secret value. The runner
+    // resolves `@secret:NAME@` at execution time, in memory.
+    state = state.with_secrets(casting::secrets::SecretStore::load(ws.casting_dir())?);
+    Ok(state)
 }
 
 fn setup_state(
