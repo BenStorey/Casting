@@ -9,20 +9,24 @@ import { create } from "zustand";
 import {
   EventEnvelope,
   Inbox,
+  OperatingModel,
   Projection,
   fetchEvents,
   fetchInbox,
+  fetchModel,
   fetchState,
   subscribe,
 } from "./api";
 
 interface CastStore {
   state: Projection | null;
+  /** The operating picture (`/api/model`) — the owner's curated dashboard. */
+  model: OperatingModel | null;
   inbox: Inbox | null;
   events: EventEnvelope[];
   error: string | null;
   streamReady: boolean;
-  /** Fetch the current snapshot (state + inbox + recent events). Idempotent,
+  /** Fetch the current snapshot (state + model + inbox + recent events). Idempotent,
    *  safe to call on any event from the stream or after any mutation. */
   refresh: () => Promise<void>;
   /** Hydrate once, then keep in sync with the live event stream. Returns an
@@ -37,6 +41,7 @@ function actorName(a: EventEnvelope["actor"]): string {
 
 export const useCastStore = create<CastStore>((set, get) => ({
   state: null,
+  model: null,
   inbox: null,
   events: [],
   error: null,
@@ -44,9 +49,15 @@ export const useCastStore = create<CastStore>((set, get) => ({
 
   refresh: async () => {
     try {
-      const [s, i, e] = await Promise.all([fetchState(), fetchInbox(), fetchEvents()]);
+      const [s, m, i, e] = await Promise.all([
+        fetchState(),
+        fetchModel(),
+        fetchInbox(),
+        fetchEvents(),
+      ]);
       set({
         state: s,
+        model: m,
         inbox: i,
         events: e.map((x) => ({ ...x, actor: actorName(x.actor) })),
         error: null,

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { identityForAgent } from "./cast";
+import Overview from "./Overview";
 import {
   Decision,
   Inbox,
@@ -23,7 +24,7 @@ import {
   sendMessage,
 } from "./api";
 
-type Tab = "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "sketch" | "advisor";
+type Tab = "overview" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "advisor" | "sketch";
 
 // Lazy: Excalidraw is ~1MB — never load it unless the owner opens Sketch.
 const Whiteboard = lazy(() => import("./Whiteboard"));
@@ -58,6 +59,7 @@ function agentAvatar(id: string): string | undefined {
 export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const state = useCastStore((s) => s.state);
+  const model = useCastStore((s) => s.model);
   const inbox = useCastStore((s) => s.inbox);
   const error = useCastStore((s) => s.error);
   const refresh = useCastStore((s) => s.refresh);
@@ -89,7 +91,8 @@ export default function App() {
       {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
         <>
           <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-            <TabsList className="grid w-full max-w-3xl grid-cols-8">
+            <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5 md:grid-cols-9">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="chat">Chat</TabsTrigger>
               <TabsTrigger value="board">Board</TabsTrigger>
               <TabsTrigger value="team">Team</TabsTrigger>
@@ -108,6 +111,7 @@ export default function App() {
               <TabsTrigger value="advisor">Advisor</TabsTrigger>
               <TabsTrigger value="sketch">Sketch</TabsTrigger>
             </TabsList>
+            {tab === "overview" && <Overview model={model} />}
             {tab === "chat" && <Chat state={state} onSent={refresh} />}
             {tab === "board" && <Board tasks={state.tasks} />}
             {tab === "team" && <Team agents={state.agents} />}

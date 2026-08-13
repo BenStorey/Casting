@@ -191,6 +191,100 @@ export function fetchInbox(): Promise<Inbox> {
   return j<Inbox>("/api/inbox");
 }
 
+// ---- Operating picture (/api/model) -----------------------------------------
+// Mirrors src/mental.rs OperatingModel + the context/plan shapes it embeds.
+
+export type Priority = "low" | "medium" | "high" | "critical";
+
+export interface PlannedItem {
+  task_id: string;
+  title: string;
+  priority: Priority;
+}
+
+export interface ScoredItem {
+  task_id: string;
+  title: string;
+  priority: string;
+  status: string;
+  is_mine: boolean;
+  relevance: number;
+}
+
+export interface AgentContext {
+  actor: string;
+  objective: string | null;
+  priorities: PlannedItem[];
+  scored_priorities: ScoredItem[];
+  my_tasks: string[];
+  active_directives: string[];
+  open_risks: string[];
+  assumptions: string[];
+  constraints: string[];
+  open_decisions: string[];
+  worktree: WorktreeInfo | null;
+}
+
+export interface WorktreeInfo {
+  task_id: string;
+  branch: string;
+  path: string;
+  cargo_target_dir: string;
+  port: number;
+}
+
+export interface OperatingModel {
+  project_id: string;
+  objective: string | null;
+  priorities: PlannedItem[];
+  governance: {
+    active_directives: string[];
+    decision_policy: Record<string, string>;
+    open_decisions: string[];
+  };
+  knowledge: {
+    opinions: string[];
+    superseded_opinions: string[];
+    facts: string[];
+    assumptions: string[];
+    constraints: string[];
+    briefings: { active: string[]; superseded: string[]; active_count: number };
+  };
+  context: {
+    open_risks: string[];
+    open_requirements: string[];
+    task_counts: { total: number; open: number; in_review: number; done: number };
+    active_agents: string[];
+  };
+  requests: { open_count: number; open: string[] };
+  diagrams: { count: number; diagrams: string[] };
+  spend: {
+    total_estimated_usd: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    entries: number;
+    by_agent: Record<string, number>;
+  };
+  actor_contexts: AgentContext[];
+  worktrees: WorktreeInfo[];
+  drift_signals: string[];
+}
+
+export function fetchModel(): Promise<OperatingModel> {
+  return j<OperatingModel>("/api/model");
+}
+
+// ---- Provenance --------------------------------------------------------------
+export interface TaskProvenance {
+  task_id: string;
+  // Mirror whatever provenance::for_task returns; the SPA renders it generically.
+  [key: string]: unknown;
+}
+
+export function fetchTaskProvenance(taskId: string): Promise<TaskProvenance> {
+  return j<TaskProvenance>(`/api/provenance/task/${encodeURIComponent(taskId)}`);
+}
+
 export async function sendMessage(body: string): Promise<void> {
   await j("/api/message", {
     method: "POST",
