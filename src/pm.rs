@@ -396,40 +396,17 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             }
         }
         for event in action.to_events(&state.project, &who, cause, &correlation) {
-            // Structural isolation side-effect: when a WorktreeProvisioned
-            // event is about to land, physically create the worktree via the
-            // workspace (if one is attached). The event records it; the git op
-            // makes it real. Idempotent at the Workspace level.
-            if event.event_type == crate::event::EventType::WorktreeProvisioned {
-                if let Some(ws) = &state.workspace {
-                    let task_id = event
-                        .data
-                        .get("task_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    let slug = "";
-                    let port = event.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                    if let Err(e) = ws.provision_worktree(&task_id, slug, port) {
-                        eprintln!("[pm] worktree provision failed: {e:#}");
-                    }
-                }
-            }
-            if event.event_type == crate::event::EventType::CommitRequested {
-                // Agent git surface side-effect: perform the commit physically
-                // in the task's worktree (the intent is recorded as the event;
-                // the git runner makes it real; the observer then records the
-                // CommitObserved). No workspace attached (tests) → the intent
-                // is still recorded, no physical commit.
-                if let Some(ws) = &state.workspace {
-                    let task_id = event.aggregate.id.clone();
-                    let message = event
-                        .data
-                        .get("message")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("checkpoint");
-                    if let Err(e) = ws.commit_in_worktree(&task_id, message) {
-                        eprintln!("[pm] worktree commit failed: {e:#}");
+            // Event-driven workspace side effects (provision/commit) go through
+            // the EXECUTOR seam — the same guarded path as any real side effect
+            // (pause / budget / secret gates all apply), instead of inline hooks.
+            // The domain event is the durable intent; the WorkspaceRunner makes
+            // it physical. No workspace attached (tests) → intent recorded, no
+            // physical op.
+            if let Some(activity) = crate::executor::workspace_activity_for(&event) {
+                if let Some(ws) = state.workspace.clone() {
+                    let runner = crate::executor::WorkspaceRunner::new(ws);
+                    if let Err(e) = crate::executor::run_side_effect(state, &runner, &activity) {
+                        eprintln!("[pm] workspace side-effect failed: {e:#}");
                     }
                 }
             }

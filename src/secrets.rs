@@ -113,7 +113,12 @@ pub fn ensure_no_raw_secrets(store: &SecretStore, activity: &Activity) -> Result
     let payload = match &activity.kind {
         ActivityKind::LlmCall { prompt } => prompt,
         ActivityKind::Shell { cmd } => cmd,
-        ActivityKind::GitPush { .. } | ActivityKind::Inline => return Ok(()),
+        // A commit message is free text too — an agent could paste a token into
+        // it, so scan it like a shell/prompt payload.
+        ActivityKind::CommitWorktree { message, .. } => message,
+        ActivityKind::GitPush { .. }
+        | ActivityKind::ProvisionWorktree { .. }
+        | ActivityKind::Inline => return Ok(()),
     };
     for (name, value) in &store.values {
         if value.len() < MIN_SCAN_LEN || value.is_empty() {

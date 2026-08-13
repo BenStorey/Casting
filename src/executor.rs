@@ -42,6 +42,14 @@ pub enum ActivityKind {
     GitPush { branch: String },
     /// An arbitrary shell command.
     Shell { cmd: String },
+    /// Provision a consultant's isolated worktree (event-driven side effect).
+    ProvisionWorktree {
+        task_id: String,
+        slug: String,
+        port: u16,
+    },
+    /// Commit work into a task's worktree (event-driven side effect).
+    CommitWorktree { task_id: String, message: String },
     /// No external work — result computed inline. Never needs re-dispatch.
     Inline,
 }
@@ -84,6 +92,41 @@ impl ActivityRunner for NoopRunner {
                 "no runner wired for {:?} (D2/git executor not connected yet)",
                 other
             )),
+        }
+    }
+}
+
+/// A runner that performs the event-driven workspace side effects: provisioning
+/// a consultant's isolated worktree and committing work into it. This is how
+/// the live loop's real git work is dispatched (through the executor seam),
+/// rather than as inline hooks in the PM loop. Any other kind fails loudly.
+pub struct WorkspaceRunner {
+    ws: std::sync::Arc<crate::workspace::Workspace>,
+}
+
+impl WorkspaceRunner {
+    pub fn new(ws: std::sync::Arc<crate::workspace::Workspace>) -> Self {
+        WorkspaceRunner { ws }
+    }
+}
+
+impl ActivityRunner for WorkspaceRunner {
+    fn run(&self, activity: &Activity) -> Result<ActivityResult> {
+        match &activity.kind {
+            ActivityKind::ProvisionWorktree {
+                task_id,
+                slug,
+                port,
+            } => {
+                self.ws.provision_worktree(task_id, slug, *port)?;
+                Ok(ActivityResult::default())
+            }
+            ActivityKind::CommitWorktree { task_id, message } => {
+                self.ws.commit_in_worktree(task_id, message)?;
+                Ok(ActivityResult::default())
+            }
+            ActivityKind::Inline => Ok(ActivityResult::default()),
+            other => Err(anyhow!("WorkspaceRunner cannot perform {:?}", other)),
         }
     }
 }
@@ -203,6 +246,88 @@ pub fn execute(
         json!({ "result_ref": result.result_ref }),
     ))?;
     Ok(result)
+}
+
+/// Pause/budget guard: refuse a side-effecting activity when work is paused or
+/// the budget is exhausted (the hard circuit breaker, guard.rs). Inline
+/// (derived) work always passes. `Err` is the refusal reason, with the id.
+fn guard_blocked(state: &AppState, activity: &Activity) -> Result<()> {
+    if matches!(activity.kind, ActivityKind::Inline) {
+        return Ok(());
+    }
+    let proj = state.projection()?;
+    crate::guard::llm_dispatch_allowed(&proj)
+        .map_err(|reason| anyhow!("guard blocked {}: {reason}", activity.id))
+}
+
+/// The no-secret-in-log preflight (2026-08-13, secrets.rs): refuse an activity
+/// that embeds a stored secret value verbatim. No-op when no secret store is
+/// attached.
+fn secret_preflight(state: &AppState, activity: &Activity) -> Result<()> {
+    if let Some(s) = &state.secrets {
+        crate::secrets::ensure_no_raw_secrets(s, activity)?;
+    }
+    Ok(())
+}
+
+/// Run an event-driven side effect (an `Activity` mapped from an ALREADY-RECORDED
+/// domain event, e.g. `WorktreeProvisioned`/`CommitRequested`). The durable
+/// intent is the domain event itself — so, unlike [`execute`], NO
+/// `ActivityScheduled`/`ActivityCompleted` lifecycle events are appended (no
+/// stream pollution, no re-dispatch semantics). The SAME guard + secret gates
+/// apply, so a paused or budget-exhausted cast refuses these too. This is how
+/// the live loop dispatches real workspace git work through the executor seam
+/// instead of inline hooks.
+pub fn run_side_effect(
+    state: &AppState,
+    runner: &dyn ActivityRunner,
+    activity: &Activity,
+) -> Result<ActivityResult> {
+    guard_blocked(state, activity)?;
+    secret_preflight(state, activity)?;
+    runner.run(activity)
+}
+
+/// Map a domain event that carries a real workspace side effect onto an
+/// [`Activity`] — the ONE place the PM loop turns events into executor work.
+/// Returns `None` for events with no physical workspace effect.
+pub fn workspace_activity_for(event: &Event) -> Option<Activity> {
+    use crate::event::EventType::*;
+    match event.event_type {
+        WorktreeProvisioned => {
+            let task_id = event
+                .data
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let port = event.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+            Some(Activity {
+                id: format!("worktree-{task_id}"),
+                target_id: task_id.clone(),
+                kind: ActivityKind::ProvisionWorktree {
+                    task_id,
+                    slug: String::new(),
+                    port,
+                },
+            })
+        }
+        CommitRequested => {
+            let task_id = event.aggregate.id.clone();
+            let message = event
+                .data
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("checkpoint")
+                .to_string();
+            Some(Activity {
+                id: format!("commit-{task_id}-{}", event.sequence),
+                target_id: task_id.clone(),
+                kind: ActivityKind::CommitWorktree { task_id, message },
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Boot-time recovery: re-dispatch every activity that was scheduled but never
