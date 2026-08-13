@@ -26,7 +26,7 @@ mod events;
 mod owner;
 mod policy;
 
-pub use action::{is_valid_assignee, PmAction, OWNER};
+pub use action::{is_valid_assignee, PmAction, TaskSpec, OWNER};
 pub use owner::{owner_decision_made, owner_directive_created, owner_policy_changed};
 pub use policy::{validate, PolicyError};
 

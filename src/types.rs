@@ -59,6 +59,11 @@ pub struct Task {
     pub priority: crate::plan::Priority,
     /// The review verdict (some once the task has passed through InReview).
     pub review: Option<TaskReview>,
+    /// The id of the task this one was decomposed from (parallel-work parent).
+    /// The parent is the join point: `Projection::graph()` aggregates a group's
+    /// children into the parent's resolution. `None` for top-level tasks.
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// A recordable decision and its eventual owner verdict.

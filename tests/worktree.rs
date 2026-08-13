@@ -615,6 +615,7 @@ fn worktree_surfaces_in_context_and_operating_model() {
             assignee: Some("marcus-reed".into()),
             priority: casting::plan::Priority::default(),
             review: None,
+            parent_id: None,
         }],
         worktrees: vec![casting::projection::Worktree {
             task_id: "task-381".into(),

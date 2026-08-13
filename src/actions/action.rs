@@ -264,6 +264,22 @@ pub enum PmAction {
         to: String,
         body: String,
     },
+    /// Decompose a task into child tasks (parallel-work fan-out). The parent is
+    /// the join point: `Projection::graph()` aggregates all its children into
+    /// the parent's resolution. Produces one `TaskDecomposed` + one
+    /// `TaskCreated` per child (each carrying `parent_id`).
+    DecomposeTask {
+        parent: String,
+        children: Vec<TaskSpec>,
+    },
     /// Explicitly conclude "nothing to do" (anti-thrash).
     NoOp,
+}
+
+/// Specification for a child task created by `DecomposeTask`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskSpec {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
 }

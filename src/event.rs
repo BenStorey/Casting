@@ -43,6 +43,12 @@ pub enum EventType {
     /// A task's priority changed (per docs/SEMANTIC_EVENTS.md: a mutation; the
     /// projection reduces it to `task.priority` deterministically).
     TaskPriorityChanged,
+    /// A task was decomposed into child tasks (parallel-work fan-out). The
+    /// parent is the join point — the graph aggregates its children's
+    /// resolution into the parent. Records the decomposition *intent* for
+    /// provenance (`{ parent, children: [...] }`); each child also arrives via
+    /// its own `TaskCreated` carrying `parent_id`.
+    TaskDecomposed,
     /// A risk was raised (a first-class semantic object, SEMANTIC_EVENTS §8).
     RiskRaised,
     /// A risk's status changed (resolved / materialized).

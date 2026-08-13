@@ -31,6 +31,7 @@ fn state_with(agents: &[&str], tasks: &[&str]) -> Projection {
                 assignee: None,
                 priority: casting::plan::Priority::default(),
                 review: None,
+                parent_id: None,
             })
             .collect(),
         ..Default::default()
@@ -149,6 +150,7 @@ fn a_full_valid_sequence_passes() {
         assignee: None,
         priority: casting::plan::Priority::default(),
         review: None,
+        parent_id: None,
     });
     assert!(validate(
         &casting::actions::PmAction::AssignTask {
@@ -386,4 +388,74 @@ fn gate_is_fail_closed_not_fail_open() {
     assert!(validate(&msg, "pm", &st).is_ok());
     // A NoOp is always allowed.
     assert!(validate(&casting::actions::PmAction::NoOp, "pm", &st).is_ok());
+}
+
+#[test]
+fn decompose_requires_existing_parent() {
+    let st = state_with(&[], &["task-1"]);
+    let act = casting::actions::PmAction::DecomposeTask {
+        parent: "nope".into(),
+        children: vec![casting::actions::TaskSpec {
+            id: "task-2".into(),
+            title: "child".into(),
+            kind: "feature".into(),
+        }],
+    };
+    assert_eq!(
+        validate(&act, "pm", &st),
+        Err(PolicyError::TaskNotFound("nope".into())),
+        "decomposing a nonexistent parent must be rejected"
+    );
+}
+
+#[test]
+fn decompose_rejects_duplicate_or_taken_child_ids() {
+    let st = state_with(&[], &["task-1", "task-2"]);
+    // Duplicate within the decomposition.
+    let dup = casting::actions::PmAction::DecomposeTask {
+        parent: "task-1".into(),
+        children: vec![
+            casting::actions::TaskSpec {
+                id: "task-3".into(),
+                title: "a".into(),
+                kind: "feature".into(),
+            },
+            casting::actions::TaskSpec {
+                id: "task-3".into(),
+                title: "b".into(),
+                kind: "feature".into(),
+            },
+        ],
+    };
+    assert_eq!(
+        validate(&dup, "pm", &st),
+        Err(PolicyError::DuplicateEntity("task-3".into()))
+    );
+    // Child id already an existing task.
+    let taken = casting::actions::PmAction::DecomposeTask {
+        parent: "task-1".into(),
+        children: vec![casting::actions::TaskSpec {
+            id: "task-2".into(),
+            title: "c".into(),
+            kind: "feature".into(),
+        }],
+    };
+    assert_eq!(
+        validate(&taken, "pm", &st),
+        Err(PolicyError::DuplicateEntity("task-2".into()))
+    );
+}
+
+#[test]
+fn decompose_valid_when_parent_exists_and_children_fresh() {
+    let st = state_with(&[], &["task-1"]);
+    let act = casting::actions::PmAction::DecomposeTask {
+        parent: "task-1".into(),
+        children: vec![casting::actions::TaskSpec {
+            id: "task-2".into(),
+            title: "child".into(),
+            kind: "feature".into(),
+        }],
+    };
+    assert!(validate(&act, "pm", &st).is_ok());
 }

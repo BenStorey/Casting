@@ -180,6 +180,7 @@ impl Projection {
                 assignee: None,
                 priority: crate::plan::Priority::default(),
                 review: None,
+                parent_id: string_field(e, "parent_id"),
             }),
             EventType::TaskAssigned => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
@@ -234,6 +235,11 @@ impl Projection {
                     task.priority = to;
                 }
             }
+            // TaskDecomposed carries no projector state of its own: the child
+            // TaskCreated events (each carrying `parent_id`) already fold into
+            // `self.tasks`. The decomposition event is pure provenance — the
+            // graph reconstructs the structure from tasks' parent_id links.
+            EventType::TaskDecomposed => {}
             EventType::ObservationCreated => self.observations.push(Observation {
                 id: e.aggregate.id.clone(),
                 from: actor_name(e),

@@ -144,12 +144,28 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
                 Ok(())
             }
         }
+        // CreateTask and DecomposeTask both guard id freshness.
         PmAction::CreateTask { id, .. } => {
             if state.tasks.iter().any(|t| t.id == *id) {
                 Err(PolicyError::TaskAlreadyExists(id.clone()))
             } else {
                 Ok(())
             }
+        }
+        // Decomposing a task into children (parallel fan-out): the parent must
+        // exist, and every child id must be fresh (not an existing task, and not
+        // duplicated within this decomposition). The parent is the join point.
+        PmAction::DecomposeTask { parent, children } => {
+            if !state.tasks.iter().any(|t| t.id == *parent) {
+                return Err(PolicyError::TaskNotFound(parent.clone()));
+            }
+            let mut seen = std::collections::HashSet::new();
+            for c in children {
+                if state.tasks.iter().any(|t| t.id == c.id) || !seen.insert(c.id.clone()) {
+                    return Err(PolicyError::DuplicateEntity(c.id.clone()));
+                }
+            }
+            Ok(())
         }
         PmAction::AssignTask {
             task_id, assignee, ..

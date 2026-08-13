@@ -49,6 +49,39 @@ impl PmAction {
                 json!({ "title": title, "kind": kind }),
                 meta,
             )],
+            // Fan-out a task into parallel children. Emits one TaskDecomposed
+            // (the decomposition intent / provenance) then one TaskCreated per
+            // child, each carrying `parent_id` so the graph can aggregate them
+            // into the parent's joint resolution.
+            PmAction::DecomposeTask { parent, children } => {
+                let mut events = vec![ev(
+                    project,
+                    actor.clone(),
+                    parent,
+                    "task",
+                    EventType::TaskDecomposed,
+                    json!({
+                        "parent": parent,
+                        "children": children
+                            .iter()
+                            .map(|c| c.id.clone())
+                            .collect::<Vec<String>>()
+                    }),
+                    meta.clone(),
+                )];
+                for c in children {
+                    events.push(ev(
+                        project,
+                        actor.clone(),
+                        &c.id,
+                        "task",
+                        EventType::TaskCreated,
+                        json!({ "title": c.title, "kind": c.kind, "parent_id": parent }),
+                        meta.clone(),
+                    ));
+                }
+                events
+            }
             PmAction::AssignTask { task_id, assignee } => vec![ev(
                 project,
                 actor,
