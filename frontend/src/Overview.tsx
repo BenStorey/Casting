@@ -301,6 +301,16 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
               </span>
             </div>
             <div className="flex justify-between">
+              <span className="text-muted-foreground">Cache input / hit ratio</span>
+              <span>
+                {spend.cached_input_tokens} / {(spend.cache_hit_ratio * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Avg latency</span>
+              <span>{spend.avg_latency_ms != null ? `${spend.avg_latency_ms.toFixed(0)} ms` : "n/a"}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Entries</span>
               <span>{spend.entries}</span>
             </div>

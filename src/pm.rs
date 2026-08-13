@@ -316,6 +316,8 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     "model_tier": m.model_tier,
                     "prompt_tokens": m.prompt_tokens,
                     "completion_tokens": m.completion_tokens,
+                    "cached_input_tokens": m.cached_input_tokens,
+                    "latency_ms": m.latency_ms,
                     "estimated_usd": m.estimated_usd,
                 }),
             ))?;

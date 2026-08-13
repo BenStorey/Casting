@@ -185,6 +185,14 @@ async fn orchestrator_metering_lands_cost_in_the_event_log() {
     assert_eq!(entry.model_tier, "flash");
     assert_eq!(entry.prompt_tokens, 1200);
     assert_eq!(entry.completion_tokens, 300);
+    assert_eq!(
+        entry.cached_input_tokens, 200,
+        "per-call cached tokens round-trip"
+    );
+    assert_eq!(
+        entry.latency_ms, 150,
+        "per-call latency round-trips into the entry"
+    );
     assert!(entry.estimated_usd > 0.0);
 
     // The budget view in the operating picture reflects it.
@@ -192,4 +200,7 @@ async fn orchestrator_metering_lands_cost_in_the_event_log() {
     assert_eq!(m.spend.entries, 1);
     assert!((m.spend.total_estimated_usd - 0.0018).abs() < 1e-9);
     assert_eq!(m.spend.by_agent.get("pm"), Some(&0.0018));
+    assert_eq!(m.spend.cached_input_tokens, 200);
+    assert!((m.spend.cache_hit_ratio - (200.0 / 1400.0)).abs() < 1e-9);
+    assert_eq!(m.spend.avg_latency_ms, Some(150.0));
 }

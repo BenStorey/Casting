@@ -300,6 +300,8 @@ impl Projection {
                     model_tier: string_field(e, "model_tier").unwrap_or_default(),
                     prompt_tokens: num_field("prompt_tokens"),
                     completion_tokens: num_field("completion_tokens"),
+                    cached_input_tokens: num_field("cached_input_tokens"),
+                    latency_ms: num_field("latency_ms"),
                     estimated_usd: e
                         .data
                         .get("estimated_usd")

@@ -31,6 +31,11 @@ pub struct CostMetering {
     pub model_tier: String,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    /// Input tokens served from the provider's prompt cache (0 = none /
+    /// unreported). Lets us derive the cache-hit ratio from raw numbers.
+    pub cached_input_tokens: u64,
+    /// Wall-clock duration of the call in milliseconds (0 = unknown).
+    pub latency_ms: u64,
     /// Estimated USD cost of the call.
     pub estimated_usd: f64,
 }
@@ -119,6 +124,8 @@ impl Orchestrator for MockOrchestrator {
                 model_tier: "flash".into(),
                 prompt_tokens: 1200,
                 completion_tokens: 300,
+                cached_input_tokens: 200,
+                latency_ms: 150,
                 estimated_usd: 0.0018,
             }),
         }

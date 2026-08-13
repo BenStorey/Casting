@@ -211,6 +211,14 @@ pub struct CostEntry {
     pub model_tier: String,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    /// Input tokens served from the provider's prompt cache (0 = none / not
+    /// reported / the mock). Enables a derived cache-hit ratio.
+    #[serde(default)]
+    pub cached_input_tokens: u64,
+    /// Wall-clock duration of the call in milliseconds (0 = unknown / mock).
+    /// Per-call latency so the owner can see why a call (or the PM loop) is slow.
+    #[serde(default)]
+    pub latency_ms: u64,
     /// Estimated USD cost of this call.
     pub estimated_usd: f64,
     /// Timestamp so spend is queryable over time.

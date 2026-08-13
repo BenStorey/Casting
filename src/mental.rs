@@ -65,6 +65,14 @@ pub struct SpendView {
     /// Total prompt & completion tokens across all entries.
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    /// Total input tokens served from the provider's prompt cache.
+    pub cached_input_tokens: u64,
+    /// Derived cache-hit ratio: cached / (prompt + cached) across all input,
+    /// in 0..1. 0 when there's no input (or caching is unreported).
+    pub cache_hit_ratio: f64,
+    /// Mean wall-clock latency across entries that reported one (>0 ms).
+    /// `None` when nothing reports latency (e.g. only scripted/mock calls).
+    pub avg_latency_ms: Option<f64>,
     pub entries: usize,
     /// Per-agent spend (agent_id -> total USD), so individual consultants can
     /// be budgeted.
@@ -328,6 +336,33 @@ impl crate::projection::Projection {
                 total_estimated_usd: self.total_spend_usd(),
                 prompt_tokens: self.total_prompt_tokens(),
                 completion_tokens: self.spend.iter().map(|c| c.completion_tokens).sum(),
+                cached_input_tokens: self.spend.iter().map(|c| c.cached_input_tokens).sum(),
+                cache_hit_ratio: {
+                    let cached: u64 = self.spend.iter().map(|c| c.cached_input_tokens).sum();
+                    let total_input: u64 = self
+                        .spend
+                        .iter()
+                        .map(|c| c.prompt_tokens + c.cached_input_tokens)
+                        .sum();
+                    if total_input > 0 {
+                        cached as f64 / total_input as f64
+                    } else {
+                        0.0
+                    }
+                },
+                avg_latency_ms: {
+                    let lats: Vec<u64> = self
+                        .spend
+                        .iter()
+                        .map(|c| c.latency_ms)
+                        .filter(|&v| v > 0)
+                        .collect();
+                    if lats.is_empty() {
+                        None
+                    } else {
+                        Some(lats.iter().sum::<u64>() as f64 / lats.len() as f64)
+                    }
+                },
                 entries: self.spend.len(),
                 by_agent: {
                     let mut m = std::collections::BTreeMap::new();
