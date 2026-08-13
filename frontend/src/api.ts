@@ -278,6 +278,56 @@ export function fetchModel(): Promise<OperatingModel> {
   return j<OperatingModel>("/api/model");
 }
 
+// ---- Graph / transition spine (/api/graph) ----------------------------------
+// Mirrors src/graph.rs GraphView (derived — the backend stays the authority).
+
+export type GraphTaskState =
+  | "queued"
+  | "working"
+  | "in_review"
+  | "awaiting_human"
+  | "rejected"
+  | "done";
+
+export interface GraphNode {
+  task_id: string;
+  title: string;
+  kind: string;
+  status: string;
+  state: GraphTaskState;
+  assignee: string | null;
+  parent_id: string | null;
+  children: string[];
+  awaiting_human: boolean;
+  /** State-derived causal steps ("why in this order"). */
+  chain: string[];
+  /** Currently-available transition ids from this node. */
+  transitions: string[];
+}
+
+export interface GraphGroup {
+  parent_id: string;
+  title: string;
+  children: string[];
+  done: string[];
+  remaining: string[];
+  /** True iff every child is done — the deterministic join rule. */
+  resolved: boolean;
+}
+
+export interface GraphView {
+  nodes: GraphNode[];
+  groups: GraphGroup[];
+  active: string[];
+  blocked: string[];
+  done: number;
+  total: number;
+}
+
+export function fetchGraph(): Promise<GraphView> {
+  return j<GraphView>("/api/graph");
+}
+
 // ---- Provenance --------------------------------------------------------------
 export interface TaskProvenance {
   task_id: string;

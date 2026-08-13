@@ -8,10 +8,12 @@
 import { create } from "zustand";
 import {
   EventEnvelope,
+  GraphView,
   Inbox,
   OperatingModel,
   Projection,
   fetchEvents,
+  fetchGraph,
   fetchInbox,
   fetchModel,
   fetchState,
@@ -22,11 +24,13 @@ interface CastStore {
   state: Projection | null;
   /** The operating picture (`/api/model`) — the owner's curated dashboard. */
   model: OperatingModel | null;
+  /** The derived graph view (`/api/graph`) — nodes + groups + tokens. */
+  graph: GraphView | null;
   inbox: Inbox | null;
   events: EventEnvelope[];
   error: string | null;
   streamReady: boolean;
-  /** Fetch the current snapshot (state + model + inbox + recent events). Idempotent,
+  /** Fetch the current snapshot (state + model + graph + inbox + recent events). Idempotent,
    *  safe to call on any event from the stream or after any mutation. */
   refresh: () => Promise<void>;
   /** Hydrate once, then keep in sync with the live event stream. Returns an
@@ -42,6 +46,7 @@ function actorName(a: EventEnvelope["actor"]): string {
 export const useCastStore = create<CastStore>((set, get) => ({
   state: null,
   model: null,
+  graph: null,
   inbox: null,
   events: [],
   error: null,
@@ -49,15 +54,17 @@ export const useCastStore = create<CastStore>((set, get) => ({
 
   refresh: async () => {
     try {
-      const [s, m, i, e] = await Promise.all([
+      const [s, m, g, i, e] = await Promise.all([
         fetchState(),
         fetchModel(),
+        fetchGraph(),
         fetchInbox(),
         fetchEvents(),
       ]);
       set({
         state: s,
         model: m,
+        graph: g,
         inbox: i,
         events: e.map((x) => ({ ...x, actor: actorName(x.actor) })),
         error: null,
