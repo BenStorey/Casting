@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import SetupWizard from "./SetupWizard";
 import { useCastStore } from "./store";
+import Health from "./Health";
+import ActivityView from "./ActivityView";
+import TaskDrawer from "./TaskDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +23,7 @@ import {
   Inbox,
   Message,
   Projection,
+  Task,
   TaskStatus,
   decide,
   sendMessage,
@@ -59,11 +63,12 @@ function agentAvatar(id: string): string | undefined {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
+  const [openTask, setOpenTask] = useState<Task | null>(null);
   const state = useCastStore((s) => s.state);
   const model = useCastStore((s) => s.model);
   const graph = useCastStore((s) => s.graph);
   const inbox = useCastStore((s) => s.inbox);
-  const error = useCastStore((s) => s.error);
+  const errors = useCastStore((s) => s.errors);
   const refresh = useCastStore((s) => s.refresh);
   const start = useCastStore((s) => s.start);
 
@@ -81,9 +86,22 @@ export default function App() {
           <h1>Casting</h1>
           <p>Your autonomous software company</p>
         </div>
+        <div className="ml-auto">
+          <Health />
+        </div>
       </header>
 
-      {error && <div className="banner">⚠️ {error}</div>}
+      {/* G8: per-resource errors — which endpoint broke, so a partial snapshot
+          isn't mistaken for "all quiet". Auto-clears on successful refetch. */}
+      {errors.length > 0 && (
+        <div className="banner">
+          {errors.map((e) => (
+            <div key={`${e.resource}-${e.at}`}>
+              ⚠️ <strong>{e.resource}</strong>: {e.message.replace(/^[^:]*: /, "")}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* First-run: no company cast yet (only the seed PM) -> show the setup
           wizard. Once engaged it drives the same engine as `cast init`. */}
@@ -117,13 +135,13 @@ export default function App() {
             {tab === "overview" && <Overview model={model} />}
             {tab === "graph" && <GraphView graph={graph} />}
             {tab === "chat" && <Chat state={state} onSent={refresh} />}
-            {tab === "board" && <Board tasks={state.tasks} />}
+            {tab === "board" && <Board tasks={state.tasks} onOpenTask={setOpenTask} />}
             {tab === "team" && <Team agents={state.agents} />}
             {tab === "decisions" && (
               <Decisions decisions={state.decisions} onDecide={refresh} />
             )}
             {tab === "inbox" && <InboxView inbox={inbox} onDecide={refresh} />}
-            {tab === "activity" && <Activity />}
+            {tab === "activity" && <ActivityView />}
             {tab === "sketch" && (
               <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
                 <Whiteboard onSaved={refresh} />
@@ -137,6 +155,9 @@ export default function App() {
           </Tabs>
         </>
       )}
+
+      {/* G7: per-task drill-down drawer (opened from the board). */}
+      {openTask && <TaskDrawer task={openTask} onClose={() => setOpenTask(null)} />}
     </div>
   );
 }
@@ -198,7 +219,13 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
   );
 }
 
-function Board({ tasks }: { tasks: Projection["tasks"] }) {
+function Board({
+  tasks,
+  onOpenTask,
+}: {
+  tasks: Projection["tasks"];
+  onOpenTask: (t: Task) => void;
+}) {
   return (
     <div>
       {tasks.length === 0 && (
@@ -217,13 +244,20 @@ function Board({ tasks }: { tasks: Projection["tasks"] }) {
                 {tasks
                   .filter((t) => t.status === col.key)
                   .map((t) => (
-                    <Card key={t.id} className="border-border/60">
+                    <Card
+                      key={t.id}
+                      className="cursor-pointer border-border/60 transition-colors hover:border-primary/50"
+                      onClick={() => onOpenTask(t)}
+                    >
                       <CardContent className="p-3">
                         <div className="text-sm font-medium leading-snug">{t.title}</div>
                         <Badge variant={t.status === "blocked" ? "destructive" : "secondary"} className="mt-2">
                           {t.status}
                         </Badge>
-                        <div className="text-xs text-muted-foreground mt-1">{t.kind}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {t.kind}
+                          {t.assignee ? ` · ${agentLabel(t.assignee)}` : ""}
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
@@ -370,30 +404,5 @@ function InboxView({
         </Card>
       ))}
     </div>
-  );
-}
-
-function Activity() {
-  // The Activity view is powered by the REAL event stream from the store (each
-  // event is a durable log entry), not a reconstruction from the projection.
-  const events = useCastStore((s) => s.events);
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Company activity</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="stream">
-          {events.length === 0 && <div className="text-sm text-muted-foreground">Nothing yet.</div>}
-          {[...events].reverse().slice(0, 60).map((ev) => (
-            <div className="row" key={ev.event_id}>
-              <span className="seq">#{ev.sequence}</span>
-              <span className="who">{ev.event_type}</span>
-              <span className="muted text-xs">{ev.actor as string}</span>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
   );
 }

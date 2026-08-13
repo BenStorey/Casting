@@ -8,6 +8,7 @@ import { useState, type ReactNode } from "react";
 import { useCastStore } from "./store";
 import {
   AgentContext,
+  DiagnosticsView,
   fetchTaskProvenance,
   OperatingModel,
   TaskProvenance,
@@ -172,9 +173,60 @@ function ProvenanceLookup() {
 export default function Overview({ model }: { model: OperatingModel | null }) {
   if (!model) return null;
   const { governance, knowledge, context, requests, spend, worktrees, drift_signals } = model;
+  const { guards, diagnostics } = model;
 
   return (
     <div className="grid gap-4">
+      {/* G4: guard rail health — halted / paused / budget-warn must be unmissable.
+          This answers "why did it stop going" at a glance. */}
+      {guards.paused && (
+        <Card className="border-destructive/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-destructive">⏸ Work paused</CardTitle>
+            <CardDescription>All side-effecting work is halted until resumed.</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2 text-sm">
+            <div>
+              <span className="text-muted-foreground">Reason: </span>
+              {guards.paused.reason || <em className="text-muted-foreground">(none given)</em>}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              by {guards.paused.by || "?"} · {new Date(guards.paused.at).toLocaleString()}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {guards.budget && guards.budget.status === "halted" && (
+        <Card className="border-destructive/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-destructive">🛑 Budget halt</CardTitle>
+            <CardDescription>
+              Spend reached the hard limit — the circuit breaker refuses all LLM calls.
+              Only a higher limit un-halts it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Spend / limit</span>
+              <span>
+                ${spend.total_estimated_usd.toFixed(4)} / ${guards.budget.limit_usd.toFixed(2)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {guards.budget && guards.budget.status === "warn" && (
+        <Card className="border-amber-500/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-amber-600">⚠ Budget nearing limit</CardTitle>
+            <CardDescription>
+              {((guards.budget.spend_fraction ?? 0) * 100).toFixed(0)}% of the hard limit used
+              (warn at {(guards.budget.warn_at * 100).toFixed(0)}%).
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Operating picture</CardTitle>
@@ -339,7 +391,75 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
         </Section>
       )}
 
+      <DiagnosticsSection diagnostics={diagnostics} />
+
       <ProvenanceLookup />
     </div>
+  );
+}
+
+// G2/G3: the "what did the model try / what failed" surface. Renders the
+// refused-action audit trail + recorded orchestrator planning passes.
+function DiagnosticsSection({ diagnostics }: { diagnostics: DiagnosticsView }) {
+  const rejectionCount = diagnostics.rejection_count;
+  const runs = diagnostics.recent_orchestration;
+
+  return (
+    <Section
+      title={`Diagnostics${rejectionCount > 0 ? ` · ${rejectionCount} refused action(s)` : ""}`}
+      description="Audit trail for refused plans + orchestrator planning passes (what the model saw & decided)."
+    >
+      {rejectionCount > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 text-xs text-muted-foreground">Refused actions (newest first)</div>
+          <div className="flex flex-col gap-2">
+            {diagnostics.recent_rejections.map((r, i) => (
+              <div key={i} className="rounded border border-destructive/40 bg-destructive/5 p-2 text-xs">
+                <div className="font-medium text-destructive">
+                  {r.who} — refused: {r.action}
+                </div>
+                <div className="text-muted-foreground mt-0.5">because: {r.reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-1 text-xs text-muted-foreground">
+        Orchestrator runs ({diagnostics.orchestration_count})
+      </div>
+      {runs.length === 0 ? (
+        <div className="text-sm text-muted-foreground">
+          No orchestrator planning passes recorded yet (the real LLM / mock isn't wired into this
+          run).
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {runs.map((run, i) => (
+            <div key={i} className="rounded border border-border/60 p-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">on {run.trigger.toLowerCase().replace(/_/g, " ")}</span>
+                {run.metered ? (
+                  <span className="text-muted-foreground">
+                    {run.provider ?? "?"} · {run.model ?? "?"} · {run.prompt_tokens}p/
+                    {run.completion_tokens}c · ${run.estimated_usd.toFixed(4)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">no cost (deterministic)</span>
+                )}
+              </div>
+              <div className="text-muted-foreground mt-1 break-words">{run.context_summary}</div>
+              {run.planned.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {run.planned.map((p, j) => (
+                    <li key={j} className="truncate">→ {p}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }

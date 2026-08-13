@@ -153,6 +153,58 @@ export function fetchEvents(after = 0): Promise<EventEnvelope[]> {
   return j<EventEnvelope[]>(`/api/events?after=${after}`);
 }
 
+// ---- Diagnostics audit trail (/api/model) -----------------------------------
+
+export interface ActionRejection {
+  who: string;
+  action: string;
+  reason: string;
+  correlation: string | null;
+  at: string;
+}
+
+export interface OrchestrationRun {
+  trigger: string;
+  actor: string;
+  correlation: string;
+  context_summary: string;
+  planned: string[];
+  metered: boolean;
+  metering_agent: string | null;
+  provider: string | null;
+  model: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  latency_ms: number;
+  estimated_usd: number;
+  at: string;
+}
+
+export interface DiagnosticsView {
+  rejection_count: number;
+  recent_rejections: ActionRejection[];
+  orchestration_count: number;
+  recent_orchestration: OrchestrationRun[];
+}
+
+export interface BudgetView {
+  limit_usd: number;
+  warn_at: number;
+  status: "disabled" | "ok" | "warn" | "halted";
+  spend_fraction: number;
+}
+
+export interface PauseInfo {
+  reason: string;
+  by: string;
+  at: string;
+}
+
+export interface GuardsView {
+  budget: BudgetView | null;
+  paused: PauseInfo | null;
+}
+
 export interface SetupRole {
   id: string;
   title: string;
@@ -272,6 +324,10 @@ export interface OperatingModel {
   actor_contexts: AgentContext[];
   worktrees: WorktreeInfo[];
   drift_signals: string[];
+  /** Harness guard rails: budget phase + active pause. */
+  guards: GuardsView;
+  /** Diagnostics audit trail: refused actions + orchestrator runs. */
+  diagnostics: DiagnosticsView;
 }
 
 export function fetchModel(): Promise<OperatingModel> {
@@ -362,11 +418,16 @@ export async function decide(
   });
 }
 
-/// Subscribe to the realtime event stream. Calls `onEvent` for each event; the
-/// caller decides what to refetch. On reconnect, passes `?after=<lastSeq>` so
-/// the server replays any events missed while disconnected (SSE catch-up).
-/// Returns an unsubscribe function.
-export function subscribe(onEvent: () => void): () => void {
+/// Subscribe to the realtime event stream. Calls `onEvent(seqBump)` — `seqBump`
+/// is true when a NEW event arrived (vs. a heartbeat), so the caller can track
+/// "last event Ns ago". On reconnect, passes `?after=<lastSeq>` so the server
+/// replays any events missed while disconnected (SSE catch-up). Report
+/// disconnect/connect via `onStatus(connected)` so a silently-stale UI is
+/// visible. Returns an unsubscribe function.
+export function subscribe(
+  onEvent: (seqBump: boolean) => void,
+  onStatus?: (connected: boolean) => void
+): () => void {
   let lastSeq = 0;
   let closed = false;
 
@@ -378,17 +439,23 @@ export function subscribe(onEvent: () => void): () => void {
         : "/api/events/stream";
     const es = new EventSource(url);
     es.addEventListener("event", (raw: MessageEvent) => {
+      onStatus?.(true);
+      let bumped = false;
       try {
         const ev = JSON.parse(raw.data);
         if (typeof ev.sequence === "number" && ev.sequence > lastSeq) {
           lastSeq = ev.sequence;
+          bumped = true;
         }
       } catch {
         // Malformed payload — ignore, the caller will refetch state anyway.
       }
-      onEvent();
+      onEvent(bumped);
     });
     es.onerror = () => {
+      // The connection dropped: reflect that immediately so the UI can show a
+      // stale indicator while EventSource auto-reconnects.
+      onStatus?.(false);
       // EventSource auto-reconnects, but the browser may not re-add the query
       // param. Close and reconnect explicitly so catch-up `?after=N` is sent.
       es.close();
