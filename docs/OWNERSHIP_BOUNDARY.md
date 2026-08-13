@@ -86,7 +86,7 @@ token) all live in **`<repo>/.casting/`** — *inside* the project repo, but
 **self-ignored by git** so it never shows up as pending changes and is never a
 committed or commit-able artifact.
 
-- **One parameter, by design.** `cast run --project <dir>` — the project IS its
+- **One parameter, by design.** `cast run <dir>` — the project IS its
   git repo, and Casting derives `<dir>/.casting/` internally. No separate
   `--state-dir` to manage or mis-name.
 - **Self-ignored, enforced by gitignore not discipline.** `cast init` / `cast
@@ -166,7 +166,7 @@ be an **explicit escape hatch**, not an implicit allowance:
   collocated `.casting/` state dir, resolve+refuse (self-identity guard), path
   sandboxing, `ensure_self_ignored`, and the **sole git runner** through which
   all Git executes.
-- `src/main.rs` / `src/web.rs`: preflight banner; `--project <dir>` (+ `--selfhost`).
+- `src/main.rs` / `src/web.rs`: preflight banner; `cast run <dir> [--db]` (+ `--selfhost`).
 - `docs/HANDOFF.md`: register as D5 (done).
 - Tests: identity-refusal + self-hosting-positive cases; collocated `.casting/`
   + self-gitignore; git-runner pinning; tempdir-only git tests.

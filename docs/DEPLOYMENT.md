@@ -38,7 +38,11 @@ guard refuses any repo inside the embedded source root.
 |------|---------|
 | `/home/ben/casting` | Casting source repo (product code) |
 | `/home/ben/casting-workspace/proj` | artifact repo `/api` live target |
-| `/home/ben/casting-workspace/state` | Casting state-dir (always separate) |
+
+Casting **state lives collocated** in `<repo>/.casting/` (gitignored): events.db,
+cursors.db, snapshots (optional), `config.json` (owner token), `secrets.json`.
+There is no separate state directory — the workspace and its state are the same
+repo.
 
 Both are gitignored via `.dev/` in repo `.gitignore` (the external workspace
 is outside the repo entirely).
