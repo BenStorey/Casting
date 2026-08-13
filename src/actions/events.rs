@@ -82,6 +82,25 @@ impl PmAction {
                 }
                 events
             }
+            // A hard dependency edge: `task_id` (the aggregate) waits on
+            // `blocking_task_id` until `required_state`. Aggregate = the
+            // DEPENDENT task; the blocker is carried in the payload.
+            PmAction::BlockTaskOn {
+                task_id,
+                blocking_task_id,
+                required_state,
+            } => vec![ev(
+                project,
+                actor,
+                task_id,
+                "task",
+                EventType::TaskBlockedOn,
+                json!({
+                    "blocking_task_id": blocking_task_id,
+                    "required_state": required_state,
+                }),
+                meta,
+            )],
             PmAction::AssignTask { task_id, assignee } => vec![ev(
                 project,
                 actor,

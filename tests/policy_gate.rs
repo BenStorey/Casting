@@ -459,3 +459,64 @@ fn decompose_valid_when_parent_exists_and_children_fresh() {
     };
     assert!(validate(&act, "pm", &st).is_ok());
 }
+
+#[test]
+fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
+    use casting::projection::{TaskDependency, TaskStatus, Worktree};
+    // `api` is assigned + has an isolated worktree, but it's hard-blocked on
+    // `db` (still queued). Starting it must fail at the gate — ordering is
+    // enforced by the policy gate, not left to the PM/LLM.
+    let st = Projection {
+        project_id: "proj-t".into(),
+        agents: vec![Agent {
+            id: "marcus-reed".into(),
+            role: "consultant".into(),
+        }],
+        tasks: vec![
+            casting::projection::Task {
+                id: "api".into(),
+                title: "api".into(),
+                kind: "backend".into(),
+                status: TaskStatus::Backlog,
+                assignee: Some("marcus-reed".into()),
+                priority: casting::plan::Priority::default(),
+                review: None,
+                parent_id: None,
+            },
+            casting::projection::Task {
+                id: "db".into(),
+                title: "db".into(),
+                kind: "infra".into(),
+                status: TaskStatus::Backlog,
+                assignee: Some("maya-patel".into()),
+                priority: casting::plan::Priority::default(),
+                review: None,
+                parent_id: None,
+            },
+        ],
+        dependencies: vec![TaskDependency {
+            task: "api".into(),
+            blocking_task: "db".into(),
+            required_state: TaskStatus::Done,
+        }],
+        worktrees: vec![Worktree {
+            task_id: "api".into(),
+            branch: "casting/api".into(),
+            path: "/wt/api".into(),
+            cargo_target_dir: "/wt/target".into(),
+            port: 8091,
+        }],
+        ..Default::default()
+    };
+    let act = casting::actions::PmAction::StartTask {
+        task_id: "api".into(),
+    };
+    assert_eq!(
+        validate(&act, "marcus-reed", &st),
+        Err(PolicyError::BlockedByDependency {
+            task_id: "api".into(),
+            blockers: vec!["db".into()],
+        }),
+        "starting a hard-blocked task must be rejected at the gate (Blocker Test)"
+    );
+}

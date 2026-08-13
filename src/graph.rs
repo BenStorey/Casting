@@ -88,6 +88,16 @@ fn no_children(state: &Projection, task: &Task) -> Option<&'static str> {
         Some("already decomposed")
     }
 }
+/// Ready to START: assigned AND no unsatisfied hard dependencies.
+fn ready_and_assigned(projection: &Projection, task: &Task) -> Option<&'static str> {
+    if task.assignee.is_none() {
+        return Some("no consultant assigned");
+    }
+    if !projection.blocked_by(&task.id).is_empty() {
+        return Some("waiting on a dependency");
+    }
+    None
+}
 
 /// The single transition contract. Written once, read by the PM prompt, the
 /// validation/debug surface and the dashboard.
@@ -106,7 +116,7 @@ pub static TABLE: &[Transition] = &[
         from: TaskState::Working,
         to: TaskState::Working,
         action: "start_task",
-        gate: needs_assignee,
+        gate: ready_and_assigned,
     },
     Transition {
         id: "submit",
@@ -114,7 +124,7 @@ pub static TABLE: &[Transition] = &[
         from: TaskState::Working,
         to: TaskState::InReview,
         action: "request_review",
-        gate: needs_assignee,
+        gate: ready_and_assigned,
     },
     Transition {
         id: "block",
@@ -207,6 +217,9 @@ pub struct GraphNode {
     pub parent_id: Option<String>,
     pub children: Vec<String>,
     pub awaiting_human: bool,
+    /// Hard-dependency blockers still unsatisfied (tasks this node must wait on
+    /// before it can start). Empty when ready.
+    pub blocked_by: Vec<String>,
     /// State-derived causal steps ("why in this order").
     pub chain: Vec<String>,
     /// Currently-available transition ids from this node (owned).
@@ -249,6 +262,8 @@ pub struct PmTaskContext {
     pub state: TaskState,
     pub assignee: Option<String>,
     pub report: String,
+    /// Hard-dependency blockers still unsatisfied for this task.
+    pub blocked_by: Vec<String>,
     pub valid_transitions: Vec<TransitionInfo>,
 }
 
@@ -282,6 +297,31 @@ impl Projection {
             .filter(|t| t.parent_id.as_deref() == Some(parent_id))
             .map(|t| t.id.clone())
             .collect()
+    }
+
+    /// Whether one dependency is currently satisfied: the blocker reached
+    /// `required_state` (or passed it into Done). Deterministic.
+    fn dep_satisfied(&self, d: &crate::projection::TaskDependency) -> bool {
+        self.tasks
+            .iter()
+            .find(|t| t.id == d.blocking_task)
+            .map(|t| t.status == d.required_state || t.status == TaskStatus::Done)
+            .unwrap_or(false)
+    }
+
+    /// The hard-dependency blockers still unsatisfied for `task_id` — the tasks
+    /// this task is currently waiting on. Empty = ready to start.
+    pub fn blocked_by(&self, task_id: &str) -> Vec<String> {
+        self.dependencies
+            .iter()
+            .filter(|d| d.task == task_id && !self.dep_satisfied(d))
+            .map(|d| d.blocking_task.clone())
+            .collect()
+    }
+
+    /// A task is ready to START when it has no unsatisfied hard deps.
+    pub fn is_ready(&self, task_id: &str) -> bool {
+        self.blocked_by(task_id).is_empty()
     }
 
     /// Whether a task is waiting on the human.
@@ -348,6 +388,7 @@ impl Projection {
                 parent_id: task.parent_id.clone(),
                 children: self.children_of(&task.id),
                 awaiting_human: state == TaskState::AwaitingHuman,
+                blocked_by: self.blocked_by(&task.id),
                 chain: self.task_chain(task),
                 transitions: transitions_for(state, self, task)
                     .iter()
@@ -443,14 +484,83 @@ impl Projection {
             state,
             assignee: task.assignee.clone(),
             report,
+            blocked_by: self.blocked_by(task_id),
             valid_transitions,
         })
     }
 }
 
+/// A proposed feature decomposition (Task Mode -> Feature Mode promotion).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decomposition {
+    /// The parent / feature task id (the join point).
+    pub feature_id: String,
+    /// The parallel children to fan out.
+    pub children: Vec<crate::actions::TaskSpec>,
+    /// Hard edges from the Blocker Test: (dependent child id, blocker child id,
+    /// required state). Only added where parallel execution is impossible.
+    pub hard_edges: Vec<(String, String, TaskStatus)>,
+}
+
+/// Pure, deterministic promotion heuristic: should a requirement be decomposed
+/// into parallel children (Feature Mode)? Fires for cross-cutting work — the
+/// PM's own judgment per docs. Returns a concrete Decomposition when it does;
+/// None keeps the requirement in Flat Task Mode (one linear task).
+pub fn should_decompose(feature_id: &str, slug: &str, title: &str) -> Option<Decomposition> {
+    let low = title.to_lowercase();
+    let cross_cutting = [
+        "app",
+        "service",
+        "platform",
+        "dashboard",
+        "portal",
+        "system",
+        "web",
+        "feature",
+    ]
+    .iter()
+    .any(|k| low.contains(k));
+    if !cross_cutting {
+        return None;
+    }
+    let db = format!("{slug}-db");
+    let api = format!("{slug}-api");
+    let ui = format!("{slug}-ui");
+    let sec = format!("{slug}-sec");
+    Some(Decomposition {
+        feature_id: feature_id.to_string(),
+        children: vec![
+            crate::actions::TaskSpec {
+                id: db.clone(),
+                title: format!("Database schema: {title}"),
+                kind: "infra".into(),
+            },
+            crate::actions::TaskSpec {
+                id: api.clone(),
+                title: format!("Backend API: {title}"),
+                kind: "backend".into(),
+            },
+            crate::actions::TaskSpec {
+                id: ui.clone(),
+                title: format!("Frontend UI: {title}"),
+                kind: "frontend".into(),
+            },
+            crate::actions::TaskSpec {
+                id: sec.clone(),
+                title: format!("Security review: {title}"),
+                kind: "security".into(),
+            },
+        ],
+        // Blocker Test fails: backend cannot run against tables that don't
+        // exist yet, so a hard edge orders API behind the schema migration.
+        hard_edges: vec![(api, db, TaskStatus::Done)],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::PmAction;
     use crate::projection::TaskReview;
 
     fn proj_with(tasks: Vec<Task>) -> Projection {
@@ -624,5 +734,88 @@ mod tests {
         assert!(!g.groups[0].resolved, "both children still queued");
         assert_eq!(g.total, 3);
         assert_eq!(g.nodes.len(), 3);
+    }
+
+    #[test]
+    fn hidden_blocking_orders_a_child_behind_its_blocker() {
+        use crate::event::{Actor, Aggregate, Event, EventType};
+
+        let cause = Event::new(
+            "p".to_string(),
+            Actor::Owner,
+            EventType::MessageSent,
+            Aggregate {
+                kind: "message".into(),
+                id: "m1".into(),
+            },
+            serde_json::json!({}),
+        );
+        let mut p = Projection::default();
+        let created: Vec<Event> = ["db", "api", "ui"]
+            .iter()
+            .flat_map(|id| {
+                PmAction::CreateTask {
+                    id: (*id).into(),
+                    title: (*id).into(),
+                    kind: "feature".into(),
+                }
+                .to_events("p", "pm", &cause, "c")
+            })
+            .collect();
+        for e in &created {
+            p.apply(e);
+        }
+        // api waits on db (Blocker Test fails).
+        for e in (PmAction::BlockTaskOn {
+            task_id: "api".into(),
+            blocking_task_id: "db".into(),
+            required_state: TaskStatus::Done,
+        })
+        .to_events("p", "pm", &cause, "c")
+        {
+            p.apply(&e);
+        }
+        // Not ready until db is Done.
+        assert_eq!(p.blocked_by("api"), vec!["db".to_string()]);
+        assert!(!p.is_ready("api"));
+        assert!(p.is_ready("ui"), "independent child is ready immediately");
+        // Graph surfaces it and drops the `start` transition from the blocked child.
+        let g = p.graph();
+        let api = g.nodes.iter().find(|n| n.task_id == "api").unwrap();
+        assert_eq!(api.blocked_by, vec!["db".to_string()]);
+        assert!(!api.transitions.contains(&"start".to_string()));
+        let ui = g.nodes.iter().find(|n| n.task_id == "ui").unwrap();
+        assert!(ui.blocked_by.is_empty());
+        // Once db is Done, the dependency clears.
+        for e in (PmAction::CompleteTask {
+            task_id: "db".into(),
+            result: "schema done".into(),
+        })
+        .to_events("p", "pm", &cause, "c")
+        {
+            p.apply(&e);
+        }
+        assert!(p.is_ready("api"));
+        assert!(p.blocked_by("api").is_empty());
+    }
+
+    #[test]
+    fn should_decompose_promotes_cross_cutting_only() {
+        let dec = should_decompose("feature-1", "todo", "Build me a todo app");
+        assert!(dec.is_some(), "app title is cross-cutting");
+        let d = dec.unwrap();
+        assert_eq!(d.children.len(), 4);
+        assert_eq!(
+            d.hard_edges,
+            vec![(
+                "todo-api".to_string(),
+                "todo-db".to_string(),
+                TaskStatus::Done
+            )]
+        );
+        assert!(
+            should_decompose("feature-2", "btn", "Add a button color tweak").is_none(),
+            "a single small change stays in Task Mode"
+        );
     }
 }

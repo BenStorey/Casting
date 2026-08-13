@@ -46,6 +46,19 @@ pub struct TaskReview {
     pub approved: bool,
 }
 
+/// A hard dependency edge: `task` cannot START until `blocking_task` reaches
+/// `required_state`. Folded from `TaskBlockedOn` events (event-sourced — NEVER
+/// a side table). Soft ("recommended order") notes are Opinions, not deps.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskDependency {
+    /// The dependent task (waits).
+    pub task: String,
+    /// The task it waits on (blocker).
+    pub blocking_task: String,
+    /// The state the blocker must reach to unblock `task`.
+    pub required_state: TaskStatus,
+}
+
 /// A task. Status is derived from TaskCreated->TaskAssigned->TaskStarted->...->TaskCompleted.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Task {

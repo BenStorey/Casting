@@ -54,6 +54,13 @@ pub enum PolicyError {
     /// Provisioning a worktree for a task assigned to the owner (the human
     /// works through their own harness, not a Casting worktree).
     WorktreeForOwner(String),
+    /// Starting a task whose hard dependencies aren't satisfied yet (the
+    /// Blocker Test: a task can't begin until its blockers reach their
+    /// required state). \"Task X is blocked by [Y, Z]\".
+    BlockedByDependency {
+        task_id: String,
+        blockers: Vec<String>,
+    },
 }
 
 impl std::fmt::Display for PolicyError {
@@ -121,6 +128,11 @@ impl std::fmt::Display for PolicyError {
                 f,
                 "cannot provision worktree for task {id}: assigned to the owner (the human works through their own harness)"
             ),
+            PolicyError::BlockedByDependency { task_id, blockers } => write!(
+                f,
+                "cannot start task {task_id}: waiting on unsatisfied dependency/dependencies [{}]",
+                blockers.join(", ")
+            ),
         }
     }
 }
@@ -167,6 +179,31 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
+        // A hard dependency: both endpoints must exist, be distinct, and the
+        // edge must not already exist (deterministic — no dupes).
+        PmAction::BlockTaskOn {
+            task_id,
+            blocking_task_id,
+            ..
+        } => {
+            if !state.tasks.iter().any(|t| t.id == *task_id) {
+                return Err(PolicyError::TaskNotFound(task_id.clone()));
+            }
+            if !state.tasks.iter().any(|t| t.id == *blocking_task_id) {
+                return Err(PolicyError::TaskNotFound(blocking_task_id.clone()));
+            }
+            if task_id == blocking_task_id {
+                return Err(PolicyError::TaskNotFound(task_id.clone()));
+            }
+            if state
+                .dependencies
+                .iter()
+                .any(|d| d.task == *task_id && d.blocking_task == *blocking_task_id)
+            {
+                return Err(PolicyError::DuplicateEntity(task_id.clone()));
+            }
+            Ok(())
+        }
         PmAction::AssignTask {
             task_id, assignee, ..
         } => {
@@ -193,6 +230,16 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             let needs_worktree = assignee != OWNER && who != "system";
             if needs_worktree && !state.worktrees.iter().any(|w| w.task_id == *task_id) {
                 return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
+            }
+            // Hard-dependency ordering (Blocker Test): a task cannot START
+            // while it has unsatisfied hard deps. Fail-closed — the gate, not
+            // the PM, enforces ordering so a wrong model can't start early.
+            let blockers = state.blocked_by(task_id);
+            if !blockers.is_empty() {
+                return Err(PolicyError::BlockedByDependency {
+                    task_id: task_id.clone(),
+                    blockers,
+                });
             }
             Ok(())
         }

@@ -272,6 +272,15 @@ pub enum PmAction {
         parent: String,
         children: Vec<TaskSpec>,
     },
+    /// Create a hard dependency edge: `task_id` cannot START until
+    /// `blocking_task_id` reaches `required_state` (the Blocker Test's "No:
+    /// hard dependency" outcome). Event-sourced — derived to
+    /// `Projection.dependencies`. Soft/recommended-order notes stay Opinions.
+    BlockTaskOn {
+        task_id: String,
+        blocking_task_id: String,
+        required_state: crate::types::TaskStatus,
+    },
     /// Explicitly conclude "nothing to do" (anti-thrash).
     NoOp,
 }

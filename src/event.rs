@@ -49,6 +49,11 @@ pub enum EventType {
     /// provenance (`{ parent, children: [...] }`); each child also arrives via
     /// its own `TaskCreated` carrying `parent_id`.
     TaskDecomposed,
+    /// A hard dependency edge: `task` (aggregate id) cannot START until
+    /// `blocking_task` reaches `required_state`. The Blocker Test's "No: hard
+    /// dependency" outcome. Event-sourced — derived to `Projection.dependencies`
+    /// (NEVER a side table). Soft/recommended-order notes are Opinions, not this.
+    TaskBlockedOn,
     /// A risk was raised (a first-class semantic object, SEMANTIC_EVENTS §8).
     RiskRaised,
     /// A risk's status changed (resolved / materialized).

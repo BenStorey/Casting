@@ -14,7 +14,7 @@ pub use crate::types::{
     Agent, Assumption, Branch, Briefing, BriefingAsset, BriefingStatus, ChangeSet, ChangeSetStatus,
     Commit, Constraint, CostEntry, Decision, DecisionStatus, Diagram, ExternalRequest,
     ExternalRequestStatus, Fact, Merge, Message, Observation, Opinion, OpinionStatus, Requirement,
-    Risk, RiskStatus, Task, TaskReview, TaskStatus, Worktree,
+    Risk, RiskStatus, Task, TaskDependency, TaskReview, TaskStatus, Worktree,
 };
 
 /// The full current-state projection for a project.
@@ -24,6 +24,10 @@ pub struct Projection {
     pub agents: Vec<Agent>,
     pub requirements: Vec<Requirement>,
     pub tasks: Vec<Task>,
+    /// Hard dependency edges between tasks (task -> waits on blocking_task until
+    /// a state). Folded from `TaskBlockedOn` events. NEVER a side table — this
+    /// is derived state, the event log is the authority.
+    pub dependencies: Vec<TaskDependency>,
     pub decisions: Vec<Decision>,
     pub messages: Vec<Message>,
     /// The owner↔advisor private thread. ISOLATED from PM context by design —
@@ -240,6 +244,20 @@ impl Projection {
             // `self.tasks`. The decomposition event is pure provenance — the
             // graph reconstructs the structure from tasks' parent_id links.
             EventType::TaskDecomposed => {}
+            // A hard dependency edge: `task` (aggregate id) waits on
+            // `blocking_task` until it reaches `required_state`.
+            EventType::TaskBlockedOn => {
+                let required_state = e
+                    .data
+                    .get("required_state")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or(TaskStatus::Done);
+                self.dependencies.push(TaskDependency {
+                    task: e.aggregate.id.clone(),
+                    blocking_task: string_field(e, "blocking_task_id").unwrap_or_default(),
+                    required_state,
+                });
+            }
             EventType::ObservationCreated => self.observations.push(Observation {
                 id: e.aggregate.id.clone(),
                 from: actor_name(e),
