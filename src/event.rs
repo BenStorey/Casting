@@ -168,6 +168,19 @@ pub enum EventType {
     /// `AdvisoryBriefing` (provenanced "advisor") the PM DOES read. This is the
     /// explicit integration point between the two direct owner roles.
     AdvisorHandoff,
+    // --- Durable execution (durability first PR, docs/plans/2026-08-13) ---
+    /// Intent to run a discrete side-effecting action (an LLM call, a git push,
+    /// a shell command). Carries a STABLE `activity.id` (the idempotency key,
+    /// e.g. `task-7-llm-call-3`) + the full serialized `Activity` so a
+    /// crash-triggered re-dispatch can reconstruct it. The durable record that
+    /// execution was planned and may need re-running after a crash.
+    ActivityScheduled,
+    /// The executor finished the activity: `{ id, result_ref }`. This is the
+    /// idempotency MARKER — once present, `execute` skips the activity.
+    ActivityCompleted,
+    /// The executor's activity errored: `{ id, error }`. Feeds a retry DECISION
+    /// (PM layer), never a machinery-side retry counter.
+    ActivityFailed,
 }
 
 /// The entity primarily affected by an event.

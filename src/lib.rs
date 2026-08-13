@@ -17,6 +17,7 @@ pub mod context;
 pub mod cursor;
 pub mod directive;
 pub mod event;
+pub mod executor;
 pub mod git_observer;
 pub mod graph;
 pub mod integrity;

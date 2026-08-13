@@ -600,6 +600,26 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // increment 2). Subsequent observations happen on each PM drain.
         git::observe_once(&state, &ws).await;
 
+        // Durable-execution recovery: re-dispatch any activity that was
+        // scheduled but never completed/failed (i.e. the server died mid-
+        // activity). The executor's idempotency guard makes the re-run safe.
+        // The NoopRunner is the safe default until D2 (LLM) / git / shell
+        // runners are wired — it can only do inline work and fails loudly on
+        // external kinds rather than silently fake-completing them.
+        match casting::executor::redispatch_inflight(
+            &state,
+            &casting::executor::NoopRunner,
+            casting::event::Actor::System,
+        ) {
+            Ok(ids) if !ids.is_empty() => {
+                println!(
+                    "🔁 crash-recovery: re-dispatched {} in-flight activities",
+                    ids.len()
+                );
+            }
+            _ => {}
+        }
+
         // Start the simulated PM control loop (background, durable cursor).
         // The loop also triggers the git observer on each drain pass.
         tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));

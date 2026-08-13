@@ -522,6 +522,14 @@ impl Projection {
                     imported_at: e.timestamp.to_string(),
                 });
             }
+            // Durable execution events fold to NOTHING in the projection: they are
+            // durable records the executor queries by scanning the event log
+            // (`executor::has_completed` / `redispatch_inflight`). No projection
+            // state is needed — the log is the authority, and the executor IS the
+            // only consumer of these events.
+            EventType::ActivityScheduled => {}
+            EventType::ActivityCompleted => {}
+            EventType::ActivityFailed => {}
             EventType::DecisionPolicyChanged => {
                 // Rebind the owner-involvement for the decision class (brief §5).
                 // Event-sourced: the projection's policy is derived from the log.
