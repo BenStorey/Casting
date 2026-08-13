@@ -8,7 +8,7 @@
 
 use crate::directive;
 use crate::plan::{PlannedItem, Priority};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A context item with a computed relevance score (context-assembly scoring).
 /// Relevance is a deterministic heuristic — how much this item matters to the
@@ -45,6 +45,27 @@ pub struct AgentContext {
     pub constraints: Vec<String>,
     /// Decisions awaiting the owner (the whole open-decision set).
     pub open_decisions: Vec<String>,
+    /// The consultant's isolated workspace, if one is provisioned for their
+    /// current task (2026-08-12). This is the "desk" the platform hands a
+    /// summoned consultant — path, own branch, private build target, and API
+    /// port. The agent works HERE, never in the shared checkout.
+    pub worktree: Option<WorktreeInfo>,
+}
+
+/// The isolated workspace a consultant is handed (subset of `Worktree`,
+/// shaped for context consumption — the agent's own desk).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorktreeInfo {
+    /// The task this workspace serves.
+    pub task_id: String,
+    /// The worktree's own branch.
+    pub branch: String,
+    /// Path to the worktree (its root).
+    pub path: String,
+    /// Private CARGO_TARGET_DIR.
+    pub cargo_target_dir: String,
+    /// The consultant's API port (so their dev server can run in parallel).
+    pub port: u16,
 }
 
 impl crate::projection::Projection {
@@ -92,6 +113,20 @@ impl crate::projection::Projection {
             .map(|d| format!("[{}] {}", d.kind.label(), d.statement))
             .collect();
 
+        // The consultant's desk: their most recent non-done task's worktree.
+        // The platform provisions it at summon, so the agent is handed a ready
+        // isolated workspace (path + branch + build target + port) to work in.
+        let worktree = my_tasks
+            .last()
+            .and_then(|task_id| self.worktrees.iter().find(|w| &w.task_id == task_id))
+            .map(|w| WorktreeInfo {
+                task_id: w.task_id.clone(),
+                branch: w.branch.clone(),
+                path: w.path.clone(),
+                cargo_target_dir: w.cargo_target_dir.clone(),
+                port: w.port,
+            });
+
         AgentContext {
             actor: actor.to_string(),
             objective: plan.objective.clone(),
@@ -103,6 +138,7 @@ impl crate::projection::Projection {
             assumptions: self.assumptions.iter().map(|a| a.body.clone()).collect(),
             constraints: self.constraints.iter().map(|c| c.body.clone()).collect(),
             open_decisions: plan.open_decisions.clone(),
+            worktree,
         }
     }
 

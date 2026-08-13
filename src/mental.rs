@@ -38,9 +38,23 @@ pub struct OperatingModel {
     /// Per-actor operating context — EXACTLY what each model is handed when it
     /// plans. This is the heart of "see what the models are seeing".
     pub actor_contexts: Vec<crate::context::AgentContext>,
+    /// The isolated consultant workspaces currently provisioned (2026-08-12):
+    /// each summoned consultant's desk (task, branch, path, build target,
+    /// port). The platform's structural-isolation boundary, visible at a glance.
+    pub worktrees: Vec<WorktreeView>,
     /// Signals a stale/inconsistent state (e.g. same-subject opinion
     /// contradiction the reconciler hasn't fixed yet) the owner may want to see.
     pub drift_signals: Vec<String>,
+}
+
+/// A consultant's isolated workspace, as surfaced in the operating picture.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeView {
+    pub task_id: String,
+    pub branch: String,
+    pub path: String,
+    pub cargo_target_dir: String,
+    pub port: u16,
 }
 
 /// Aggregated cost attribution for the operating picture.
@@ -324,6 +338,17 @@ impl crate::projection::Projection {
                 },
             },
             actor_contexts,
+            worktrees: self
+                .worktrees
+                .iter()
+                .map(|w| WorktreeView {
+                    task_id: w.task_id.clone(),
+                    branch: w.branch.clone(),
+                    path: w.path.clone(),
+                    cargo_target_dir: w.cargo_target_dir.clone(),
+                    port: w.port,
+                })
+                .collect(),
             drift_signals,
         }
     }

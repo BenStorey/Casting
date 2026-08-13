@@ -542,3 +542,58 @@ fn reconciler_prunes_done_worktrees_and_frees_their_port() {
     assert!(!ws.worktree_path("task-381").exists());
     assert!(ws.worktree_path("task-382").exists());
 }
+
+/// The consultant's isolated workspace surfaces in the agent context AND the
+/// operating picture (so D2/the owner can see the desk the agent works in).
+#[test]
+fn worktree_surfaces_in_context_and_operating_model() {
+    use casting::context::WorktreeInfo;
+
+    // Build a projection via the WorktreeProvisioned reducer.
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = ws(&repo);
+    // Build a projection directly (no store needed — pure derivation).
+    let proj = casting::projection::Projection {
+        project_id: "proj".into(),
+        agents: vec![casting::projection::Agent {
+            id: "marcus-reed".into(),
+            role: "Engineer".into(),
+        }],
+        tasks: vec![casting::projection::Task {
+            id: "task-381".into(),
+            title: "auth".into(),
+            kind: "feature".into(),
+            status: casting::projection::TaskStatus::Backlog,
+            assignee: Some("marcus-reed".into()),
+            priority: casting::plan::Priority::default(),
+            review: None,
+        }],
+        worktrees: vec![casting::projection::Worktree {
+            task_id: "task-381".into(),
+            branch: "casting/task-381".into(),
+            path: ws.worktree_path("task-381").to_string_lossy().into_owned(),
+            cargo_target_dir: ws
+                .worktree_path("task-381")
+                .join("target")
+                .to_string_lossy()
+                .into_owned(),
+            port: 8090,
+        }],
+        ..Default::default()
+    };
+
+    // Agent context carries the desk.
+    let ctx = proj.context_for("marcus-reed");
+    assert!(ctx.my_tasks.contains(&"task-381".to_string()));
+    let wt: WorktreeInfo = ctx.worktree.expect("consultant's worktree in context");
+    assert_eq!(wt.task_id, "task-381");
+    assert_eq!(wt.port, 8090);
+    assert!(wt.cargo_target_dir.ends_with("/target"));
+
+    // Operating picture includes the worktree view.
+    let model = proj.operating_model();
+    assert_eq!(model.worktrees.len(), 1);
+    assert_eq!(model.worktrees[0].task_id, "task-381");
+    assert_eq!(model.worktrees[0].port, 8090);
+}
