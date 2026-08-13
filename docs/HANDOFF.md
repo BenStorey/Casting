@@ -928,8 +928,15 @@ consultants can't collide.
   worktrees doesn't collide).
 - **Reconciler prune**: `reconciler::prune_worktrees` tears down a worktree
   (physical `git worktree remove` + `WorktreeRemoved` event) once its task is
-  Done or its ChangeSet Merged — freeing the port. Runs on the every-N-events
-  pass.
+  Done or its ChangeSet Merged — freeing the port. **Write-time (2026-08-12):**
+  runs the moment a task becomes Done in `pm::run_planned`, not on the cadence —
+  cleanup is immediate as soon as the agent finishes. The periodic
+  `StaleWorktreePass` remains as a safety net.
+- **Reconciliation is PLUGGABLE (2026-08-12):** a `ReconcilePass` trait lets any
+  reconciliation type register on `AppState` (`with_reconcile_pass`); the
+  cursor-gated loop runs every registered pass. Defaults = opinion-drift +
+  stale-worktree. Adding a pass type (priority re-ranking, etc.) is a new pass,
+  no loop change.
 - **Surfaced**: `AgentContext.worktree` (the consultant's desk — path, branch,
   build target, port) and `OperatingModel.worktrees` (owner's view of every
   active desk). Pure derivation, read by the D2 seam automatically.
