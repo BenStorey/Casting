@@ -630,6 +630,17 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // The loop also triggers the git observer on each drain pass.
         tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));
 
+        // Liveness watchdog (2026-08-13): a wall-clock "dead man's switch" that
+        // auto-pauses the cast on a stall (repeated errors / silent in-flight
+        // work). Self-actuating; enabled via CAST_WATCHDOG=1 (+ tuning env).
+        if let Some(cfg) = casting::watchdog::WatchConfig::from_env() {
+            println!(
+                "🛡️ liveness watchdog enabled (poll {}s, stall {}h, retry>{}x)",
+                cfg.poll_secs, cfg.stall_hours, cfg.max_repeat_errors
+            );
+            tokio::spawn(casting::watchdog::monitor(state.clone(), cfg));
+        }
+
         // Serve the workspace.
         let app = web::router(state);
         let listener = tokio::net::TcpListener::bind(&addr)
