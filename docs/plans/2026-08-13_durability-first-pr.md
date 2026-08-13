@@ -1,7 +1,7 @@
 # Durable Execution — First PR (Executor Idempotency)
 
 **Date:** 2026-08-13
-**Status:** Proposed (scope per review of the "Durable Execution Layer" draft: minimal first PR, mapped onto the existing aggregate/cursor model)
+**Status:** ✅ **SHIPPED / CLOSED.** First PR landed as commit `825c7d8` (`feat(dur)`: `src/executor.rs` idempotency guard + `redispatch_inflight` boot pass, three `Activity*` events, 7 integration tests, gate green, pushed). **Decision (Ben 2026-08-13): the timer follow-up is deliberately NOT built.** Building `TimerScheduled/Fired/Cancelled` + a derived poller now would be speculative machinery — no deadline-triggered behavior exists yet to fire anything (the PM never blocks on a wall clock; owner decisions are processed on webhook, not by timeout). Revisit ONLY when a real deadline-triggered transition/action appears (auto-timeout, auto-cancel, reminder).
 
 ## Why
 
