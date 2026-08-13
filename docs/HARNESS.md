@@ -126,7 +126,7 @@
 | 3 | Output validation | OURS (typed actions + gate) | Borrow schema lib if needed |
 | 4 | Tracing | OURS (events = trace) | Borrow OTel transport |
 | 5 | Checkpointing | OURS (event log + cursors) | Roll (product) |
-| 6 | Cost attribution | **Missing — design seam now** | Borrow metering schema |
+| 6 | Cost attribution | **DONE (2026-08-10: seam+ledger; 2026-08-13: budget breaker enforcement + pause rail)** | Borrow metering schema |
 | 7 | Concurrency | OURS (git + ChangeSets) | Roll (policy) |
 | 8 | Human escalation | Partial; add timed state machine | Roll (governance) |
 | 9 | Tool sandbox | OURS (ownership boundary); add agent sandbox | Borrow sandbox mechanism |
@@ -139,8 +139,12 @@ core — it's our moat and mostly exists). Piggyback: commodity libraries
 (retry, schema, OTel, queue, sandbox) and the API gateway's transport guarantees.
 Never adopt a generic agent framework's ORCHESTRATION runtime.
 
-## Immediate next action (while deterministic surface is still in play)
-Design the **#6 cost-attribution seam** on `Orchestrator` (return metering with
-actions, land it in the event log) so that when D2 wires real providers, spend
-is attributable from day one. Everything else is either already ours or cleanly
-deferred behind the D2 seam.
+## Immediate next action
+DONE — the **#6 cost-attribution seam** shipped (2026-08-10): `Orchestrator::plan`
+returns `PlanOutput{ metering }`; the PM lands it as a `CostIncurred` event →
+`proj.spend` → `/api/model`. **Enforcement** followed (2026-08-13): the budget
+circuit breaker + shared pause rail (`src/guard.rs`), the no-secret-in-log
+invariant (`src/secrets.rs`), and the liveness watchdog (`src/watchdog.rs`),
+and the executor is now wired through the real side-effect path so all guards
+reach it. See `docs/REVIEW_2026-08-13.md` for the current assessment and
+`SKILL.md` for the authoritative current state.

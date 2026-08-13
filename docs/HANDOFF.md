@@ -10,6 +10,31 @@ it, what has been decided, and what to do next. **Read the docs listed
 here — they are the authoritative design.** This file is the map, not the
 design itself.
 
+> ## ⚡ Current state (2026-08-13) — read this first
+>
+> **The roadmap section below (§5) is largely SHIPPED.** Items marked `DONE`
+> are archived history, not TODO. Do not treat the "### Next:" headers as the
+> plan — the authoritative, up-to-date sources are:
+> - **`SKILL.md`** (the per-session working memory — current architecture,
+>   invariants, pitfalls);
+> - **`docs/REVIEW_2026-08-13.md`** (the 2026-08-13 architecture review);
+> - the **`docs/plans/`** dir for recent shipped plans.
+>
+> **2026-08-13 additions (harness guards + executor wiring):**
+> - **Harness guards** — hard budget circuit breaker + shared pause rail
+>   (`src/guard.rs`; `POST /api/budget|/pause|/resume`; owner-only, outside the
+>   PM); **no-secret-in-log** invariant + per-project secret store
+>   (`src/secrets.rs`, `@secret:NAME@` placeholders); **liveness watchdog**
+>   (`src/watchdog.rs`, self-actuating auto-pause, `CAST_WATCHDOG=1`).
+> - **The durable executor is now wired** through the real workspace side-effect
+>   path (`src/executor.rs` `run_side_effect`/`WorkspaceRunner`), so the guards
+>   reach worktree provision + git commit — not just the LLM call.
+>
+> `ADDENDUM.md` and `CASTING_PROJECT_BRIEF.md` remain **authoritative** design
+> docs (referenced throughout as "brief §X"). `DEPLOYMENT.md`,
+> `OWNERSHIP_BOUNDARY.md`, and `HARNESS.md` are current.
+
+
 ---
 
 # 1. Quick orientation
