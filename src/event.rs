@@ -116,6 +116,12 @@ pub enum EventType {
     /// property, not an agent behavior — the observer no longer has to guess
     /// task_id from the branch name; the mapping is recorded exactly.
     WorktreeProvisioned,
+    /// A consultant explicitly asked to commit their WIP into their worktree
+    /// (2026-08-12). Provenance for the agent git surface — the actual commit
+    /// lands via the git runner and is also recorded as a CommitObserved by the
+    /// observer; this event captures the *intent* ("the assignee decided to
+    /// checkpoint here").
+    CommitRequested,
 
     // --- External advisory context (owner, 2026-08-10) ---
     /// Advisor content (text and/or image/diagram references) brought INTO the

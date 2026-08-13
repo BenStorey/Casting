@@ -409,3 +409,46 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
         assert!(Path::new(&wt.cargo_target_dir).starts_with(path));
     }
 }
+
+/// The agent git surface end-to-end: provision a worktree, write a file in it,
+/// commit via the workspace, and confirm the commit landed ON the worktree's
+/// own branch (never the shared checkout).
+#[test]
+fn commit_in_worktree_lands_on_the_isolated_branch() {
+    use casting::workspace::Selfhost;
+    use std::path::Path;
+
+    let (tmp, repo) = repo_dir();
+    let _tmp = tmp;
+    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let wt = ws
+        .provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+    let main_head = ws.head().unwrap();
+
+    // The consultant writes a file inside their worktree, then commits.
+    std::fs::write(wt.path.join("auth.rs"), "fn auth() {}\n").unwrap();
+    ws.commit_in_worktree("task-381", "add auth module")
+        .unwrap();
+
+    // The commit landed on the worktree's branch (not main).
+    let branch_log = ws
+        .git_command_for(&wt.path)
+        .arg("log")
+        .arg("--oneline")
+        .arg("-1")
+        .output()
+        .unwrap();
+    let log = String::from_utf8_lossy(&branch_log.stdout).to_string();
+    assert!(
+        log.contains("add auth module"),
+        "commit should exist on worktree branch, got: {log}"
+    );
+    // main is untouched — the work belongs only to this consultant's branch.
+    assert_eq!(
+        ws.head().unwrap(),
+        main_head,
+        "main must not move when the worktree commits"
+    );
+    assert!(Path::new(&wt.cargo_target_dir).starts_with(&wt.path));
+}

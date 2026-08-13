@@ -63,6 +63,15 @@ pub enum PmAction {
     StartTask {
         task_id: String,
     },
+    /// A consultant commits their work-in-progress into their isolated
+    /// worktree's branch (2026-08-12). The thin agent git surface: the agent
+    /// owns the CONTENT, the platform owns the isolation (the commit happens in
+    /// the task's worktree via the pinned runner). Produces a commit + a
+    /// ChangeSet commit record. The agent is never given a raw `git`.
+    CommitToChangeSet {
+        task_id: String,
+        message: String,
+    },
     CompleteTask {
         task_id: String,
         result: String,

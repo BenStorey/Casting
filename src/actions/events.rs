@@ -106,6 +106,18 @@ impl PmAction {
                 json!({}),
                 meta,
             )],
+            // The thin agent git surface: record the commit intent. The actual
+            // commit is made physically in the worktree by run_planned via the
+            // pinned runner (and the observer later records CommitObserved).
+            PmAction::CommitToChangeSet { task_id, message } => vec![ev(
+                project,
+                actor,
+                task_id,
+                "task",
+                EventType::CommitRequested,
+                json!({ "message": message }),
+                meta,
+            )],
             PmAction::CompleteTask { task_id, result } => vec![ev(
                 project,
                 actor,

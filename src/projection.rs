@@ -584,6 +584,15 @@ impl Projection {
                     }
                 }
             }
+            EventType::CommitRequested => {
+                // Provenance: the assignee chose to checkpoint their WIP. The
+                // actual commit lands as a CommitObserved once the git runner
+                // makes it; this arm records the intent. No state mutation is
+                // strictly needed (the ChangeSet commit list is filled by
+                // CommitObserved), so it's a no-op fold for now — present so
+                // the reducer match is exhaustive and the event is visible.
+                let _ = string_field(e, "message");
+            }
             EventType::ChangeSetReady => {
                 // A ChangeSet is explicitly assembled and marked ready.
                 let id = e.aggregate.id.clone();

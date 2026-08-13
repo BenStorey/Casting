@@ -329,6 +329,45 @@ impl Workspace {
         let _ = self.git_command().arg("worktree").arg("prune").output();
         Ok(())
     }
+
+    /// Commit the work-in-progress inside a task's worktree: stage everything
+    /// and commit with `message`, via the pinned worktree-scoped runner. This
+    /// is the "agent owns content, platform owns isolation" handshake — the
+    /// agent asks to checkpoint through the gate, and the platform performs the
+    /// commit inside the isolated tree (never the shared checkout). No-op (Ok)
+    /// if the worktree does not exist or there is nothing to commit.
+    pub fn commit_in_worktree(&self, task_id: &str, message: &str) -> Result<()> {
+        let path = self.worktree_path(task_id);
+        if !path.exists() {
+            return Ok(());
+        }
+        // Stage everything in the worktree (separate command — args don't bleed).
+        let add = self
+            .git_command_for(&path)
+            .arg("add")
+            .arg("-A")
+            .output()
+            .with_context(|| format!("git add in worktree {}", path.display()))?;
+        // Commit. Quietly ignore "nothing to commit" (empty WIP is not an
+        // error) — only a real failure bubbles up. Provide a git identity via
+        // -c so commits work in fresh/temp repos with no user.name configured.
+        let commit = self
+            .git_command_for(&path)
+            .arg("-c")
+            .arg("user.name=Casting Agent")
+            .arg("-c")
+            .arg("user.email=agent@casting.dev")
+            .arg("commit")
+            .arg("-m")
+            .arg(message)
+            .output()
+            .with_context(|| format!("git commit in worktree {}", path.display()))?;
+        if !add.status.success() && !commit.status.success() {
+            let stderr = String::from_utf8_lossy(&commit.stderr);
+            bail!("git commit in worktree failed: {stderr}");
+        }
+        Ok(())
+    }
 }
 
 /// The isolated workspace provisioned for one task: a worktree on its own

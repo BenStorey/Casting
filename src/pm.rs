@@ -361,6 +361,24 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                     }
                 }
             }
+            if event.event_type == crate::event::EventType::CommitRequested {
+                // Agent git surface side-effect: perform the commit physically
+                // in the task's worktree (the intent is recorded as the event;
+                // the git runner makes it real; the observer then records the
+                // CommitObserved). No workspace attached (tests) → the intent
+                // is still recorded, no physical commit.
+                if let Some(ws) = &state.workspace {
+                    let task_id = event.aggregate.id.clone();
+                    let message = event
+                        .data
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("checkpoint");
+                    if let Err(e) = ws.commit_in_worktree(&task_id, message) {
+                        eprintln!("[pm] worktree commit failed: {e:#}");
+                    }
+                }
+            }
             state.append(event.clone())?;
             projection.apply(&event);
             authored += 1;

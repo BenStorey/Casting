@@ -180,6 +180,16 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
+        // The thin agent git surface: a consultant commits their WIP into their
+        // own worktree. They must be the assignee AND their task must have an
+        // isolated worktree (isolation is structural, never optional).
+        PmAction::CommitToChangeSet { task_id, .. } => {
+            check_assignee(task_id, who, state)?;
+            if !state.worktrees.iter().any(|w| w.task_id == *task_id) {
+                return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
+            }
+            Ok(())
+        }
         PmAction::ProvisionWorktree { task_id, .. } => {
             // Only hired agents get worktrees; the owner works through their
             // own harness. The task must exist and be assigned to a consultant.
