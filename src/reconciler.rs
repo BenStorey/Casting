@@ -4,22 +4,78 @@
 //! slowly become inconsistent. Write-time supersession is eager and brittle
 //! (the writer must know every target). Instead (owner framing 2026-08-10):
 //! **keep writes simple; reconcile periodically.** This is a reusable primitive
-//! — the same cursor-gated trigger will later drive priority/plan re-ranking.
+//! — the same cursor-gated trigger drives MANY reconciliation types.
 //!
 //! It runs as its OWN consumer (mirrors the PM loop): a `RECONCILER_CONSUMER`
 //! cursor + a threshold interval. When `latest - reconciler_cursor >= N`, it
-//! wakes, detects drift mechanically from the projection, emits ordinary gate
-//! actions, and advances its cursor. The "smart" judgment of *what* truly
-//! conflicts stays a D2 seam (the LLM reviewer); this skeleton does the
-//! mechanically-obvious cleanup deterministically.
+//! wakes and runs every **registered pass** (`ReconcilePass`), then advances its
+//! cursor. The "smart" judgment of *what* truly conflicts stays a D2 seam (the
+//! LLM reviewer); the skeleton does the mechanically-obvious cleanup
+//! deterministically.
+//!
+//! ## Many reconciliation types (owner, 2026-08-12)
+//!
+//! Reconciliation is pluggable: a `ReconcilePass` is any named, deterministic
+//! cleanup that runs on the cadence. Passes are registered on `AppState`
+//! (default: opinion-drift + stale-worktree prune). Adding a new type (e.g.
+//! priority/plan re-ranking, stale-observation cleanup) is just a new pass — no
+//! changes to the loop. Worktree teardown itself is also triggered at WRITE-TIME
+//! (when a task completes), not only on the cadence; the periodic pass is a
+//! safety net.
 
 use crate::actions::PmAction;
 use crate::pm::AppState;
 use crate::projection::{OpinionStatus, Projection};
 use anyhow::Result;
+use std::sync::Arc;
 
 /// The reconciler's durable position in the event stream.
 pub const RECONCILER_CONSUMER: &str = "reconciler";
+
+/// One named, deterministic reconciliation pass. A pass inspects the projection
+/// and emits ordinary gate actions / events to clean up a specific class of
+/// drift. Runs on the cursor-gated cadence (and passes may also be invoked at
+/// write-time for eager cleanup, e.g. worktree teardown). Synchronous: a pass is
+/// a bounded, mechanical cleanup — no awaits needed.
+pub trait ReconcilePass: Send + Sync {
+    /// A stable name for logging/diagnostics.
+    fn name(&self) -> &'static str;
+    /// Run this pass now. Returns how many events it appended.
+    fn run(&self, state: &AppState) -> Result<u32>;
+}
+
+/// The default opinion-drift pass: supersede the older of two Active opinions
+/// with the same subject (keeps the latest per subject).
+pub struct OpinionDriftPass;
+
+impl ReconcilePass for OpinionDriftPass {
+    fn name(&self) -> &'static str {
+        "opinion-drift"
+    }
+    fn run(&self, state: &AppState) -> Result<u32> {
+        opinion_drift(state)
+    }
+}
+
+/// The default stale-worktree pass: tear down worktrees whose task is Done or
+/// whose ChangeSet is Merged (physical remove + `WorktreeRemoved` event, which
+/// frees the port). A safety net on the cadence — eager teardown also happens at
+/// write-time (see `pm::run_planned`).
+pub struct StaleWorktreePass;
+
+impl ReconcilePass for StaleWorktreePass {
+    fn name(&self) -> &'static str {
+        "stale-worktree"
+    }
+    fn run(&self, state: &AppState) -> Result<u32> {
+        prune_worktrees(state)
+    }
+}
+
+/// Return the reconciler's registered passes (the defaults unless overridden).
+pub fn default_passes() -> Vec<Arc<dyn ReconcilePass>> {
+    vec![Arc::new(OpinionDriftPass), Arc::new(StaleWorktreePass)]
+}
 
 /// Whether the reconciler is due: if at least `interval` events have landed
 /// since its last pass. Cursor-gated and idempotent — running it again with no
@@ -77,11 +133,10 @@ pub fn drift(projection: &Projection) -> Vec<Drift> {
     out
 }
 
-/// Run one reconciliation pass now (the "every N events" body). Detects drift,
-/// emits `SupersedeOpinion` actions through the gate for each, and advances the
-/// reconciler cursor to the latest sequence so the next pass is a fresh window.
-/// Returns how many events it appended.
-pub async fn reconcile(state: &AppState) -> Result<u32> {
+/// Run the opinion-drift pass: detect same-subject contradictions and emit
+/// `SupersedeOpinion` actions through the gate for each. Returns how many events
+/// it appended.
+fn opinion_drift(state: &AppState) -> Result<u32> {
     let projection = state.projection()?;
     let mut authored = 0u32;
 
@@ -91,8 +146,7 @@ pub async fn reconcile(state: &AppState) -> Result<u32> {
         .store
         .read_since(&state.project, latest.saturating_sub(1))?
         .last()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("no events to reconcile"))?;
+        .cloned();
     let correlation = format!("reconcile-{}", latest);
 
     for d in drift(&projection) {
@@ -100,25 +154,23 @@ pub async fn reconcile(state: &AppState) -> Result<u32> {
             opinion_id: d.older_id,
             by_opinion_id: d.by_id,
         };
-        // Validate against a running projection (recompute each iteration so an
-        // earlier supersede is visible; skip if the gate rejects — already done).
+        // Validate against a fresh projection (so an earlier supersede is
+        // visible); skip if the gate rejects.
         let projection = state.projection()?;
         let who = "system"; // reconciler acts as the system, not a human/agent
         if let Err(e) = crate::actions::validate(&action, who, &projection) {
             eprintln!("[reconciler] gate rejected {action:?}: {e}");
             continue;
         }
-        for event in action.to_events(&state.project, who, &cause, &correlation) {
+        let events = match &cause {
+            Some(c) => action.to_events(&state.project, who, c, &correlation),
+            None => Vec::new(),
+        };
+        for event in events {
             state.append(event.clone())?;
             authored += 1;
         }
     }
-
-    // Cursor now at the (possibly grown) head, so "every N events" stays fresh.
-    let head = state.store.latest_sequence(&state.project)?;
-    state
-        .cursors
-        .advance(&state.project, RECONCILER_CONSUMER, head)?;
     Ok(authored)
 }
 
@@ -199,14 +251,33 @@ pub fn prune_worktrees(state: &AppState) -> Result<u32> {
     Ok(pruned)
 }
 
+/// Run every registered reconciliation pass now, then advance the cursor to the
+/// (possibly grown) head so "every N events" stays fresh. Returns total events
+/// appended across all passes.
+pub fn run_passes(state: &AppState) -> Result<u32> {
+    let mut total = 0u32;
+    for pass in &state.reconcile_passes {
+        match pass.run(state) {
+            Ok(n) => {
+                if n > 0 {
+                    eprintln!("[reconciler] pass {} authored {n} event(s)", pass.name());
+                }
+                total += n;
+            }
+            Err(e) => eprintln!("[reconciler] pass {} error: {e:#}", pass.name()),
+        }
+    }
+    let head = state.store.latest_sequence(&state.project)?;
+    state
+        .cursors
+        .advance(&state.project, RECONCILER_CONSUMER, head)?;
+    Ok(total)
+}
+
 /// Run the reconciler if due; else no-op. Convenience wrapper for the loop.
-pub async fn run_if_due(state: &AppState) -> Result<u32> {
+pub fn run_if_due(state: &AppState) -> Result<u32> {
     if should_run(state)? {
-        let drifted = reconcile(state).await?;
-        // Structural-isolation lifecycle close: on the same pass, prune
-        // worktrees whose task is done/merged (physical + event-based).
-        let pruned = prune_worktrees(state)?;
-        Ok(drifted + pruned)
+        run_passes(state)
     } else {
         Ok(0)
     }

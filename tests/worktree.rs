@@ -390,10 +390,57 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
 
     casting::pm::drive_pm(&state).await.unwrap();
 
-    let proj = state.projection().unwrap();
-    assert!(!proj.worktrees.is_empty());
-    for wt in &proj.worktrees {
-        // The worktree dir physically exists on its own branch.
+    // Verify the full worktree LIFECYCLE via the event log (the source of
+    // truth): every task that was provisioned a worktree got one physically,
+    // and every task that BECAME Done got it torn down immediately (write-time)
+    // — both in the projection and on disk.
+    let store: &dyn casting::store::EventStore = &state.store;
+    let events = store.read_since("proj", 0).unwrap();
+    let provisioned: std::collections::HashSet<String> = events
+        .iter()
+        .filter(|e| e.event_type == casting::event::EventType::WorktreeProvisioned)
+        .filter_map(|e| {
+            e.data
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect();
+    let removed: std::collections::HashSet<String> = events
+        .iter()
+        .filter(|e| e.event_type == casting::event::EventType::WorktreeRemoved)
+        .filter_map(|e| {
+            e.data
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect();
+
+    assert!(
+        !provisioned.is_empty(),
+        "onboarding should have provisioned worktrees"
+    );
+    for tid in &provisioned {
+        // If the task is Done, its worktree must be gone (write-time teardown).
+        let task_done = state
+            .projection()
+            .unwrap()
+            .tasks
+            .iter()
+            .any(|t| t.id == *tid && t.status == casting::projection::TaskStatus::Done);
+        if task_done {
+            assert!(removed.contains(tid), "done task {tid} should be torn down");
+            assert!(
+                !ws.worktree_path(tid).exists(),
+                "done task {tid}'s worktree dir should be deleted"
+            );
+        }
+    }
+
+    // The in-progress (non-Done) worktrees that remain physically exist on their
+    // own branch with a private build target.
+    for wt in state.projection().unwrap().worktrees {
         let path = std::path::Path::new(&wt.path);
         assert!(path.exists(), "worktree dir {} should exist", wt.path);
         let branch = ws

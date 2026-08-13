@@ -92,15 +92,16 @@ fn should_run_is_cursor_gated() {
     // (reconcile below also drives this via run_if_due in the loop test.)
 }
 
-#[tokio::test]
-async fn reconciler_supersedes_false_duplicates_and_advances_cursor() {
+#[test]
+fn reconciler_supersedes_false_duplicates_and_advances_cursor() {
     let st = state();
     append_opinion(&st, "op-a1", "databases");
     append_opinion(&st, "op-a2", "databases"); // contradiction
     append_opinion(&st, "op-b", "auth"); // unrelated
 
-    let edited = reconciler::reconcile(&st).await.unwrap();
-    // Op-a2 (same subject) supersedes op-a1; op-b untouched.
+    let edited = reconciler::run_passes(&st).unwrap();
+    // Op-a2 (same subject) supersedes op-a1; op-b untouched. (The stale-worktree
+    // pass is a no-op without a workspace, so only opinion drift contributes.)
     assert_eq!(edited, 1);
 
     let proj = Projection::build(&st.store, &st.project).unwrap();
@@ -122,37 +123,88 @@ async fn reconciler_supersedes_false_duplicates_and_advances_cursor() {
     assert!(!reconciler::should_run(&st).unwrap());
 }
 
-#[tokio::test]
-async fn reconcile_is_idempotent() {
+#[test]
+fn reconcile_is_idempotent() {
     let st = state();
     append_opinion(&st, "op-a1", "databases");
     append_opinion(&st, "op-a2", "databases");
 
-    assert_eq!(reconciler::reconcile(&st).await.unwrap(), 1);
+    assert_eq!(reconciler::run_passes(&st).unwrap(), 1);
     // Second pass: no new drift (op-a1 already superseded) -> no events.
-    assert_eq!(reconciler::reconcile(&st).await.unwrap(), 0);
+    assert_eq!(reconciler::run_passes(&st).unwrap(), 0);
     let proj = Projection::build(&st.store, &st.project).unwrap();
     let by_id = |id: &str| proj.opinions.iter().find(|o| o.id == id).unwrap();
     assert_eq!(by_id("op-a2").status, OpinionStatus::Active);
 }
 
-#[tokio::test]
-async fn run_if_due_only_fires_after_interval() {
+#[test]
+fn run_if_due_only_fires_after_interval() {
     let st = state().with_reconcile_interval(3);
     // Below the interval -> not due, no-op.
     append_opinion(&st, "op-1", "db");
     append_opinion(&st, "op-2", "db");
-    assert_eq!(reconciler::run_if_due(&st).await.unwrap(), 0);
+    assert_eq!(reconciler::run_if_due(&st).unwrap(), 0);
 
     // Third event crosses the threshold -> due, runs. Three same-subject
     // opinions collapse to one: op-1 superseded by op-2, then op-2 by op-3
     // (2 supersedions), leaving only op-3 Active.
     append_opinion(&st, "op-3", "db");
-    let edited = reconciler::run_if_due(&st).await.unwrap();
+    let edited = reconciler::run_if_due(&st).unwrap();
     assert_eq!(edited, 2);
     let proj = Projection::build(&st.store, &st.project).unwrap();
     let by_id = |id: &str| proj.opinions.iter().find(|o| o.id == id).unwrap();
     assert_eq!(by_id("op-1").status, OpinionStatus::Superseded);
     assert_eq!(by_id("op-2").status, OpinionStatus::Superseded);
     assert_eq!(by_id("op-3").status, OpinionStatus::Active);
+}
+
+/// The reconciler framework is PLUGGABLE (2026-08-12): registering a custom pass
+/// makes run_passes invoke it alongside the defaults.
+#[test]
+fn passes_are_pluggable_and_custom_pass_runs() {
+    use std::sync::Arc;
+
+    struct CountingPass;
+    impl reconciler::ReconcilePass for CountingPass {
+        fn name(&self) -> &'static str {
+            "counting"
+        }
+        fn run(&self, state: &AppState) -> anyhow::Result<u32> {
+            // Append a marker event so we can prove the pass ran.
+            state
+                .append(Event::new(
+                    &state.project,
+                    Actor::System,
+                    EventType::ObservationCreated,
+                    Aggregate {
+                        kind: "marker".into(),
+                        id: "marker-1".into(),
+                    },
+                    serde_json::json!({}),
+                ))
+                .unwrap();
+            Ok(1)
+        }
+    }
+
+    let st = state().with_reconcile_pass(Arc::new(CountingPass));
+    // Force due so run_if_due actually invokes the passes.
+    // Appending an event makes should_run true (interval 2).
+    append_opinion(&st, "op-a", "subject");
+    append_opinion(&st, "op-b", "subject");
+    append_opinion(&st, "op-c", "subject");
+    assert!(reconciler::should_run(&st).unwrap());
+
+    let edited = reconciler::run_if_due(&st).unwrap();
+    // The counting pass appended exactly one marker; opinion drift collapsed
+    // 3 same-subject opinions (op-a->op-b, op-b->op-c = 2 supersedions).
+    assert_eq!(edited, 1 + 2, "custom pass ran plus opinion drift");
+
+    // The marker event is present in the log — this is what proves the custom
+    // pass ran (only it appends ObservationCreated/"marker-1").
+    let proj = Projection::build(&st.store, &st.project).unwrap();
+    assert!(
+        proj.observations.iter().any(|o| o.id == "marker-1"),
+        "counting pass's marker observation should exist — the custom pass ran"
+    );
 }

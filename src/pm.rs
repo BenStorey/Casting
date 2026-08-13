@@ -68,9 +68,12 @@ pub struct AppState {
     /// `config.json` (name + owner token). `None` in tests.
     pub state_dir: Option<std::path::PathBuf>,
     /// Every N appended events, the drift reconciler wakes and cleans up
-    /// derived state (e.g. same-subject opinion contradictions). Cursor-gated,
-    /// mirrors the PM loop. Set low in tests.
+    /// derived state. Cursor-gated, mirrors the PM loop. Set low in tests.
     pub reconcile_interval: u64,
+    /// The reconciliation passes registered on the cursor-gated cadence
+    /// (2026-08-12, pluggable). Defaults to opinion-drift + stale-worktree
+    /// prune; add new pass TYPES here without touching the loop.
+    pub reconcile_passes: Vec<Arc<dyn crate::reconciler::ReconcilePass>>,
     /// The workspace (set by `cast run`). Lets the PM physically provision
     /// worktrees (git worktree add) when a consultant is summoned. `None` in
     /// tests without a real repo.
@@ -96,6 +99,7 @@ impl AppState {
             auth_token: None,
             state_dir: None,
             reconcile_interval: 25,
+            reconcile_passes: crate::reconciler::default_passes(),
             workspace: None,
             events: Arc::new(tx),
         }
@@ -105,6 +109,13 @@ impl AppState {
     /// runs. Low in tests; tuned at runtime.
     pub fn with_reconcile_interval(mut self, n: u64) -> Self {
         self.reconcile_interval = n;
+        self
+    }
+
+    /// Builder-style: add a reconciliation pass (2026-08-12). Reconciliation is
+    /// pluggable — append new pass types without touching the loop.
+    pub fn with_reconcile_pass(mut self, pass: Arc<dyn crate::reconciler::ReconcilePass>) -> Self {
+        self.reconcile_passes.push(pass);
         self
     }
 
@@ -214,8 +225,8 @@ pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
         if let Err(e) = drain(&state).await {
             eprintln!("[pm] drain error: {e:#}");
         }
-        // Drift reconciliation: every N events, clean up derived state.
-        if let Err(e) = crate::reconciler::run_if_due(&state).await {
+        // Drift reconciliation: every N events, run every registered pass.
+        if let Err(e) = crate::reconciler::run_if_due(&state) {
             eprintln!("[pm] reconciler error: {e:#}");
         }
     }
@@ -382,6 +393,22 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             state.append(event.clone())?;
             projection.apply(&event);
             authored += 1;
+            // WRITE-TIME worktree teardown (2026-08-12, owner request): the
+            // moment a task BECOMES Done (or its ChangeSet is merged), tear
+            // down its worktree immediately — physical remove + WorktreeRemoved
+            // event (frees the port). This is expected behavior ("cleanup as
+            // soon as the agent is finished"), not something that should wait
+            // for the periodic reconciler cadence.
+            if matches!(
+                event.event_type,
+                crate::event::EventType::TaskCompleted
+                    | crate::event::EventType::ChangeSetReady
+                    | crate::event::EventType::MergeCompleted
+            ) {
+                if let Err(e) = crate::reconciler::prune_worktrees(state) {
+                    eprintln!("[pm] write-time worktree prune failed: {e:#}");
+                }
+            }
             if !state.step_delay.is_zero() {
                 tokio::time::sleep(state.step_delay).await;
             }
