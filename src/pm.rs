@@ -734,15 +734,27 @@ fn plan_onboard(
                     },
                 ));
             }
-            // Kick the READY children in parallel (assigned + started). The
-            // hard-blocked child (e.g. feature-api) stays QUEUED — the gate
-            // rejects its start until its blocker reaches Done.
-            for child in &dec.children {
-                let assignee = if child.kind == "security" {
-                    AGENT_QA
-                } else {
-                    AGENT_ENG
-                };
+            // Drive every child through the SAME lifecycle as any other task
+            // (assign -> start -> complete -> submit -> review -> done), so
+            // subtasks are first-class tasks, not a second-class entity. The
+            // join resolves when all children reach Done. Children are
+            // sequenced topologically (blockers before dependents) so a
+            // hard-blocked child's StartTask only runs after its blocker
+            // completes — the gate enforces it, so this is the only way the
+            // blocked child can ever reach Done.
+            let mut remaining: Vec<&crate::actions::TaskSpec> = dec.children.iter().collect();
+            while !remaining.is_empty() {
+                let idx = remaining
+                    .iter()
+                    .position(|c| {
+                        !dec.hard_edges.iter().any(|(dep, blk, _)| {
+                            dep == &c.id && remaining.iter().any(|r| r.id == *blk)
+                        })
+                    })
+                    .expect("decomposition must be acyclic");
+                let child = remaining.remove(idx);
+                let assignee = AGENT_ENG; // all children to the engineer; QA reviews
+                let reviewer = AGENT_QA;
                 plan.push((
                     AGENT_PM.into(),
                     PmAction::AssignTask {
@@ -750,15 +762,34 @@ fn plan_onboard(
                         assignee: assignee.into(),
                     },
                 ));
-                let is_blocked = dec.hard_edges.iter().any(|(d, _, _)| d == &child.id);
-                if !is_blocked {
-                    plan.push((
-                        assignee.into(),
-                        PmAction::StartTask {
-                            task_id: child.id.clone(),
-                        },
-                    ));
-                }
+                plan.push((
+                    assignee.into(),
+                    PmAction::StartTask {
+                        task_id: child.id.clone(),
+                    },
+                ));
+                plan.push((
+                    assignee.into(),
+                    PmAction::CompleteTask {
+                        task_id: child.id.clone(),
+                        result: format!("{} done", child.title),
+                    },
+                ));
+                plan.push((
+                    assignee.into(),
+                    PmAction::RequestReview {
+                        task_id: child.id.clone(),
+                        reviewer: reviewer.into(),
+                    },
+                ));
+                plan.push((
+                    reviewer.into(),
+                    PmAction::ReviewTask {
+                        task_id: child.id.clone(),
+                        approved: true,
+                        note: Some("approved".into()),
+                    },
+                ));
             }
         }
     }

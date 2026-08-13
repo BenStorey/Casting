@@ -92,32 +92,51 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         .iter()
         .any(|d| { d.task == "feature-api" && d.blocking_task == "feature-db" }));
 
-    // The hard-blocked child is NOT started and shows as blocked-by db.
-    assert_eq!(
-        proj.blocked_by("feature-api"),
-        vec!["feature-db".to_string()]
-    );
-    let api = proj.tasks.iter().find(|t| t.id == "feature-api").unwrap();
-    assert_eq!(api.status, casting::projection::TaskStatus::Backlog);
-
-    // The READY children are started (kicked in parallel).
-    for ready in ["feature-db", "feature-ui", "feature-sec"] {
-        let t = proj.tasks.iter().find(|t| t.id == ready).unwrap();
+    // Subtasks are FIRST-CLASS tasks: driven through the exact same lifecycle
+    // as any other task (assign -> start -> complete -> submit -> review ->
+    // done), so every child reaches Done AND the join resolves.
+    for child in ["feature-db", "feature-api", "feature-ui", "feature-sec"] {
+        let t = proj.tasks.iter().find(|t| t.id == child).unwrap();
         assert_eq!(
             t.status,
-            casting::projection::TaskStatus::Working,
-            "{ready} should be kicked in parallel"
+            casting::projection::TaskStatus::Done,
+            "{child} should complete its full lifecycle (subtasks are tasks)"
         );
     }
-
-    // The graph surfaces the group + the ordering.
+    assert!(
+        proj.blocked_by("feature-api").is_empty(),
+        "dependency clears once the blocker is Done"
+    );
     let g = proj.graph();
     assert_eq!(g.groups.len(), 1, "feature is a join point");
-    let api_node = g.nodes.iter().find(|n| n.task_id == "feature-api").unwrap();
-    assert_eq!(api_node.blocked_by, vec!["feature-db".to_string()]);
     assert!(
-        !api_node.transitions.contains(&"start".to_string()),
-        "blocked child must not expose `start`"
+        g.groups[0].resolved,
+        "join resolves when all children reach Done"
+    );
+
+    // Ordering proof from the event log: feature-api could only have STARTED
+    // after feature-db COMPLETED (it's hard-blocked on db), so db's
+    // TaskCompleted must precede api's TaskStarted in sequence.
+    let events = state.store.read_since("proj", 0).unwrap();
+    let db_completed = events
+        .iter()
+        .find(|e| {
+            e.event_type == casting::event::EventType::TaskCompleted
+                && e.aggregate.id == "feature-db"
+        })
+        .map(|e| e.sequence)
+        .unwrap();
+    let api_started = events
+        .iter()
+        .find(|e| {
+            e.event_type == casting::event::EventType::TaskStarted
+                && e.aggregate.id == "feature-api"
+        })
+        .map(|e| e.sequence)
+        .unwrap();
+    assert!(
+        db_completed < api_started,
+        "api must start after its blocker db completes (got {db_completed} >= {api_started})"
     );
 }
 
