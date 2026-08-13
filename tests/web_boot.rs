@@ -59,6 +59,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/setup/status",
         "/api/context/owner",
         "/api/model",
+        "/api/graph",
         "/api/brief",
         "/api/request",
         "/api/diagram",

@@ -18,6 +18,7 @@ pub mod cursor;
 pub mod directive;
 pub mod event;
 pub mod git_observer;
+pub mod graph;
 pub mod integrity;
 pub mod mental;
 pub mod orchestrator;

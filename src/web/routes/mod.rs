@@ -28,7 +28,9 @@ use provenance::{provenance_commit_handler, provenance_decision_handler, provena
 use setup::{setup_handler, setup_status_handler};
 use state::{events_handler, events_stream, state_handler};
 use static_files::static_handler;
-use views::{context_handler, model_handler, persona_handler};
+use views::{
+    context_handler, graph_handler, graph_task_context_handler, model_handler, persona_handler,
+};
 
 /// Shared helper: append a single event to the store and return it as the JSON
 /// response. Collapses the repeated `state.append(ev)...Ok(Json(stored))`
@@ -93,6 +95,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/context/{actor}", get(context_handler))
         .route("/api/persona/{agent_id}", get(persona_handler))
         .route("/api/model", get(model_handler))
+        .route("/api/graph", get(graph_handler))
+        .route("/api/graph/task/{task_id}", get(graph_task_context_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
         .with_state(state)
