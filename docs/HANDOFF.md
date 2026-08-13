@@ -170,7 +170,8 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── web.rs                      <- axum facade: `mod routes; pub use routes::router` (§2.3)
 │   ├── web/routes/                 <- handlers + DTOs by concern: auth, setup, state, inbox, intake,
 │   │   │                              advisor, owner, provenance, views, static_files
-│   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5)
+│   ├── workspace.rs                <- ownership boundary: self-identity guard + git runner (D5) + worktree provisioning
+│   ├── port.rs                     <- deterministic collision-free worktree port allocation
 │   ├── git_observer.rs             <- semantic Git events from raw repo state (Git inc 2)
 │   ├── provenance.rs               <- "why does this code exist?" queries (Git inc 4)
 │   └── main.rs                     <- `cast` CLI (init, smoke, run, log)
@@ -181,7 +182,8 @@ see it recorded permanently, reload — everything persists (verified).
 │   ├── ownership_boundary.rs       <- 10 tests (self-identity guard, sandbox, state-dir, ensure_repo)
 │   ├── git_observer.rs             <- 11 tests (semantic Git events, ChangeSet auto-derive, merge)
 │   ├── provenance.rs               <- 3 tests (provenance chain: commit → task → requirement → owner)
-│   └── task_review.rs              <- 5 tests (review lifecycle: InReview, approved→Done, rejected→rework)
+│   ├── task_review.rs              <- 5 tests (review lifecycle: InReview, approved→Done, rejected→rework)
+│   └── worktree.rs                 <- 13 tests (isolated worktree provisioning, ports, commit surface, prune)
 ├── frontend/                       <- React + Vite + TypeScript SPA (§2.4)
 │   ├── dist/                       <- npm build output; GITIGNORED (build.rs writes a placeholder)
 │   ├── index.html, vite.config.ts, tsconfig.json, package.json
@@ -523,6 +525,15 @@ crates, Even Better TOML.
 ---
 
 # 5. Roadmap / what's next
+
+> **2026-08-12: WORKTREE ISOLATION BUILT.** Each summoned consultant is handed
+> an isolated git worktree (own branch, private Rust build target, distinct API
+> port) — provisioned by the platform at summon, never left to the LLM to
+> "remember". `ProvisionWorktree` action + fail-closed `StartTask` gate,
+> `CommitToChangeSet` (thin agent commit surface), `Workspace::provision_worktree/
+> remove_worktree/commit_in_worktree`, `src/port.rs` (deterministic ports),
+> reconciler prune of done/merged worktrees + port free, surfaced in agent
+> context + operating picture. **216 tests.** See §"Worktree isolation" below.
 
 The simulated vertical slice is DONE and verified. Next increments, in
 order (aligns with brief §45 priorities):
@@ -886,6 +897,44 @@ like the Git slice. Keep `EventType` a curated enum and extend it deliberately.
 > `open_state()/setup_state()`. **204 tests**, clippy 0, fmt clean. Deferred:
 > `pm.rs` `plan_onboard` policy extraction, `ev`/`linked`/`str` renames, a typed
 > `TriageVerdict` return.
+
+### Worktree isolation — CONSULTANTS WORK ISOLATED (owner decision 2026-08-12)
+
+**Isolation is a PLATFORM property, not an agent behavior.** Each summoned
+consultant is handed a ready isolated workspace — the platform never asks the
+LLM to "remember to use a worktree". The invariant (ADDENDUM §20 — "isolated,
+inspectable, reversible, reviewable before it affects protected state") is now
+structural, not prose. Owner's two added requirements: each worktree gets a
+**private Rust build target** and a **distinct API port** so concurrent
+consultants can't collide.
+
+- **Provisioning** (`Workspace::provision_worktree`): `git worktree add
+  <repo>/.casting/worktrees/<task_id> -b casting/<task_id>` off HEAD (`main`
+  untouched); worktrees are under the collocated, self-ignored `.casting/` dir.
+  Returns `ProvisionedWorktree { task_id, branch, path, cargo_target_dir, port }`.
+  A second pinned runner `git_command_for(worktree)` scopes git to a worktree.
+- **Action + gate**: `PmAction::ProvisionWorktree` → `WorktreeProvisioned`
+  event (reducer adds `Projection.worktrees` + auto-creates the Open ChangeSet
+  with the EXACT task→branch mapping — no branch-name guessing). **Fail-closed
+  `StartTask`**: a consultant cannot start a task until its worktree is
+  provisioned (owner/system-exempt).
+- **Thin agent git surface**: `PmAction::CommitToChangeSet` → `CommitRequested`
+  event + physical commit in the worktree via `Workspace::commit_in_worktree`
+  (with `-c` identity so it works in fresh repos). The agent owns CONTENT, the
+  platform owns ISOLATION — no raw `git` is exposed to agent code.
+- **Distinct ports** (`src/port.rs`): `allocate_port(projection)` = lowest free
+  port in `[base, base+1024)`, base 8081 (`CAST_WORKTREE_BASE_PORT`). The PM
+  allocates per-plan (tracking claimed ports so a plan provisioning several
+  worktrees doesn't collide).
+- **Reconciler prune**: `reconciler::prune_worktrees` tears down a worktree
+  (physical `git worktree remove` + `WorktreeRemoved` event) once its task is
+  Done or its ChangeSet Merged — freeing the port. Runs on the every-N-events
+  pass.
+- **Surfaced**: `AgentContext.worktree` (the consultant's desk — path, branch,
+  build target, port) and `OperatingModel.worktrees` (owner's view of every
+  active desk). Pure derivation, read by the D2 seam automatically.
+
+See `.hermes/plans/2026-08-12_160310-worktree-provisioning.md` for the design.
 
 ### Local Git (addendum §28, 18–27) — COMPLETE (4 increments built)
 All four increments are built, tested, and committed. The Git slice is
