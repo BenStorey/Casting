@@ -124,10 +124,27 @@ impl PostgresBackend {
                         // keep conn_client alive for the connection's lifetime? no-op
                         drop(conn_client);
                     });
+                    // Serialize schema creation across connections (lock key =
+                    // decimal 424242). Cargo runs the Postgres tests in
+                    // parallel, each opening its own backend thread +
+                    // connection, and concurrent CREATE TABLE IF NOT EXISTS on
+                    // the SAME table is a known Postgres race (one connection
+                    // loses a uniqueness check). The advisory lock makes the
+                    // first connection create the tables; the rest block, then
+                    // their IF NOT EXISTS is a harmless no-op. Unlocked right
+                    // after SCHEMA so serving isn't serialized.
+                    client
+                        .batch_execute("SELECT pg_advisory_lock(424242);")
+                        .await
+                        .map_err(|e| anyhow!(e.to_string()))?;
                     client
                         .batch_execute(SCHEMA)
                         .await
                         .map_err(|e| anyhow!(e.to_string()))?;
+                    client
+                        .batch_execute("SELECT pg_advisory_unlock(424242);")
+                        .await
+                        .ok();
 
                     // Serve jobs forever.
                     while let Ok(job) = rx.recv() {
