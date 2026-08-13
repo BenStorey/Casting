@@ -24,6 +24,8 @@ pub struct Requirement {
 }
 
 /// Where a task sits on the board (a projection of its lifecycle events).
+/// The CANONICAL position. The reader-facing `TaskState` (graph.rs) is derived
+/// OVER this — see docs/STATUS_MODELS.md for the mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
     #[serde(rename = "backlog")]

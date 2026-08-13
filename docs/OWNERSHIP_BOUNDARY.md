@@ -175,5 +175,5 @@ be an **explicit escape hatch**, not an implicit allowance:
 
 - The actual Git semantics (branches, ChangeSet, provenance) — ADDENDUM §18–30.
 - Whether each project might later hold its state at a user-chosen path, or a
-  `~/.casting/` convention — a later UX decision; for now `--project` collocates
-  `.casting/` inside the repo, self-ignored.
+  `~/.casting/` convention — a later UX decision; for now `cast run <dir>`
+  collocates `.casting/` inside the repo, self-ignored.

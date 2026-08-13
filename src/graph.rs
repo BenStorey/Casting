@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 /// The semantic state of a task, DERIVED from its lifecycle events. This is a
 /// richer, reader-facing classification layered *over* the low-level
 /// `TaskStatus` (which stays the canonical board position). Fully deterministic.
+/// See docs/STATUS_MODELS.md for the TaskStatus ↔ TaskState mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskState {

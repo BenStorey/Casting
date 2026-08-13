@@ -2,6 +2,10 @@
 
 ## PM Control Loop, Version Control & Code Provenance
 
+> **AUTHORITATIVE (kept current).** This is a live design doc — referenced
+> throughout the codebase as "brief §X". Update it when the PM loop, Git, or
+> provenance design changes; do not treat it as archival.
+
 **Status:** Architectural direction
 **Purpose:** Clarify two areas that are fundamental to turning Casting from an agent orchestration framework into an autonomous software company:
 

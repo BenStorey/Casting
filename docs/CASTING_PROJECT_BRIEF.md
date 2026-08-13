@@ -2,6 +2,10 @@
 
 ## Project Brief, Product Vision & Initial Architecture
 
+> **AUTHORITATIVE (vision, kept current).** This is the flagship product/vision
+> doc. The concrete, current implementation surface lives in `docs/HANDOFF.md`,
+> `docs/ADDENDUM.md`, and `docs/SEMANTIC_EVENTS.md`; this file is the "why".
+
 **Codename:** Casting\
 **Status:** Initial project definition\
 **Primary goal:** Build an autonomous software company in a box.
