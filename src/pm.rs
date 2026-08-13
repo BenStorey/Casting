@@ -378,15 +378,19 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     (Vec::new(), None)
                 } else {
                     let context = projection.context_for("pm");
+                    let correlation = format!("run-{}", e.sequence);
                     // The orchestrator is async + fallible now (a real provider
                     // call). On an LLM/provider error, record the failed pass in
                     // the diagnostics audit trail and produce no actions — no
-                    // spend beyond the failed call, no panics.
+                    // spend beyond the failed call, no panics. A flag keeps the
+                    // error audit from being followed by an empty success audit
+                    // (ONE OrchestrationRun per pass).
+                    let mut planning_failed = false;
                     let out = match orch.plan(&context, e).await {
                         Ok(out) => out,
                         Err(err) => {
                             eprintln!("[pm] orchestrator error: {err:#}");
-                            let correlation = format!("run-{}", e.sequence);
+                            planning_failed = true;
                             let _ = state.append(crate::event::Event::new(
                                 &state.project,
                                 crate::event::Actor::System,
@@ -398,7 +402,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                                 serde_json::json!({
                                     "trigger": format!("{:?}", e.event_type),
                                     "actor": "pm",
-                                    "correlation": correlation,
+                                    "correlation": correlation.clone(),
                                     "context_summary": crate::context::summary(&context),
                                     "error": format!("{err:#}"),
                                     "metered": false,
@@ -407,41 +411,42 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                             crate::orchestrator::PlanOutput::default()
                         }
                     };
-                    // Audit the planning pass: what the model saw + decided.
-                    // The "what did the LLM do on this trigger" trace.
-                    let correlation = format!("run-{}", e.sequence);
-                    let planned_strs = out
-                        .actions
-                        .iter()
-                        .map(|(who, a)| {
-                            format!("{who} -> {}", serde_json::to_string(a).unwrap_or_default())
-                        })
-                        .collect::<Vec<_>>();
-                    let m = out.metering.as_ref();
-                    let _ = state.append(crate::event::Event::new(
-                        &state.project,
-                        crate::event::Actor::System,
-                        crate::event::EventType::OrchestrationRun,
-                        crate::event::Aggregate {
-                            kind: "plan".into(),
-                            id: correlation.clone(),
-                        },
-                        serde_json::json!({
-                            "trigger": format!("{:?}", e.event_type),
-                            "actor": "pm",
-                            "correlation": correlation,
-                            "context_summary": crate::context::summary(&context),
-                            "planned": planned_strs,
-                            "metered": m.is_some(),
-                            "metering_agent": m.map(|x| x.agent_id.clone()),
-                            "provider": m.and_then(|x| x.provider.clone()),
-                            "model": m.and_then(|x| x.model.clone()),
-                            "prompt_tokens": m.map(|x| x.prompt_tokens).unwrap_or(0),
-                            "completion_tokens": m.map(|x| x.completion_tokens).unwrap_or(0),
-                            "latency_ms": m.map(|x| x.latency_ms).unwrap_or(0),
-                            "estimated_usd": m.map(|x| x.estimated_usd).unwrap_or(0.0),
-                        }),
-                    ));
+                    // Audit the planning pass ONLY if it didn't already emit the
+                    // error record above: what the model saw + decided.
+                    if !planning_failed {
+                        let planned_strs = out
+                            .actions
+                            .iter()
+                            .map(|(who, a)| {
+                                format!("{who} -> {}", serde_json::to_string(a).unwrap_or_default())
+                            })
+                            .collect::<Vec<_>>();
+                        let m = out.metering.as_ref();
+                        let _ = state.append(crate::event::Event::new(
+                            &state.project,
+                            crate::event::Actor::System,
+                            crate::event::EventType::OrchestrationRun,
+                            crate::event::Aggregate {
+                                kind: "plan".into(),
+                                id: correlation.clone(),
+                            },
+                            serde_json::json!({
+                                "trigger": format!("{:?}", e.event_type),
+                                "actor": "pm",
+                                "correlation": correlation.clone(),
+                                "context_summary": crate::context::summary(&context),
+                                "planned": planned_strs,
+                                "metered": m.is_some(),
+                                "metering_agent": m.map(|x| x.agent_id.clone()),
+                                "provider": m.and_then(|x| x.provider.clone()),
+                                "model": m.and_then(|x| x.model.clone()),
+                                "prompt_tokens": m.map(|x| x.prompt_tokens).unwrap_or(0),
+                                "completion_tokens": m.map(|x| x.completion_tokens).unwrap_or(0),
+                                "latency_ms": m.map(|x| x.latency_ms).unwrap_or(0),
+                                "estimated_usd": m.map(|x| x.estimated_usd).unwrap_or(0.0),
+                            }),
+                        ));
+                    }
                     (out.actions, out.metering)
                 }
             } else if projection.requirements.is_empty() {

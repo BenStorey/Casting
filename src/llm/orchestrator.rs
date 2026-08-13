@@ -50,33 +50,53 @@ impl LlmOrchestrator {
     /// The planning instruction block describing the output contract. Kept as
     /// a standalone method so tests can assert the model is told the rules.
     fn planning_instructions(&self) -> String {
-        // Enumerate the valid action vocabulary the model may emit (the gate
-        // is the hard authority; this is the legible contract).
-        let actions = concat!(
-            "create_task, assign_task, start_task, complete_task,\n",
-            "        request_review, review_task, commit_to_change_set,\n",
-            "        raise_risk, resolve_risk, record_assumption, record_constraint,\n",
-            "        record_opinion, record_fact, propose_decision, make_decision,\n",
-            "        send_message, create_observation, block_task, block_task_on,\n",
-            "        set_task_priority, decompose_task, propose_consultant, hire_agent,\n",
-            "        propose_directive_change, create_directive, no_op"
-        );
+        // Enumerate the valid action vocabulary the model may emit, WITH the
+        // exact required fields — the model must emit valid typed commands or
+        // the parse fails. The gate is the hard authority; this is the legible
+        // contract that makes the model's output parse.
+        let actions = r#"- create_task:      {"action":"create_task","id":str,"title":str,"kind":str}
+- assign_task:      {"action":"assign_task","task_id":str,"assignee":str}
+- start_task:       {"action":"start_task","task_id":str}
+- complete_task:    {"action":"complete_task","task_id":str,"result":str}
+- request_review:   {"action":"request_review","task_id":str,"reviewer":str}
+- review_task:      {"action":"review_task","task_id":str,"approved":bool,"note":str|null}
+- commit_to_change_set: {"action":"commit_to_change_set","task_id":str,"message":str}
+- raise_risk:       {"action":"raise_risk","id":str,"subject":str,"severity":str}
+- resolve_risk:     {"action":"resolve_risk","risk_id":str,"status":"open"|"materialized"|"resolved"}
+- record_assumption: {"action":"record_assumption","id":str,"body":str}
+- record_constraint: {"action":"record_constraint","id":str,"body":str}
+- record_opinion:   {"action":"record_opinion","id":str,"subject":str,"category":str,"statement":str,"supersedes":str|null}
+- record_fact:      {"action":"record_fact","id":str,"kind":str,"statement":str}
+- propose_decision: {"action":"propose_decision","id":str,"subject":str,"options":{...},"recommendation":str,"class":"internal_implementation"|"internal_refactor"|"add_consultant"|"testing_library"|"security_critical"|"production_deployment"|"product_requirement","involvement":"pm"|"ask"|"never"|"notify"}
+- make_decision:    {"action":"make_decision","decision_id":str,"approved":bool,"note":str|null}
+- send_message:     {"action":"send_message","to":str,"body":str}
+- create_observation: {"action":"create_observation","id":str,"severity":str,"subject":str,"body":str,"pm_action_required":bool}
+- block_task:       {"action":"block_task","task_id":str,"reason":str}
+- set_task_priority: {"action":"set_task_priority","task_id":str,"priority":"low"|"medium"|"high"|"critical"}
+- block_task_on:    {"action":"block_task_on","task_id":str,"blocking_task_id":str,"required_state":"backlog"|"working"|"in_review"|"blocked"|"done"}
+- propose_consultant: {"action":"propose_consultant","id":str,"subject":str,"role_id":str,"involvement":"pm"|"ask"|"never"}
+- no_op:            {"action":"no_op"}
+"#;
+
         format!(
             "You are the Project Manager for an autonomous software company.\n\
             \n\
             You act by emitting a list of VALID actions. Respond ONLY with a JSON \
-            object of the form {{\"actions\": [...]}} where each action is one of the \
-            following, serialized with an \"action\" tag:\n\
+            object of the form {{\"actions\": [...]}} where each element is ONE of the \
+            following, serialized exactly as shown (all fields required unless marked \
+            null|optional):\n\
             {actions}\n\
             \n\
-            Each action corresponds to a typed command the platform understands. \
-            Choose actions that make progress toward the objective given the current \
-            state. Every action is validated against policy afterwards, so only emit \
-            actions that are legal in the current state (e.g. do not start a task \
-            without a provisioned worktree, do not complete an unstarted task).\n\
-            \n\
-            Prefer a small, decisive set of actions. If there is genuinely nothing to \
-            do, emit {{\"actions\": []}}. Never invent actions outside the list above.\n\
+            Each action is a typed command the platform validates against policy \
+            afterwards. Emit actions that make progress toward the objective given \
+            the current operating context. Rules:\n\
+            - Include EVERY required field from the shape above; a missing field \
+              (e.g. send_message without \"to\") is a hard error.\n\
+            - Only emit actions that are legal in the current state (do not complete \
+              an unstarted task, do not use an id that already exists).\n\
+            - Prefer a small, decisive set of actions.\n\
+            - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
+            - Never invent actions outside the list above.\n\
             \n\
             IMPORTANT: output ONLY the JSON object, no prose, no markdown fences."
         )
@@ -110,7 +130,16 @@ impl LlmOrchestrator {
 
 #[async_trait::async_trait]
 impl Orchestrator for LlmOrchestrator {
-    async fn plan(&self, context: &AgentContext, _cause: &Event) -> Result<PlanOutput> {
+    async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
+        // The owner's message body (the trigger) must reach the model — the
+        // abstracted AgentContext keeps only derived state, whose objective is
+        // None before a Requirement exists. The raw ask is the thing to act on.
+        let ask = cause
+            .data
+            .get("body")
+            .and_then(|b| b.as_str())
+            .unwrap_or("")
+            .to_string();
         let user_payload = serde_json::to_string_pretty(context)?;
         let req = ChatRequest {
             model: self.config.model.clone(),
@@ -121,7 +150,10 @@ impl Orchestrator for LlmOrchestrator {
                 },
                 ChatMessage {
                     role: "user".into(),
-                    content: format!("Current operating context:\n{user_payload}"),
+                    content: format!(
+                        "The owner just said: \"{ask}\"\n\n\
+                         Current operating context:\n{user_payload}"
+                    ),
                 },
             ],
             temperature: None,

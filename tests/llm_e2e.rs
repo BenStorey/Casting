@@ -53,6 +53,13 @@ async fn boot_stub(actions_json: &'static str) -> (String, tokio::task::JoinHand
                     body["messages"].as_array().unwrap().len() >= 2,
                     "stub expected system+user"
                 );
+                // The owner's raw ask must reach the model (the abstracted
+                // AgentContext has objective=None before a Requirement exists).
+                let user_msg = body["messages"][1]["content"].as_str().unwrap_or("");
+                assert!(
+                    user_msg.contains("Build me a product."),
+                    "the owner's ask must be in the user message, got: {user_msg}"
+                );
 
                 let payload = json!({
                     "choices": [{"message": {"content": actions_json}}],
@@ -203,18 +210,21 @@ async fn malformed_model_reply_errors_without_panicking() {
         "a malformed reply should produce no domain actions"
     );
 
-    // The failed pass is audited in the event log (diagnostics trail).
-    let orch_run = state
+    // The failed pass is audited in the event log (diagnostics trail) EXACTLY
+    // ONCE — the error audit must not be followed by an empty success audit.
+    let orch_runs: Vec<_> = state
         .store
         .read_since("proj-llm", 0)
         .unwrap()
         .into_iter()
-        .find(|e| e.event_type == EventType::OrchestrationRun);
-    assert!(
-        orch_run.is_some(),
-        "expected an audited OrchestrationRun on failure"
+        .filter(|e| e.event_type == EventType::OrchestrationRun)
+        .collect();
+    assert_eq!(
+        orch_runs.len(),
+        1,
+        "a failed pass audits exactly ONE OrchestrationRun"
     );
-    assert!(orch_run.unwrap().data.get("error").is_some());
+    assert!(orch_runs[0].data.get("error").is_some());
 }
 
 /// The provider is config, not code: OpenRouter and LiteLLM resolve to their
