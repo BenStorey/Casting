@@ -94,6 +94,17 @@ jobs:
       - name: Build (embeds the real SPA)
         run: cargo build
 
+      - name: Configure git identity for the test repos
+        # The git-based tests (git_observer, provenance, ownership_boundary,
+        # worktree) build throwaway repos under tempdir and `git commit`; a
+        # fresh runner has no global user.name/user.email, so those commits
+        # would fail with "Please tell me who you are." Must be GLOBAL — the
+        # throwaway repos are separate from this checkout and only inherit
+        # global config.
+        run: |
+          git config --global user.name "Casting CI"
+          git config --global user.email "ci@casting.dev"
+
       - name: Test (Postgres service up -> integration tests run, not skip)
         run: cargo test
 
