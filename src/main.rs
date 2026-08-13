@@ -41,6 +41,9 @@ fn setup_state(
     if let Some(snaps) = snapshots {
         state = state.with_snapshots(snaps);
     }
+    if std::env::var("CAST_DECOMPOSE").is_ok() {
+        state = state.with_decompose();
+    }
     state
 }
 
@@ -564,6 +567,9 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         let mut state = AppState::new(store, cursors, PROJECT_ID).with_integrity();
         if let Some(snaps) = snapshots {
             state = state.with_snapshots(snaps);
+        }
+        if std::env::var("CAST_DECOMPOSE").is_ok() {
+            state = state.with_decompose();
         }
         let state = state
             .with_state_dir(ws.casting_dir().to_path_buf())

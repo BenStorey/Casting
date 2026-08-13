@@ -299,6 +299,8 @@ export interface GraphNode {
   parent_id: string | null;
   children: string[];
   awaiting_human: boolean;
+  /** Hard-dependency blockers still unsatisfied (nodes this one waits on). */
+  blocked_by: string[];
   /** State-derived causal steps ("why in this order"). */
   chain: string[];
   /** Currently-available transition ids from this node. */

@@ -69,6 +69,12 @@ function NodeCard({ node, highlightChildrenOf }: { node: GraphNode; highlightChi
           <div className="mt-2 text-xs text-primary">⊢ join point · {node.children.length} parallel subtask(s)</div>
         )}
 
+        {node.blocked_by.length > 0 && (
+          <div className="mt-1 text-[11px] font-medium text-amber-600">
+            ⏳ waiting on: {node.blocked_by.join(", ")}
+          </div>
+        )}
+
         {node.transitions.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {node.transitions.map((t) => (

@@ -78,6 +78,12 @@ pub struct AppState {
     /// worktrees (git worktree add) when a consultant is summoned. `None` in
     /// tests without a real repo.
     pub workspace: Option<Arc<crate::workspace::Workspace>>,
+    /// When true, the PM's onboard plan promotes cross-cutting requirements to
+    /// Feature Mode: decomposes them into parallel children and adds Blocker-Test
+    /// hard edges (ordering). Opt-in so the canonical demo flow + tests stay
+    /// flat by default; flip to default-on once the decomposed flow is proven.
+    /// Enabled via `with_decompose` / the `CAST_DECOMPOSE` env var.
+    pub decompose: bool,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -101,6 +107,7 @@ impl AppState {
             reconcile_interval: 25,
             reconcile_passes: crate::reconciler::default_passes(),
             workspace: None,
+            decompose: false,
             events: Arc::new(tx),
         }
     }
@@ -147,6 +154,13 @@ impl AppState {
     /// Builder-style: enforce write-time stream integrity on append.
     pub fn with_integrity(mut self) -> Self {
         self.enforce_integrity = true;
+        self
+    }
+
+    /// Builder-style: enable the PM's automatic Feature-Mode decomposition
+    /// (cross-cutting requirements fan out into parallel ordered children).
+    pub fn with_decompose(mut self) -> Self {
+        self.decompose = true;
         self
     }
 
@@ -687,6 +701,67 @@ fn plan_onboard(
     }
 
     let mut claimed_ports: std::collections::HashSet<u16> = std::collections::HashSet::new();
+
+    // Feature-Mode promotion (opt-in): if the requirement is cross-cutting, the
+    // PM decomposes it into parallel children and adds Blocker-Test hard edges
+    // so ordering is enforced by the gate, not left to chance. The created
+    // parent is the join point; children are kicked in parallel. Default off to
+    // keep the canonical demo flat + existing tests green (flip once proven).
+    if state.decompose {
+        if let Some(dec) = crate::graph::should_decompose("task-feature", "feature", &title) {
+            plan.push((
+                AGENT_PM.into(),
+                PmAction::CreateTask {
+                    id: dec.feature_id.clone(),
+                    title: format!("Feature: {title}"),
+                    kind: "feature".into(),
+                },
+            ));
+            plan.push((
+                AGENT_PM.into(),
+                PmAction::DecomposeTask {
+                    parent: dec.feature_id.clone(),
+                    children: dec.children.clone(),
+                },
+            ));
+            for (dependent, blocker, required) in &dec.hard_edges {
+                plan.push((
+                    AGENT_PM.into(),
+                    PmAction::BlockTaskOn {
+                        task_id: dependent.clone(),
+                        blocking_task_id: blocker.clone(),
+                        required_state: *required,
+                    },
+                ));
+            }
+            // Kick the READY children in parallel (assigned + started). The
+            // hard-blocked child (e.g. feature-api) stays QUEUED — the gate
+            // rejects its start until its blocker reaches Done.
+            for child in &dec.children {
+                let assignee = if child.kind == "security" {
+                    AGENT_QA
+                } else {
+                    AGENT_ENG
+                };
+                plan.push((
+                    AGENT_PM.into(),
+                    PmAction::AssignTask {
+                        task_id: child.id.clone(),
+                        assignee: assignee.into(),
+                    },
+                ));
+                let is_blocked = dec.hard_edges.iter().any(|(d, _, _)| d == &child.id);
+                if !is_blocked {
+                    plan.push((
+                        assignee.into(),
+                        PmAction::StartTask {
+                            task_id: child.id.clone(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
 
     // Structural isolation (2026-08-12): before any consultant STARTS a task,
     // the platform provisions its isolated worktree (own branch/build-target/
