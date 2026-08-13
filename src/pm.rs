@@ -319,6 +319,41 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 } else {
                     let context = projection.context_for("pm");
                     let out = orch.plan(&context, e);
+                    // Audit the planning pass: what the model saw + decided.
+                    // The "what did the LLM do on this trigger" trace.
+                    let correlation = format!("run-{}", e.sequence);
+                    let planned_strs = out
+                        .actions
+                        .iter()
+                        .map(|(who, a)| {
+                            format!("{who} -> {}", serde_json::to_string(a).unwrap_or_default())
+                        })
+                        .collect::<Vec<_>>();
+                    let m = out.metering.as_ref();
+                    let _ = state.append(crate::event::Event::new(
+                        &state.project,
+                        crate::event::Actor::System,
+                        crate::event::EventType::OrchestrationRun,
+                        crate::event::Aggregate {
+                            kind: "plan".into(),
+                            id: correlation.clone(),
+                        },
+                        serde_json::json!({
+                            "trigger": format!("{:?}", e.event_type),
+                            "actor": "pm",
+                            "correlation": correlation,
+                            "context_summary": crate::context::summary(&context),
+                            "planned": planned_strs,
+                            "metered": m.is_some(),
+                            "metering_agent": m.map(|x| x.agent_id.clone()),
+                            "provider": m.and_then(|x| x.provider.clone()),
+                            "model": m.and_then(|x| x.model.clone()),
+                            "prompt_tokens": m.map(|x| x.prompt_tokens).unwrap_or(0),
+                            "completion_tokens": m.map(|x| x.completion_tokens).unwrap_or(0),
+                            "latency_ms": m.map(|x| x.latency_ms).unwrap_or(0),
+                            "estimated_usd": m.map(|x| x.estimated_usd).unwrap_or(0.0),
+                        }),
+                    ));
                     (out.actions, out.metering)
                 }
             } else if projection.requirements.is_empty() {
@@ -391,6 +426,25 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             Ok(()) => {}
             Err(e) => {
                 eprintln!("[pm] policy gate rejected {who} action: {e}");
+                // Audit the refusal in the event log so a misbehaving plan
+                // (esp. the real LLM) is visible in the UI/stream, not just
+                // stderr. Serialized PmAction + reason => exactly what was
+                // attempted and why it was refused.
+                let _ = state.append(crate::event::Event::new(
+                    &state.project,
+                    crate::event::Actor::System,
+                    crate::event::EventType::PlanActionRejected,
+                    crate::event::Aggregate {
+                        kind: "plan".into(),
+                        id: correlation.clone(),
+                    },
+                    serde_json::json!({
+                        "who": who,
+                        "action": serde_json::to_string(&action).unwrap_or_default(),
+                        "reason": e.to_string(),
+                        "correlation": correlation.clone(),
+                    }),
+                ));
                 rejected += 1;
                 continue;
             }

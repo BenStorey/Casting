@@ -11,10 +11,11 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub use crate::types::{
-    Agent, Assumption, Branch, Briefing, BriefingAsset, BriefingStatus, ChangeSet, ChangeSetStatus,
-    Commit, Constraint, CostEntry, Decision, DecisionStatus, Diagram, ExternalRequest,
-    ExternalRequestStatus, Fact, Merge, Message, Observation, Opinion, OpinionStatus, Requirement,
-    Risk, RiskStatus, Task, TaskDependency, TaskReview, TaskStatus, Worktree,
+    ActionRejection, Agent, Assumption, Branch, Briefing, BriefingAsset, BriefingStatus, ChangeSet,
+    ChangeSetStatus, Commit, Constraint, CostEntry, Decision, DecisionStatus, Diagram,
+    ExternalRequest, ExternalRequestStatus, Fact, Merge, Message, Observation, Opinion,
+    OpinionStatus, OrchestrationRun, Requirement, Risk, RiskStatus, Task, TaskDependency,
+    TaskReview, TaskStatus, Worktree,
 };
 
 /// The full current-state projection for a project.
@@ -78,6 +79,12 @@ pub struct Projection {
     /// decisions). Recomputed at build() from the folded projection — this is
     /// current state, never stored authoritative (SEMANTIC_EVENTS.md).
     pub plan: crate::plan::ProjectPlan,
+    /// Diagnostics audit trail (2026-08): refused PM actions (`PlanActionRejected`)
+    /// and recorded orchestrator planning passes (`OrchestrationRun`). Derived
+    /// read-side records so misbehaving plans are visible in the UI, never
+    /// just printed to a server log.
+    pub rejections: Vec<ActionRejection>,
+    pub orchestration: Vec<OrchestrationRun>,
 }
 
 impl Projection {
@@ -557,6 +564,58 @@ impl Projection {
             EventType::ActivityScheduled => {}
             EventType::ActivityCompleted => {}
             EventType::ActivityFailed => {}
+            EventType::PlanActionRejected => {
+                self.rejections.push(ActionRejection {
+                    who: string_field(e, "who").unwrap_or_default(),
+                    action: string_field(e, "action").unwrap_or_default(),
+                    reason: string_field(e, "reason").unwrap_or_default(),
+                    correlation: string_field(e, "correlation"),
+                    at: e.timestamp.to_string(),
+                });
+            }
+            EventType::OrchestrationRun => {
+                let planned: Vec<String> = e
+                    .data
+                    .get("planned")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                self.orchestration.push(OrchestrationRun {
+                    trigger: string_field(e, "trigger").unwrap_or_default(),
+                    actor: string_field(e, "actor").unwrap_or_default(),
+                    correlation: string_field(e, "correlation").unwrap_or_default(),
+                    context_summary: string_field(e, "context_summary").unwrap_or_default(),
+                    planned,
+                    metered: e
+                        .data
+                        .get("metered")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    metering_agent: string_field(e, "metering_agent"),
+                    provider: string_field(e, "provider"),
+                    model: string_field(e, "model"),
+                    prompt_tokens: e
+                        .data
+                        .get("prompt_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    completion_tokens: e
+                        .data
+                        .get("completion_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    latency_ms: e
+                        .data
+                        .get("latency_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    estimated_usd: e
+                        .data
+                        .get("estimated_usd")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0),
+                    at: e.timestamp.to_string(),
+                });
+            }
             EventType::DecisionPolicyChanged => {
                 // Rebind the owner-involvement for the decision class (brief §5).
                 // Event-sourced: the projection's policy is derived from the log.

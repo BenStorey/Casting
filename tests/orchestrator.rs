@@ -216,3 +216,149 @@ async fn orchestrator_metering_lands_cost_in_the_event_log() {
     );
     assert_eq!(m.spend.avg_latency_ms, Some(150.0));
 }
+
+#[tokio::test]
+async fn orchestrator_records_a_planning_run_in_diagnostics() {
+    // G3: every orchestrator planning pass is audited as an OrchestrationRun
+    // event + surfaced in /api/model diagnostics — the "what did the model see
+    // & decide on this trigger" trace for testing the LLM seam.
+    let state = make_state().with_orchestrator(Arc::new(MockOrchestrator));
+    for (etype, id, kind, actor, data) in [
+        (
+            EventType::ProjectCreated,
+            "proj-orch",
+            "project",
+            Actor::System,
+            serde_json::json!({}),
+        ),
+        (
+            EventType::AgentHired,
+            "pm",
+            "agent",
+            Actor::System,
+            serde_json::json!({ "role": "Project Manager" }),
+        ),
+        (
+            EventType::RequirementCreated,
+            "req-1",
+            "requirement",
+            Actor::Agent { id: "pm".into() },
+            serde_json::json!({ "title": "R", "description": "x" }),
+        ),
+        (
+            EventType::MessageSent,
+            "msg-1",
+            "message",
+            Actor::Owner,
+            serde_json::json!({ "body": "Build me a thing" }),
+        ),
+    ] {
+        state
+            .append(Event::new(
+                "proj-orch",
+                actor,
+                etype,
+                Aggregate {
+                    kind: kind.into(),
+                    id: id.into(),
+                },
+                data,
+            ))
+            .unwrap();
+    }
+
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "proj-orch").unwrap();
+    assert_eq!(
+        proj.orchestration.len(),
+        1,
+        "one orchestrator planning pass should be recorded"
+    );
+    let run = &proj.orchestration[0];
+    assert_eq!(run.trigger, "MessageSent");
+    assert_eq!(run.actor, "pm");
+    assert!(
+        run.context_summary.contains("objective="),
+        "context summary tells the reader what was handed in: {}",
+        run.context_summary
+    );
+    assert!(
+        run.planned.iter().any(|p| p.contains("\"create_task\"")),
+        "recorded what the model decided to do: {:?}",
+        run.planned
+    );
+    assert!(run.metered, "the planning branch reported metering");
+    assert_eq!(run.provider.as_deref(), Some("openrouter"));
+    assert_eq!(run.estimated_usd, 0.0018);
+
+    // And it surfaces in the operating picture diagnostics surface.
+    let m = proj.operating_model();
+    assert_eq!(m.diagnostics.orchestration_count, 1);
+    assert_eq!(
+        m.diagnostics.recent_orchestration[0].correlation,
+        run.correlation
+    );
+}
+
+#[tokio::test]
+async fn rejected_action_is_audited_in_diagnostics() {
+    // G2: a proposed action refused by the policy gate is recorded as a
+    // PlanActionRejected event (audit trail), not just dropped to stderr.
+    let state = make_state().with_orchestrator(Arc::new(MockOrchestrator));
+    state
+        .append(Event::new(
+            "proj-orch",
+            Actor::System,
+            EventType::ProjectCreated,
+            Aggregate {
+                kind: "project".into(),
+                id: "proj-orch".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
+    state
+        .append(Event::new(
+            "proj-orch",
+            Actor::System,
+            EventType::AgentHired,
+            Aggregate {
+                kind: "agent".into(),
+                id: "pm".into(),
+            },
+            serde_json::json!({ "role": "Project Manager" }),
+        ))
+        .unwrap();
+
+    // Simulate a gate refusal exactly as run_planned emits it: who proposed it,
+    // the serialized action that was refused, and the reason.
+    state
+        .append(Event::new(
+            "proj-orch",
+            Actor::System,
+            EventType::PlanActionRejected,
+            Aggregate { kind: "plan".into(), id: "run-1".into() },
+            serde_json::json!({
+                "who": "pm",
+                "action": serde_json::json!({"action":"start_task","task_id":"no-such-task"}).to_string(),
+                "reason": "TaskNotFound",
+                "correlation": "run-1",
+            }),
+        ))
+        .unwrap();
+
+    let proj = Projection::build(&state.store, "proj-orch").unwrap();
+    assert_eq!(proj.rejections.len(), 1);
+    let rej = &proj.rejections[0];
+    assert_eq!(rej.who, "pm");
+    assert!(rej.action.contains("start_task"));
+    assert_eq!(rej.reason, "TaskNotFound");
+
+    let m = proj.operating_model();
+    assert_eq!(m.diagnostics.rejection_count, 1);
+    assert_eq!(
+        m.diagnostics.recent_rejections[0].correlation.as_deref(),
+        Some("run-1")
+    );
+}

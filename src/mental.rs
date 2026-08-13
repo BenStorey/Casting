@@ -49,6 +49,10 @@ pub struct OperatingModel {
     /// Signals a stale/inconsistent state (e.g. same-subject opinion
     /// contradiction the reconciler hasn't fixed yet) the owner may want to see.
     pub drift_signals: Vec<String>,
+    /// Diagnostics audit trail (2026-08): refused PM actions + recorded
+    /// orchestrator planning passes — the "what failed / what did the model
+    /// do" surface for testing the LLM seam.
+    pub diagnostics: DiagnosticsView,
 }
 
 /// A consultant's isolated workspace, as surfaced in the operating picture.
@@ -106,6 +110,21 @@ pub struct BudgetView {
     pub status: String,
     /// Current spend as a fraction of the limit (0..1+, 0 when unset).
     pub spend_fraction: f64,
+}
+
+/// The diagnostics audit trail (2026-08): refused PM actions + recorded
+/// orchestrator planning passes. Surface (not the event log) for "what did
+/// the model try, and what was refused / what did it cost."
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DiagnosticsView {
+    /// Total refused actions (count, for a badge).
+    pub rejection_count: usize,
+    /// Most recent refusals, newest first (bounded).
+    pub recent_rejections: Vec<crate::projection::ActionRejection>,
+    /// Total recorded orchestrator passes.
+    pub orchestration_count: usize,
+    /// Most recent orchestrator passes, newest first (bounded).
+    pub recent_orchestration: Vec<crate::projection::OrchestrationRun>,
 }
 
 /// Governance posture (directives + decision policy + open decisions).
@@ -433,6 +452,12 @@ impl crate::projection::Projection {
                 })
                 .collect(),
             drift_signals,
+            diagnostics: DiagnosticsView {
+                rejection_count: self.rejections.len(),
+                recent_rejections: self.rejections.iter().rev().take(20).cloned().collect(),
+                orchestration_count: self.orchestration.len(),
+                recent_orchestration: self.orchestration.iter().rev().take(20).cloned().collect(),
+            },
         }
     }
 }

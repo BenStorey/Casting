@@ -68,6 +68,31 @@ pub struct WorktreeInfo {
     pub port: u16,
 }
 
+/// A compact one-line summary of an assembled context — used by the diagnostic
+/// `OrchestrationRun` record so a reader can see what the model was handed
+/// without re-deriving the whole context.
+pub fn summary(ctx: &AgentContext) -> String {
+    let obj = ctx
+        .objective
+        .as_deref()
+        .map(|o| {
+            if o.len() > 80 {
+                format!("{}…", &o[..80])
+            } else {
+                o.to_string()
+            }
+        })
+        .unwrap_or_else(|| "<no objective>".to_string());
+    format!(
+        "objective=\"{obj}\"; priorities={} my_tasks={} directives={} risks={} decisions={}",
+        ctx.priorities.len(),
+        ctx.my_tasks.len(),
+        ctx.active_directives.len(),
+        ctx.open_risks.len(),
+        ctx.open_decisions.len(),
+    )
+}
+
 impl crate::projection::Projection {
     /// Assemble the operating context for `actor` (agent id, "owner", or "pm").
     pub fn context_for(&self, actor: &str) -> AgentContext {

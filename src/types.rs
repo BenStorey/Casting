@@ -467,3 +467,58 @@ pub struct Worktree {
     /// Distinct API port so concurrent dev servers can run in parallel.
     pub port: u16,
 }
+
+// --- Diagnostics / audit trail (2026-08) -------------------------------------
+// Read-side diagnostic records projected from `PlanActionRejected` /
+// `OrchestrationRun` events. They exist so a misbehaving plan (esp. the real
+// LLM, once wired) is auditable in the UI and the event log, not just printed
+// to a server log. The event log remains the authority; these are derived.
+
+/// A proposed PM action that the policy gate refused. `action` is the
+/// serialized `PmAction` so the exact thing the model tried is visible.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ActionRejection {
+    /// The actor label that proposed the action ("pm", an agent id, ...).
+    pub who: String,
+    /// Serialized `PmAction` (serde) — what was actually attempted.
+    pub action: String,
+    /// The gate's refusal reason.
+    pub reason: String,
+    /// Correlation run id of the planning pass that produced it.
+    pub correlation: Option<String>,
+    pub at: String,
+}
+
+/// One recorded orchestrator planning pass (the D2 seam): what context was
+/// handed in, what actions the orchestrator returned, and the call's metering.
+/// The "what did the model see & decide on this trigger" trace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OrchestrationRun {
+    /// The triggering event type that caused this planning pass.
+    pub trigger: String,
+    /// The actor being orchestrated (typically "pm").
+    pub actor: String,
+    /// The correlation run id this planning pass produced.
+    pub correlation: String,
+    /// The context summary handed in (objective + priority/task counts), so a
+    /// reader can tell what the model saw without re-deriving it.
+    pub context_summary: String,
+    /// The planned actions (serialized list of `PlannedAction`), each as
+    /// `"who -> PmAction"` — what the model decided to do.
+    pub planned: Vec<String>,
+    /// Whether a real provider call produced metering (cost) this pass.
+    pub metered: bool,
+    /// The agent the metering was attributed to, if metered.
+    pub metering_agent: Option<String>,
+    /// The provider that served the call, if metered.
+    pub provider: Option<String>,
+    /// The model that ran, if metered.
+    pub model: Option<String>,
+    /// Prompt + completion tokens, if metered.
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub latency_ms: u64,
+    /// Estimated USD cost of the pass, if metered.
+    pub estimated_usd: f64,
+    pub at: String,
+}

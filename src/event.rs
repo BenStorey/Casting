@@ -190,6 +190,17 @@ pub enum EventType {
     WorkPaused,
     /// The owner (or a guard clearing its own pause) resumes work.
     WorkResumed,
+    // --- Diagnostics / audit trail (2026-08) ---
+    /// A proposed PM action (from the scripted plans OR the D2 orchestrator /
+    /// real LLM) was refused by the policy gate. Records WHO proposed it, WHAT
+    /// action, and WHY it was rejected — so a misbehaving model's plan is
+    /// auditable instead of being silently dropped to a server log.
+    PlanActionRejected,
+    /// An orchestrator planning pass was recorded: what context was handed in,
+    /// what actions the orchestrator returned, and the call's metering. The
+    /// "what did the model see & decide on this trigger" trace for testing the
+    /// LLM seam end-to-end.
+    OrchestrationRun,
 }
 
 /// The entity primarily affected by an event.
