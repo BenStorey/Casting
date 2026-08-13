@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { identityForAgent } from "./cast";
+import { identityForAgent } from "./identities";
 import Overview from "./Overview";
 import GraphView from "./GraphView";
 import {
@@ -44,21 +44,21 @@ const TASK_COLUMNS: { key: TaskStatus; label: string }[] = [
 
 const AGENT_NAMES: Record<string, string> = {
   pm: "Sarah Chen · PM",
-  "marcus-reed": "Marcus Reed · Engineering",
-  "maya-patel": "Maya Patel · QA",
 };
 
 function agentLabel(id: string): string {
-  return AGENT_NAMES[id] ?? id;
+  const c = useCastStore.getState().consultants;
+  return identityForAgent(id, "", c)?.name ?? AGENT_NAMES[id] ?? id;
 }
 
 function agentName(id: string): string {
-  const identity = identityForAgent(id, "");
-  return identity?.stable_name ?? AGENT_NAMES[id]?.split(" · ")[0] ?? id;
+  const c = useCastStore.getState().consultants;
+  return identityForAgent(id, "", c)?.name ?? AGENT_NAMES[id]?.split(" · ")[0] ?? id;
 }
 
 function agentAvatar(id: string): string | undefined {
-  return identityForAgent(id, "")?.avatar;
+  const c = useCastStore.getState().consultants;
+  return identityForAgent(id, "", c)?.avatar ?? undefined;
 }
 
 export default function App() {
@@ -67,6 +67,7 @@ export default function App() {
   const state = useCastStore((s) => s.state);
   const model = useCastStore((s) => s.model);
   const graph = useCastStore((s) => s.graph);
+  const consultants = useCastStore((s) => s.consultants);
   const inbox = useCastStore((s) => s.inbox);
   const errors = useCastStore((s) => s.errors);
   const refresh = useCastStore((s) => s.refresh);
@@ -136,7 +137,7 @@ export default function App() {
             {tab === "graph" && <GraphView graph={graph} />}
             {tab === "chat" && <Chat state={state} onSent={refresh} />}
             {tab === "board" && <Board tasks={state.tasks} onOpenTask={setOpenTask} />}
-            {tab === "team" && <Team agents={state.agents} />}
+            {tab === "team" && <Team agents={state.agents} consultants={consultants} />}
             {tab === "decisions" && (
               <Decisions decisions={state.decisions} onDecide={refresh} />
             )}
@@ -270,13 +271,19 @@ function Board({
   );
 }
 
-function Team({ agents }: { agents: Projection["agents"] }) {
+function Team({
+  agents,
+  consultants,
+}: {
+  agents: Projection["agents"];
+  consultants: import("./api").ConsultantConfig[];
+}) {
   return (
     <div>
       {agents.length === 0 && <Card className="muted"><CardContent className="pt-6">No one hired yet.</CardContent></Card>}
       <div className="grid gap-3 sm:grid-cols-2">
         {agents.map((a) => {
-          const identity = identityForAgent(a.id, a.role);
+          const identity = identityForAgent(a.id, a.role, consultants);
           const avatar = identity?.avatar ?? agentAvatar(a.id);
           return (
             <Card key={a.id}>

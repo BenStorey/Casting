@@ -12,11 +12,13 @@
 // instead of masquerading as "all quiet".
 import { create } from "zustand";
 import {
+  ConsultantConfig,
   EventEnvelope,
   GraphView,
   Inbox,
   OperatingModel,
   Projection,
+  fetchConsultants,
   fetchEvents,
   fetchGraph,
   fetchInbox,
@@ -39,6 +41,9 @@ interface CastStore {
   model: OperatingModel | null;
   /** The derived graph view (`/api/graph`) — nodes + groups + tokens. */
   graph: GraphView | null;
+  /** The consultant registry (`/api/consultants`) — identity/meta for every
+   *  available (default + user-added) consultant. Configuration, not authority. */
+  consultants: ConsultantConfig[];
   inbox: Inbox | null;
   events: EventEnvelope[];
   /** Per-resource fetch errors from the last refresh (empty = all good). */
@@ -75,6 +80,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
   state: null,
   model: null,
   graph: null,
+  consultants: [],
   inbox: null,
   events: [],
   errors: [],
@@ -88,7 +94,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
     // whole snapshot silently and isn't reported as an opaque "Error".
     const errors: ResourceError[] = [];
     try {
-      const [s, m, g, i, e] = await Promise.all([
+      const [s, m, g, c, i, e] = await Promise.all([
         fetchWithError("state", fetchState).catch((err) => {
           errors.push({ resource: "state", message: String(err), at: Date.now() });
           return null;
@@ -100,6 +106,10 @@ export const useCastStore = create<CastStore>((set, get) => ({
         fetchWithError("graph", fetchGraph).catch((err) => {
           errors.push({ resource: "graph", message: String(err), at: Date.now() });
           return null;
+        }),
+        fetchWithError("consultants", fetchConsultants).catch((err) => {
+          errors.push({ resource: "consultants", message: String(err), at: Date.now() });
+          return [];
         }),
         fetchWithError("inbox", fetchInbox).catch((err) => {
           errors.push({ resource: "inbox", message: String(err), at: Date.now() });
@@ -114,6 +124,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
         state: s ?? cur.state,
         model: m ?? cur.model,
         graph: g ?? cur.graph,
+        consultants: c,
         inbox: i ?? cur.inbox,
         events: e.map((x) => ({ ...x, actor: actorName(x.actor) })),
         // Auto-clear errors that recovered; keep only still-failing resources.

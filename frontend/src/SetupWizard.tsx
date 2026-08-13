@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { fetchSetupStatus, submitSetup, SetupRole, SetupStatus } from "./api";
+import { useCastStore } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PM_IDENTITY, ROLE_IDENTITIES } from "./cast";
+import { PM_IDENTITY } from "./identities";
 
 /// First-run onboarding — an in-character, stepped experience.
 /// Sarah Chen (the Project Manager) introduces herself, explains the setup,
@@ -22,6 +23,11 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [ownerToken, setOwnerToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // The consultant registry (identity/avatar per role) — config owned by the
+  // backend, so a user-added/renamed consultant shows up here too.
+  const consultants = useCastStore((s) => s.consultants);
+  const byRole = (roleId: string) => consultants.find((c) => c.role === roleId);
 
   useEffect(() => {
     fetchSetupStatus().then(setStatus).catch((e) => setErr(String(e)));
@@ -59,7 +65,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     <div className="app max-w-2xl">
       <div className="flex items-start gap-4">
         <img
-          src={PM_IDENTITY.avatar}
+          src={PM_IDENTITY.avatar ?? ""}
           alt={PM_IDENTITY.name}
           className="h-16 w-16 rounded-2xl shrink-0"
         />
@@ -95,15 +101,15 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               </p>
               <div className="flex flex-col gap-2">
                 {["engineer", "qa"].map((roleId) => {
-                  const m = ROLE_IDENTITIES[roleId];
+                  const m = byRole(roleId);
                   if (!m) return null;
                   return (
                     <div key={m.id} className="flex items-center gap-3 border rounded-lg p-2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={m.avatar} alt={m.name} className="h-10 w-10 rounded-lg" />
+                      <img src={m.avatar ?? ""} alt={m.name} className="h-10 w-10 rounded-lg" />
                       <div>
                         <div className="text-sm font-medium">{m.name}</div>
-                        <div className="text-xs text-muted-foreground">{m.role}</div>
+                        <div className="text-xs text-muted-foreground">{m.title}</div>
                       </div>
                     </div>
                   );
@@ -123,7 +129,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               </p>
               <div className="flex flex-wrap gap-2">
                 {roles.map((r) => {
-                  const meta = ROLE_IDENTITIES[r.id];
+                  const meta = byRole(r.id);
                   const on = selected.has(r.id);
                   return (
                     <button
@@ -137,7 +143,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
                           : "border-border bg-card text-muted-foreground hover:text-foreground")
                       }
                     >
-                      <img src={meta?.avatar} alt="" className="h-6 w-6 rounded-full" />
+                      <img src={meta?.avatar ?? ""} alt="" className="h-6 w-6 rounded-full" />
                       {meta?.name ?? r.title}
                       <span className="text-xs opacity-70">{r.scope}</span>
                     </button>
@@ -192,7 +198,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               </label>
               <div className="text-xs text-muted-foreground">
                 Your team: {Array.from(selected)
-                  .map((id) => ROLE_IDENTITIES[id]?.name ?? id)
+                  .map((id) => byRole(id)?.name ?? id)
                   .join(", ")}{" "}
                 — Objective: <Badge variant="secondary">{objective.trim() || "…"}</Badge>
               </div>

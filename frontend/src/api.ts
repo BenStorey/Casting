@@ -153,6 +153,40 @@ export function fetchEvents(after = 0): Promise<EventEnvelope[]> {
   return j<EventEnvelope[]>(`/api/events?after=${after}`);
 }
 
+// ---- Consultants (/api/consultants) -----------------------------------------
+// Mirrors src/consultants ConsultantConfig — the loadable, shareable team
+// packages. Configuration, never authority (who's hired stays in /api/state).
+
+export interface ConsultantConfig {
+  id: string;
+  name: string;
+  title: string;
+  role: string; // catalog role id
+  role_title: string;
+  scope: string;
+  avatar: string | null;
+  summary: string | null;
+  system_prompt_file: string | null;
+  system_prompt: string | null;
+  routing: {
+    specializations: string[];
+    trigger_patterns: string[];
+    auto_join: boolean;
+  };
+  model: {
+    provider: string | null;
+    model_id: string | null;
+    cost_tier: string;
+    temperature: number | null;
+    max_tokens: number | null;
+  };
+  verification: { review_required: boolean };
+}
+
+export function fetchConsultants(): Promise<ConsultantConfig[]> {
+  return j<ConsultantConfig[]>("/api/consultants");
+}
+
 // ---- Diagnostics audit trail (/api/model) -----------------------------------
 
 export interface ActionRejection {

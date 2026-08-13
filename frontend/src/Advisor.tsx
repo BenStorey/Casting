@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ADVISOR_IDENTITY } from "./cast";
+import { ADVISOR_IDENTITY } from "./identities";
 import { Message, handoffAdvisor, sendToAdvisor } from "./api";
 
 /// The Direction Advisor — a special second role the owner talks to directly.
@@ -52,7 +52,7 @@ export default function Advisor({ thread, onChanged }: { thread: Message[]; onCh
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <img src={ADVISOR_IDENTITY.avatar} alt={ADVISOR_IDENTITY.name} className="h-12 w-12 rounded-xl" />
+          <img src={ADVISOR_IDENTITY.avatar ?? ""} alt={ADVISOR_IDENTITY.name} className="h-12 w-12 rounded-xl" />
           <div>
             <CardTitle className="text-base">{ADVISOR_IDENTITY.name}</CardTitle>
             <CardDescription>
