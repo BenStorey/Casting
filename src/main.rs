@@ -70,6 +70,32 @@ impl ProjectPaths {
     }
 }
 
+/// Load the consultant registry for a project: the curated embedded defaults
+/// overlaid by any user-supplied packages in `<project>/.casting/consultants/`
+/// (drop a `.toml` to add a consultant, reuse its `id` to override a default).
+/// A malformed user package is surfaced (not silently dropped); a missing
+/// directory is a no-op.
+fn load_consultants(
+    ws: &std::sync::Arc<casting::workspace::Workspace>,
+) -> std::sync::Arc<casting::consultants::ConsultantRegistry> {
+    let mut reg = casting::consultants::ConsultantRegistry::from_embedded().unwrap_or_default();
+    let dir = ws.casting_dir().join("consultants");
+    match reg.overlay_dir(&dir) {
+        Ok(n) if n > 0 => {
+            println!(
+                "🧑‍💼 loaded {n} user consultant package(s) from {}",
+                dir.display()
+            );
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!(
+            "⚠️  [consultants] ignoring overlay {}: {e:#}",
+            dir.display()
+        ),
+    }
+    std::sync::Arc::new(reg)
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("help");
@@ -581,7 +607,11 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
             .with_state_dir(ws.casting_dir().to_path_buf())
             // Attach the workspace so the PM can physically provision isolated
             // worktrees when a consultant is summoned (2026-08-12).
-            .with_workspace(ws.clone());
+            .with_workspace(ws.clone())
+            // The consultant registry: curated embedded defaults overlaid by
+            // any user-supplied packages in <project>/.casting/consultants/
+            // (drop a .toml to add a consultant, reuse an id to override one).
+            .with_consultants(load_consultants(&ws));
         // Owner auth: the token comes from the persisted setup config.json
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:

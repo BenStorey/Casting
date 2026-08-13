@@ -1,0 +1,26 @@
+# Priya Sharma — a DevOps / SRE specialist. Offered in the catalog, NOT in the
+# default cast (auto_join = false): summoned per-task when infra work lands.
+
+[consultant]
+id            = "priya-sharma"
+name          = "Priya Sharma"
+title         = "DevOps / SRE"
+role          = "devops"
+avatar        = "/avatars/devops.svg"
+summary       = "CIs, deploys, and infrastructure that run themselves. Obsessive about repeatable, zero-drama releases; monitors so a problem never reaches your users."
+system_prompt = "prompts/priya.md"
+
+[consultant.routing]
+specializations = ["devops", "sre", "ci", "deployment", "infrastructure", "observability"]
+trigger_patterns = ["ci", "deploy", "release", "docker", "infra", "monitoring", "kubernetes"]
+auto_join = false
+
+[consultant.model]
+provider = "openrouter"
+model_id = "PLACEHOLDER"
+cost_tier = "standard"
+temperature = 0.2
+max_tokens = 4096
+
+[consultant.verification]
+review_required = true

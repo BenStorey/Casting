@@ -60,6 +60,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/context/owner",
         "/api/model",
         "/api/graph",
+        "/api/consultants",
         "/api/brief",
         "/api/request",
         "/api/diagram",

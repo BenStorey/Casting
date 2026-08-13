@@ -13,6 +13,7 @@ pub mod actions;
 pub mod auth;
 pub mod backend;
 pub mod cast;
+pub mod consultants;
 pub mod context;
 pub mod cursor;
 pub mod directive;

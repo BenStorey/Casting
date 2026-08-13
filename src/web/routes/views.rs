@@ -3,6 +3,17 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 
+/// GET /api/consultants — the loaded consultant registry (embedded defaults +
+/// any user overlay from `.casting/consultants/`): identity, role, system
+/// prompt, routing hints, model binding, verification. Configuration, never
+/// authority (who's hired stays in the event log). Read by the D2 orchestrator
+/// and the UI.
+pub(crate) async fn consultants_handler(
+    State(state): State<AppState>,
+) -> Json<Vec<crate::consultants::ConsultantConfig>> {
+    Json(state.consultants.all().into_iter().cloned().collect())
+}
+
 /// GET /api/context/{actor} — the assembled operating context for an actor
 /// (agent id, "owner", or "pm"): objective, priorities, their tasks, the
 /// governance directives that apply to them, risks, and open decisions.

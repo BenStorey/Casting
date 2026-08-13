@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Postgres backend: the async tokio-postgres driver runs on a dedicated
 # background thread owned by PostgresBackend, so the store traits stay sync and

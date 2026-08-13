@@ -88,6 +88,11 @@ pub struct AppState {
     /// runs / tests). When present, the executor refuses to schedule/execute an
     /// activity that embeds a raw secret value (the no-secret-in-log invariant).
     pub secrets: Option<Arc<crate::secrets::SecretStore>>,
+    /// The loaded consultant registry (2026-08-13): the curated embedded
+    /// defaults overlaid by any user packages in `<project>/.casting/consultants/`.
+    /// Answers "what consultants exist + what are they configured to do" for the
+    /// D2 orchestrator / `/api/consultants`. Configuration, never authority.
+    pub consultants: Arc<crate::consultants::ConsultantRegistry>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -113,6 +118,12 @@ impl AppState {
             workspace: None,
             decompose: false,
             secrets: None,
+            // Curated defaults are embedded and always load; a malformed default
+            // would be a bug, so falling back to an empty registry is the safe
+            // degradation (the real defaults are validated by their own test).
+            consultants: Arc::new(
+                crate::consultants::ConsultantRegistry::from_embedded().unwrap_or_default(),
+            ),
             events: Arc::new(tx),
         }
     }
@@ -174,6 +185,16 @@ impl AppState {
     /// secret value (the no-secret-in-log invariant).
     pub fn with_secrets(mut self, secrets: crate::secrets::SecretStore) -> Self {
         self.secrets = Some(Arc::new(secrets));
+        self
+    }
+
+    /// Builder-style: replace the consultant registry (e.g. the curated
+    /// defaults overlaid with user packages from `.casting/consultants/`).
+    pub fn with_consultants(
+        mut self,
+        consultants: Arc<crate::consultants::ConsultantRegistry>,
+    ) -> Self {
+        self.consultants = consultants;
         self
     }
 
