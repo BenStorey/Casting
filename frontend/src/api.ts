@@ -262,7 +262,8 @@ export interface OperatingModel {
     total_estimated_usd: number;
     prompt_tokens: number;
     completion_tokens: number;
-    cached_input_tokens: number;
+    cache_read_input_tokens: number;
+    cache_creation_input_tokens: number;
     cache_hit_ratio: number;
     avg_latency_ms: number | null;
     entries: number;

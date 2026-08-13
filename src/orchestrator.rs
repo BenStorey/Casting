@@ -29,13 +29,21 @@ pub struct CostMetering {
     pub task_id: Option<String>,
     /// Model tier, e.g. "flash" | "pro" (from the provider).
     pub model_tier: String,
+    /// Exact model id that ran (e.g. "deepseek/deepseek-v4-flash-0731").
+    pub model: Option<String>,
+    /// Provider that served the call (e.g. "openrouter").
+    pub provider: Option<String>,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
-    /// Input tokens served from the provider's prompt cache (0 = none /
-    /// unreported). Lets us derive the cache-hit ratio from raw numbers.
-    pub cached_input_tokens: u64,
+    /// Input tokens READ FROM the provider's prompt cache (a cache "hit" — cheap).
+    pub cache_read_input_tokens: u64,
+    /// Input tokens WRITTEN to the provider's prompt cache (a "creation" — not a hit).
+    pub cache_creation_input_tokens: u64,
     /// Wall-clock duration of the call in milliseconds (0 = unknown).
     pub latency_ms: u64,
+    /// Per-1M-token rates used to compute `estimated_usd` (for reconstruction).
+    pub input_price_per_mtok: Option<f64>,
+    pub output_price_per_mtok: Option<f64>,
     /// Estimated USD cost of the call.
     pub estimated_usd: f64,
 }
@@ -122,10 +130,15 @@ impl Orchestrator for MockOrchestrator {
                 agent_id: "pm".into(),
                 task_id: None,
                 model_tier: "flash".into(),
+                model: Some("deepseek/deepseek-v4-flash-0731".into()),
+                provider: Some("openrouter".into()),
                 prompt_tokens: 1200,
                 completion_tokens: 300,
-                cached_input_tokens: 200,
+                cache_read_input_tokens: 200,
+                cache_creation_input_tokens: 100,
                 latency_ms: 150,
+                input_price_per_mtok: Some(0.25),
+                output_price_per_mtok: Some(1.25),
                 estimated_usd: 0.0018,
             }),
         }

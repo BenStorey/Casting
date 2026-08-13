@@ -301,9 +301,10 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Cache input / hit ratio</span>
+              <span className="text-muted-foreground">Cache read / write / hit</span>
               <span>
-                {spend.cached_input_tokens} / {(spend.cache_hit_ratio * 100).toFixed(1)}%
+                {spend.cache_read_input_tokens} / {spend.cache_creation_input_tokens} /{" "}
+                {(spend.cache_hit_ratio * 100).toFixed(1)}%
               </span>
             </div>
             <div className="flex justify-between">

@@ -209,16 +209,35 @@ pub struct CostEntry {
     pub task_id: Option<String>,
     /// Model tier, e.g. "flash" | "pro" (free string from the provider).
     pub model_tier: String,
+    /// Exact model id as reported by the provider (e.g.
+    /// "deepseek/deepseek-v4-flash-0731"). Coarser `model_tier` is the stable
+    /// bucket; `model` captures exactly what ran so we can compare/migrate.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The provider that served the call (e.g. "openrouter"), so cost/cache
+    /// semantics can be sliced per provider once more than one exists.
+    #[serde(default)]
+    pub provider: Option<String>,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
-    /// Input tokens served from the provider's prompt cache (0 = none / not
-    /// reported / the mock). Enables a derived cache-hit ratio.
+    /// Input tokens READ FROM the provider's prompt cache (a cache "hit" — cheap).
     #[serde(default)]
-    pub cached_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    /// Input tokens WRITTEN to the provider's prompt cache (a "creation" — ~10x
+    /// the read cost, so NOT a hit). Split from reads so both the honest
+    /// cache-hit ratio (read / total_input) and the value of caching are
+    /// derivable from raw numbers.
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
     /// Wall-clock duration of the call in milliseconds (0 = unknown / mock).
-    /// Per-call latency so the owner can see why a call (or the PM loop) is slow.
     #[serde(default)]
     pub latency_ms: u64,
+    /// Per-1M-token rates used to compute `estimated_usd` — snapshotted so the
+    /// number is reconstructable/auditable even if the provider's price changes.
+    #[serde(default)]
+    pub input_price_per_mtok: Option<f64>,
+    #[serde(default)]
+    pub output_price_per_mtok: Option<f64>,
     /// Estimated USD cost of this call.
     pub estimated_usd: f64,
     /// Timestamp so spend is queryable over time.

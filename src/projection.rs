@@ -298,10 +298,21 @@ impl Projection {
                     agent_id: string_field(e, "agent_id").unwrap_or_default(),
                     task_id: string_field(e, "task_id"),
                     model_tier: string_field(e, "model_tier").unwrap_or_default(),
+                    model: string_field(e, "model"),
+                    provider: string_field(e, "provider"),
                     prompt_tokens: num_field("prompt_tokens"),
                     completion_tokens: num_field("completion_tokens"),
-                    cached_input_tokens: num_field("cached_input_tokens"),
+                    cache_read_input_tokens: num_field("cache_read_input_tokens"),
+                    cache_creation_input_tokens: num_field("cache_creation_input_tokens"),
                     latency_ms: num_field("latency_ms"),
+                    input_price_per_mtok: e
+                        .data
+                        .get("input_price_per_mtok")
+                        .and_then(|v| v.as_f64()),
+                    output_price_per_mtok: e
+                        .data
+                        .get("output_price_per_mtok")
+                        .and_then(|v| v.as_f64()),
                     estimated_usd: e
                         .data
                         .get("estimated_usd")

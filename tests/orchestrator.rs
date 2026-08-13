@@ -183,16 +183,24 @@ async fn orchestrator_metering_lands_cost_in_the_event_log() {
     let entry = &proj.spend[0];
     assert_eq!(entry.agent_id, "pm");
     assert_eq!(entry.model_tier, "flash");
+    assert_eq!(entry.model, Some("deepseek/deepseek-v4-flash-0731".into()));
+    assert_eq!(entry.provider, Some("openrouter".into()));
     assert_eq!(entry.prompt_tokens, 1200);
     assert_eq!(entry.completion_tokens, 300);
     assert_eq!(
-        entry.cached_input_tokens, 200,
-        "per-call cached tokens round-trip"
+        entry.cache_read_input_tokens, 200,
+        "per-call cache reads round-trip"
+    );
+    assert_eq!(
+        entry.cache_creation_input_tokens, 100,
+        "per-call cache creation round-trips"
     );
     assert_eq!(
         entry.latency_ms, 150,
         "per-call latency round-trips into the entry"
     );
+    assert_eq!(entry.input_price_per_mtok, Some(0.25));
+    assert_eq!(entry.output_price_per_mtok, Some(1.25));
     assert!(entry.estimated_usd > 0.0);
 
     // The budget view in the operating picture reflects it.
@@ -200,7 +208,11 @@ async fn orchestrator_metering_lands_cost_in_the_event_log() {
     assert_eq!(m.spend.entries, 1);
     assert!((m.spend.total_estimated_usd - 0.0018).abs() < 1e-9);
     assert_eq!(m.spend.by_agent.get("pm"), Some(&0.0018));
-    assert_eq!(m.spend.cached_input_tokens, 200);
-    assert!((m.spend.cache_hit_ratio - (200.0 / 1400.0)).abs() < 1e-9);
+    assert_eq!(m.spend.cache_read_input_tokens, 200);
+    assert_eq!(m.spend.cache_creation_input_tokens, 100);
+    assert!(
+        (m.spend.cache_hit_ratio - (200.0 / 1500.0)).abs() < 1e-9,
+        "hit ratio is reads / (prompt + reads + creation)"
+    );
     assert_eq!(m.spend.avg_latency_ms, Some(150.0));
 }
