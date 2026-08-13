@@ -452,3 +452,93 @@ fn commit_in_worktree_lands_on_the_isolated_branch() {
     );
     assert!(Path::new(&wt.cargo_target_dir).starts_with(&wt.path));
 }
+
+/// Reconciler lifecycle close: once a task is Done, its worktree is pruned
+/// (physical dir removed + WorktreeRemoved event drops it and frees the port).
+#[test]
+fn reconciler_prunes_done_worktrees_and_frees_their_port() {
+    use std::sync::Arc;
+
+    let (_tmp, repo) = repo_dir();
+    let ws = ws(&repo);
+    // Provision two worktrees; one will be "done", one stays active.
+    ws.provision_worktree("task-381", "authentication", 8090)
+        .unwrap();
+    ws.provision_worktree("task-382", "billing", 8091).unwrap();
+
+    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let state =
+        casting::pm::AppState::new(store, cursors, "proj").with_workspace(Arc::new(ws.clone()));
+    // Seed the event log with both WorktreeProvisioned so the projection has them.
+    for (tid, port) in [("task-381", 8090), ("task-382", 8091)] {
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::WorktreeProvisioned,
+                casting::event::Aggregate {
+                    kind: "worktree".into(),
+                    id: format!("wt-{tid}"),
+                },
+                serde_json::json!({
+                    "task_id": tid,
+                    "branch": format!("casting/{tid}"),
+                    "path": ws.worktree_path(tid).to_string_lossy().into_owned(),
+                    "cargo_target_dir": ws.worktree_path(tid).join("target").to_string_lossy().into_owned(),
+                    "port": port,
+                }),
+            ))
+            .unwrap();
+    }
+    // Mark task-381 Done in the projection by seeding a Task + TaskCompleted.
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::System,
+            casting::event::EventType::TaskCreated,
+            casting::event::Aggregate {
+                kind: "task".into(),
+                id: "task-381".into(),
+            },
+            serde_json::json!({ "title": "auth", "kind": "feature" }),
+        ))
+        .unwrap();
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::System,
+            casting::event::EventType::TaskCompleted,
+            casting::event::Aggregate {
+                kind: "task".into(),
+                id: "task-381".into(),
+            },
+            serde_json::json!({ "result": "done" }),
+        ))
+        .unwrap();
+
+    // Sanity: before pruning both worktrees exist in the projection and on disk.
+    assert_eq!(state.projection().unwrap().worktrees.len(), 2);
+    assert!(ws.worktree_path("task-381").exists());
+    assert!(ws.worktree_path("task-382").exists());
+
+    let pruned = casting::reconciler::prune_worktrees(&state).unwrap();
+    assert_eq!(pruned, 1, "exactly the done task's worktree is pruned");
+
+    let proj = state.projection().unwrap();
+    // Only the active task's worktree remains; task-381's port is freed.
+    assert_eq!(proj.worktrees.len(), 1);
+    assert_eq!(proj.worktrees[0].task_id, "task-382");
+    // The allocator returns the LOWEST free port in the pool — 8081 is lower
+    // than 8090, but crucially 8090 is no longer taken (before pruning it was).
+    let used: std::collections::HashSet<u16> = proj.worktrees.iter().map(|w| w.port).collect();
+    assert!(
+        !used.contains(&8090),
+        "task-381's port 8090 must be freed for reuse"
+    );
+    // The remaining active worktree still holds its port (8091).
+    assert!(used.contains(&8091));
+    // The physical worktree dir is gone; the active one remains.
+    assert!(!ws.worktree_path("task-381").exists());
+    assert!(ws.worktree_path("task-382").exists());
+}

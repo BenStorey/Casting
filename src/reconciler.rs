@@ -122,10 +122,91 @@ pub async fn reconcile(state: &AppState) -> Result<u32> {
     Ok(authored)
 }
 
+/// Prune isolated worktrees whose task is no longer active (Done, or whose
+/// ChangeSet is Merged). Structural-isolation lifecycle close (2026-08-12):
+/// once a consultant's work is complete/merged, their desk is torn down —
+/// physically (`Workspace.remove_worktree`) and in the projection (a
+/// `WorktreeRemoved` event, which frees the worktree's port for reuse). The
+/// `WorktreeProvisioned` event remains as history. Returns how many were pruned.
+pub fn prune_worktrees(state: &AppState) -> Result<u32> {
+    use crate::event::{Actor, Aggregate, Event, EventType};
+    use crate::projection::ChangeSetStatus;
+    use crate::projection::TaskStatus;
+
+    let projection = state.projection()?;
+    let mut pruned = 0u32;
+    let ws = match &state.workspace {
+        Some(ws) => ws.clone(),
+        // No workspace attached → nothing physical to prune (tests without a repo).
+        None => return Ok(0),
+    };
+
+    let done_tasks: std::collections::HashSet<String> = projection
+        .tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Done)
+        .map(|t| t.id.clone())
+        .collect();
+    let merged_changesets: std::collections::HashSet<String> = projection
+        .changesets
+        .iter()
+        .filter(|c| c.status == ChangeSetStatus::Merged)
+        .map(|c| c.task_id.clone())
+        .collect();
+
+    // A worktree is prunable if its task is Done OR its ChangeSet is Merged.
+    let prunable: Vec<String> = projection
+        .worktrees
+        .iter()
+        .filter(|w| done_tasks.contains(&w.task_id) || merged_changesets.contains(&w.task_id))
+        .map(|w| w.task_id.clone())
+        .collect();
+
+    for task_id in prunable {
+        // Physical teardown first (idempotent; missing tree is fine).
+        let _ = ws.remove_worktree(&task_id);
+        // Record the lifecycle close in the event log so the projection drops
+        // the Worktree (freeing its port). Advisory-at-write: no precondition.
+        let latest = state.store.latest_sequence(&state.project)?;
+        let cause = state
+            .store
+            .read_since(&state.project, latest.saturating_sub(1))?
+            .last()
+            .cloned();
+        let base_cause = Event::new(
+            &state.project,
+            Actor::System,
+            EventType::WorktreeRemoved,
+            Aggregate {
+                kind: "worktree".into(),
+                id: format!("wt-{task_id}"),
+            },
+            serde_json::json!({ "task_id": task_id }),
+        );
+        state.append(match cause {
+            Some(c) => {
+                let mut ev = base_cause;
+                ev.metadata = crate::event::Metadata {
+                    causation_id: Some(c.event_id),
+                    ..Default::default()
+                };
+                ev
+            }
+            None => base_cause,
+        })?;
+        pruned += 1;
+    }
+    Ok(pruned)
+}
+
 /// Run the reconciler if due; else no-op. Convenience wrapper for the loop.
 pub async fn run_if_due(state: &AppState) -> Result<u32> {
     if should_run(state)? {
-        reconcile(state).await
+        let drifted = reconcile(state).await?;
+        // Structural-isolation lifecycle close: on the same pass, prune
+        // worktrees whose task is done/merged (physical + event-based).
+        let pruned = prune_worktrees(state)?;
+        Ok(drifted + pruned)
     } else {
         Ok(0)
     }

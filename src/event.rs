@@ -122,6 +122,11 @@ pub enum EventType {
     /// observer; this event captures the *intent* ("the assignee decided to
     /// checkpoint here").
     CommitRequested,
+    /// A worktree was pruned once its task completed/merged (2026-08-12).
+    /// Removes the Worktree from the projection (freeing its port for reuse)
+    /// and the physical tree via the reconciler. The WorktreeProvisioned event
+    /// remains as history — this is the lifecycle close.
+    WorktreeRemoved,
 
     // --- External advisory context (owner, 2026-08-10) ---
     /// Advisor content (text and/or image/diagram references) brought INTO the

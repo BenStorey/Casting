@@ -561,6 +561,15 @@ impl Projection {
                     }
                 }
             }
+            EventType::WorktreeRemoved => {
+                // Lifecycle close: dropping the Worktree from the projection
+                // frees its port for the allocator (the reconciliation prune
+                // emitted this). The WorktreeProvisioned event stays as history.
+                let task_id = string_field(e, "task_id").unwrap_or_default();
+                if !task_id.is_empty() {
+                    self.worktrees.retain(|w| w.task_id != task_id);
+                }
+            }
             EventType::CommitObserved => {
                 let sha = e.aggregate.id.clone();
                 let branch = string_field(e, "branch").unwrap_or_default();
