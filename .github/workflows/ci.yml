@@ -1,0 +1,112 @@
+# Casting — CI (GitHub Actions, hosted runner)
+#
+# Mirrors the local `make` gate on a clean machine so every push/PR to `main`
+# is verified before it lands. Hosted runners are free for a public repo, and
+# crucially this CI is for the CASTING repo itself — NOT the build location for
+# a user's own project (those run locally in worktrees; see docs/HANDOFF.md).
+#
+# Steps mirror `make` exactly (fmt -> clippy -D warnings -> build (frontend
+# rebuilt BEFORE cargo build so the SPA is embedded) -> test), with two CI-only
+# additions:
+#   1. A Postgres service container so tests/postgres_backend.rs RUNS (they
+#      skip gracefully when PG is absent) instead of being silently skipped.
+#   2. Caching (~/.cargo, target/, node_modules) to keep builds fast on a
+#      fresh runner each time.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: fmt / clippy / build / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      # Matches deploy/docker-compose.postgres.yml + the default in
+      # tests/postgres_backend.rs (CAST_PG_URL / port 55432 / casting / castpw).
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: casting
+          POSTGRES_PASSWORD: castpw
+          POSTGRES_DB: casting
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U casting"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -D warnings
+      # The integration tests read this (or fall back to the same default).
+      CAST_PG_URL: host=127.0.0.1 port=55432 user=casting password=castpw dbname=casting
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node (for the SPA build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Rust toolchain (pinned to match local)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-
+
+      - name: fmt check
+        run: cargo fmt --all -- --check
+
+      - name: clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build frontend (must precede cargo build — embedded SPA)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build (embeds the real SPA)
+        run: cargo build
+
+      - name: Test (Postgres service up -> integration tests run, not skip)
+        run: cargo test
+
+      - name: Confirm the embedded SPA is the real build, not the placeholder
+        run: |
+          # The real SPA build has the React mount root; build.rs only writes
+          # its placeholder when frontend/dist/index.html is absent. Since we
+          # ran `npm run build` before `cargo build`, the embedded page must be
+          # the real one (no placeholder text, React root present).
+          if grep -q 'id="root"' frontend/dist/index.html && \
+             ! grep -q 'hasn.t been built yet' frontend/dist/index.html; then
+            echo "✓ embedded SPA is the real build"
+          else
+            echo "✗ frontend/dist/index.html is not the real SPA build"
+            exit 1
+          fi

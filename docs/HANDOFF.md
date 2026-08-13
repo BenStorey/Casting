@@ -526,6 +526,14 @@ crates, Even Better TOML.
 
 # 5. Roadmap / what's next
 
+> **2026-08-12: CI + build-location note.** Casting's OWN repo uses GitHub
+> Actions CI (public OSS → hosted runners free). The repo is **public**
+> (`github.com/BenStorey/Casting`). **Where a USER's projects build is separate
+> and already local-first:** consultants build/test on the user's own machine,
+> in isolated worktrees (each with a private `CARGO_TARGET_DIR` + API port →
+> concurrent, free). A paid **cloud build service** is a deferred differentiator
+> (like the cloud/multi-project tier) — NOT GitHub Actions.
+
 > **2026-08-12: WORKTREE ISOLATION BUILT.** Each summoned consultant is handed
 > an isolated git worktree (own branch, private Rust build target, distinct API
 > port) — provisioned by the platform at summon, never left to the LLM to
