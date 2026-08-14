@@ -29,6 +29,7 @@ pub mod mental;
 pub mod orchestrator;
 pub mod persona;
 pub mod plan;
+pub mod planning;
 pub mod pm;
 pub mod policy;
 pub mod port;
