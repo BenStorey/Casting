@@ -93,6 +93,11 @@ pub struct AppState {
     /// Answers "what consultants exist + what are they configured to do" for the
     /// D2 orchestrator / `/api/consultants`. Configuration, never authority.
     pub consultants: Arc<crate::consultants::ConsultantRegistry>,
+    /// The owner-facing external channel (2026-08-14): a best-effort transport
+    /// for owner messaging (Telegram reference adapter). `NoopChannel` by
+    /// default — a pipe to nowhere, off until configured. Never authoritative;
+    /// the event log / projection stay the only truth.
+    pub channel: Arc<dyn crate::channel::OwnerChannel>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -124,6 +129,7 @@ impl AppState {
             consultants: Arc::new(
                 crate::consultants::ConsultantRegistry::from_embedded().unwrap_or_default(),
             ),
+            channel: Arc::new(crate::channel::NoopChannel),
             events: Arc::new(tx),
         }
     }
@@ -155,6 +161,13 @@ impl AppState {
         snapshots: T,
     ) -> Self {
         self.snapshots = Some(Arc::new(snapshots));
+        self
+    }
+
+    /// Builder-style: attach the owner-facing external channel (Telegram
+    /// reference adapter). `NoopChannel` by default.
+    pub fn with_channel(mut self, channel: Arc<dyn crate::channel::OwnerChannel>) -> Self {
+        self.channel = channel;
         self
     }
 

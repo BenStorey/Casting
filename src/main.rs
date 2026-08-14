@@ -14,6 +14,7 @@ use casting::store::EventStore;
 use casting::web;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Open a project's storage backend from the CLI (workspace + selector), then
 /// build an integrity-enforcing, snapshot-aware AppState. Shared by the
@@ -665,6 +666,21 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // Start the simulated PM control loop (background, durable cursor).
         // The loop also triggers the git observer on each drain pass.
         tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));
+
+        // Telegram owner channel (2026-08-14): when CAST_TELEGRAM_TOKEN/CHAT_ID
+        // are set, attach the channel to the live state + spawn the cursor-driven
+        // owner-messaging loop (inbound owner messages → MessageSent → PM wakes;
+        // outbound owner-bound messages → sendMessage). Off by default — no
+        // channel, no network (mirrors the LLM seam).
+        let state = match casting::telegram::TelegramConfig::from_env() {
+            Some(cfg) => {
+                let (channel, rx) = casting::telegram::TelegramChannel::new(cfg);
+                let with_channel = state.with_channel(Arc::new(channel.clone()));
+                tokio::spawn(casting::telegram::run(with_channel.clone(), channel, rx));
+                with_channel
+            }
+            None => state,
+        };
 
         // Liveness watchdog (2026-08-13): a wall-clock "dead man's switch" that
         // auto-pauses the cast on a stall (repeated errors / silent in-flight
