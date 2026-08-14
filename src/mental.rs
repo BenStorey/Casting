@@ -59,6 +59,9 @@ pub struct OperatingModel {
     /// Code diff quality over time — language-agnostic churn from git, so a
     /// tester can see if the codebase is trending toward "LLM soup".
     pub diff_quality: DiffQualityView,
+    /// Repo metrics — point-in-time snapshots captured per PR landing (file
+    /// count, lines by language, best-effort coverage). Read-only over the repo.
+    pub repo_metrics: RepoMetricsView,
 }
 
 /// A consultant's isolated workspace, as surfaced in the operating picture.
@@ -187,6 +190,18 @@ pub struct CommitChurnView {
     pub additions: u64,
     pub deletions: u64,
     pub files: u64,
+}
+
+/// Repo metrics, as surfaced in the operating picture: the latest snapshot
+/// plus the per-PR trend (newest first).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RepoMetricsView {
+    /// How many PR-landing snapshots we have captured.
+    pub snapshot_count: usize,
+    /// The most recent snapshot, if any.
+    pub latest: Option<crate::projection::RepoMetrics>,
+    /// The trend, newest-first (bounded at 10).
+    pub trend: Vec<crate::projection::RepoMetrics>,
 }
 
 /// Governance posture (directives + decision policy + open decisions).
@@ -416,6 +431,12 @@ impl crate::projection::Projection {
         let engagement = owner_engagement(self);
         // Code diff quality: language-agnostic churn from the observed commits.
         let diff_quality = diff_quality(self);
+        // Repo metrics: per-PR snapshots, newest first (bounded).
+        let repo_metrics = RepoMetricsView {
+            snapshot_count: self.repo_metrics.len(),
+            latest: self.repo_metrics.last().cloned(),
+            trend: self.repo_metrics.iter().rev().take(10).cloned().collect(),
+        };
 
         OperatingModel {
             project_id: self.project_id.clone(),
@@ -527,6 +548,7 @@ impl crate::projection::Projection {
             },
             engagement,
             diff_quality,
+            repo_metrics,
         }
     }
 }

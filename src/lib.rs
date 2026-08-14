@@ -38,6 +38,7 @@ pub mod projection;
 pub mod provenance;
 pub mod reconciler;
 pub mod replay;
+pub mod repo_metrics;
 pub mod secrets;
 pub mod setup;
 pub mod snapshot;

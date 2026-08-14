@@ -533,3 +533,47 @@ pub struct OrchestrationRun {
     pub estimated_usd: f64,
     pub at: String,
 }
+
+/// A point-in-time snapshot of repository metrics, captured when a PR lands
+/// (a `MergeCompleted`), 2026-08-14. READ-ONLY over the repo — the platform
+/// never writes a file into the user project. Language-agnostic: file count
+/// comes from `git ls-files` and lines-by-language from a bundled `tokei`
+/// count; test coverage is best-effort (a detected CI artifact, or a
+/// configured `CAST_COVERAGE_CMD`), since coverage only exists once someone
+/// actually runs the tests.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RepoMetrics {
+    /// The merge (PR landing) this snapshot was captured for, if any.
+    pub merge_sha: Option<String>,
+    /// Event timestamp of the capture (`captured_at`).
+    pub captured_at: String,
+    /// Number of TRACKED files in the repo (`git ls-files | wc -l`). This is
+    /// `.gitignore`-aware by construction and excludes untracked/vendored files.
+    pub file_count: u64,
+    /// Lines by language, aggregated across the whole repo (code/comments/blanks).
+    pub lines_by_language: Vec<LanguageLines>,
+    /// Test coverage, when any source produced it (else None = honest "no data").
+    pub coverage: Option<CoverageInfo>,
+}
+
+/// Per-language line counts (aggregated across the repo by `tokei`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageLines {
+    pub language: String,
+    pub code: u64,
+    pub comments: u64,
+    pub blanks: u64,
+    pub files: u64,
+}
+
+/// Test coverage figure + how it was obtained (so it's never confusable with
+/// an authoritative measurement when it came from a detected artifact).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CoverageInfo {
+    /// Percentage 0..100, or None if a source was seen but carried no usable %
+    /// (e.g. a coverage.xml with zero lines validated).
+    pub percent: Option<f64>,
+    /// Where it came from: a file path (e.g. "lcov.info", "coverage.xml"), the
+    /// literal "command" (from CAST_COVERAGE_CMD), or "none".
+    pub source: String,
+}

@@ -207,6 +207,12 @@ pub enum EventType {
     /// "what did the model see & decide on this trigger" trace for testing the
     /// LLM seam end-to-end.
     OrchestrationRun,
+    // --- Repository metrics (2026-08-14) ---
+    /// A point-in-time snapshot of repository metrics (file count, lines by
+    /// language, test coverage) captured when a PR lands (a `MergeCompleted`).
+    /// READ-ONLY over the repo; language-agnostic; never writes into the user
+    /// project. Folds to `proj.repo_metrics` (a per-merge trend).
+    RepoMetricsCaptured,
 }
 
 /// The entity primarily affected by an event.

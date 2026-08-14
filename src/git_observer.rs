@@ -64,6 +64,9 @@ pub fn observe<S: EventStore>(
     let _ = cursor; // cursor is advanced at the end; the dedup is projection-based.
 
     let mut emitted = 0u32;
+    // The most recent merge sha we emitted this pass — used to tag the
+    // repo-metrics snapshot captured when a PR lands.
+    let mut last_merge_sha: Option<String> = None;
 
     // Honor the write-time integrity rail. The observer previously appended
     // directly to the store, bypassing `integrity::check_append` — the ONE
@@ -160,8 +163,16 @@ pub fn observe<S: EventStore>(
                 proj.apply(&ev);
                 store.append(ev)?;
                 emitted += 1;
+                last_merge_sha = Some(commit.sha.clone());
             }
         }
+    }
+
+    // If a PR landed this pass, snapshot the repo metrics (file count, lines
+    // by language, best-effort coverage) and append them (during the same pass,
+    // before the cursor advances — always tagged with the merge that caused it).
+    if let Some(merge_sha) = &last_merge_sha {
+        crate::repo_metrics::capture_and_emit(ws, store, project, &mut proj, Some(merge_sha))?;
     }
 
     // Advance the cursor past everything we've emitted (and everything else).

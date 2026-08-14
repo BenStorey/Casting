@@ -201,7 +201,7 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
   const routing = useCastStore((s) => s.routing);
   if (!model) return null;
   const { governance, knowledge, context, requests, spend, worktrees, drift_signals } = model;
-  const { guards, diagnostics, engagement, diff_quality } = model;
+  const { guards, diagnostics, engagement, diff_quality, repo_metrics } = model;
 
   return (
     <div className="grid gap-4">
@@ -477,6 +477,49 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
               </div>
             )}
           </div>
+        </Section>
+
+        <Section
+          title={`Repo metrics · ${repo_metrics.snapshot_count} PR${repo_metrics.snapshot_count === 1 ? "" : "s"} captured`}
+          description="Snapshot per PR landing — files, lines by language, best-effort coverage."
+        >
+          {repo_metrics.latest ? (
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tracked files</span>
+                <span>{repo_metrics.latest.file_count}</span>
+              </div>
+              {repo_metrics.latest.lines_by_language
+                .slice(0, 8)
+                .map((l) => (
+                  <div key={l.language} className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{l.language} · {l.files} file{l.files === 1 ? "" : "s"}</span>
+                    <span>
+                      {l.code.toLocaleString()} code · {l.comments} cmt
+                    </span>
+                  </div>
+                ))}
+              <div className="border-t pt-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Test coverage</span>
+                  <span>
+                    {repo_metrics.latest.coverage?.percent != null
+                      ? `${repo_metrics.latest.coverage.percent.toFixed(1)}% (${repo_metrics.latest.coverage.source})`
+                      : "no coverage data"}
+                  </span>
+                </div>
+                {repo_metrics.trend.length > 1 && (
+                  <div className="text-xs text-muted-foreground">
+                    {repo_metrics.trend.length} snapshots; latest merge {repo_metrics.latest.merge_sha?.slice(0, 7) ?? "n/a"}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              No PR merged yet — snapshots appear after the first merge lands.
+            </div>
+          )}
         </Section>
       </div>
 

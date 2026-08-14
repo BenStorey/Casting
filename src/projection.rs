@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::types::{
     ActionRejection, Agent, Assumption, Branch, Briefing, BriefingAsset, BriefingStatus, ChangeSet,
-    ChangeSetStatus, Commit, Constraint, CostEntry, Decision, DecisionStatus, Diagram,
-    ExternalRequest, ExternalRequestStatus, Fact, Merge, Message, Observation, Opinion,
-    OpinionStatus, OrchestrationRun, Requirement, Risk, RiskStatus, Task, TaskDependency,
-    TaskReview, TaskStatus, Worktree,
+    ChangeSetStatus, Commit, Constraint, CostEntry, CoverageInfo, Decision, DecisionStatus,
+    Diagram, ExternalRequest, ExternalRequestStatus, Fact, LanguageLines, Merge, Message,
+    Observation, Opinion, OpinionStatus, OrchestrationRun, RepoMetrics, Requirement, Risk,
+    RiskStatus, Task, TaskDependency, TaskReview, TaskStatus, Worktree,
 };
 
 /// The full current-state projection for a project.
@@ -65,6 +65,9 @@ pub struct Projection {
     pub commits: Vec<Commit>,
     /// Completed merges (semantic Git events).
     pub merges: Vec<Merge>,
+    /// Point-in-time repo-metric snapshots, one per PR landing (per-merge
+    /// trend: file count, lines by language, best-effort coverage).
+    pub repo_metrics: Vec<RepoMetrics>,
     /// ChangeSets — the unit of agent output (ADDENDUM §21–22).
     pub changesets: Vec<ChangeSet>,
     /// Isolated worktrees provisioned for summoned consultants (owner,
@@ -796,6 +799,14 @@ impl Projection {
                     from_branch: string_field(e, "from_branch").unwrap_or_default(),
                     to_branch: string_field(e, "to_branch").unwrap_or_default(),
                 });
+            }
+            EventType::RepoMetricsCaptured => {
+                // A point-in-time repo-metrics snapshot folded whole. The event
+                // data IS the payload — deserialize defensively; a malformed
+                // event is dropped rather than poisoning the projection.
+                if let Ok(rm) = serde_json::from_value::<RepoMetrics>(e.data.clone()) {
+                    self.repo_metrics.push(rm);
+                }
             }
             EventType::MergeConflictDetected => {
                 // A merge conflict is an observation-like event — it's recorded

@@ -420,8 +420,10 @@ export interface OperatingModel {
   diagnostics: DiagnosticsView;
   /** Owner engagement: is the owner answering escalations or muting? */
   engagement: OwnerEngagementView;
-  /** Code diff quality over time: language-agnostic git churn. */
+  /** Diff quality over time: language-agnostic git churn. */
   diff_quality: DiffQualityView;
+  /** Repo metrics: per-PR snapshots (files, lines by language, coverage). */
+  repo_metrics: RepoMetricsView;
 }
 
 export interface OwnerEngagementView {
@@ -455,6 +457,33 @@ export interface DiffQualityView {
   large_rewrites: number;
   large_rewrite_threshold: number;
   recent: CommitChurnView[];
+}
+
+export interface CoverageInfo {
+  percent: number | null;
+  source: string;
+}
+
+export interface LanguageLines {
+  language: string;
+  code: number;
+  comments: number;
+  blanks: number;
+  files: number;
+}
+
+export interface RepoMetrics {
+  merge_sha: string | null;
+  captured_at: string;
+  file_count: number;
+  lines_by_language: LanguageLines[];
+  coverage: CoverageInfo | null;
+}
+
+export interface RepoMetricsView {
+  snapshot_count: number;
+  latest: RepoMetrics | null;
+  trend: RepoMetrics[];
 }
 
 export function fetchModel(): Promise<OperatingModel> {
