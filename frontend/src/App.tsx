@@ -28,8 +28,9 @@ import {
   decide,
   sendMessage,
 } from "./api";
+import TelegramConnect from "./TelegramConnect";
 
-type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "advisor" | "sketch";
+type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "advisor" | "sketch" | "settings";
 
 // Lazy: Excalidraw is ~1MB — never load it unless the owner opens Sketch.
 const Whiteboard = lazy(() => import("./Whiteboard"));
@@ -112,7 +113,7 @@ export default function App() {
       {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
         <>
           <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-            <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5 md:grid-cols-9">
+            <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5 md:grid-cols-10">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="graph">Graph</TabsTrigger>
               <TabsTrigger value="chat">Chat</TabsTrigger>
@@ -132,6 +133,7 @@ export default function App() {
               <TabsTrigger value="activity">Activity</TabsTrigger>
               <TabsTrigger value="advisor">Advisor</TabsTrigger>
               <TabsTrigger value="sketch">Sketch</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
             {tab === "overview" && <Overview model={model} />}
             {tab === "graph" && <GraphView graph={graph} />}
@@ -153,6 +155,7 @@ export default function App() {
                 <Advisor thread={state.advisor_thread} onChanged={refresh} />
               </Suspense>
             )}
+            {tab === "settings" && <SettingsView />}
           </Tabs>
         </>
       )}
@@ -329,6 +332,26 @@ function initials(id: string): string {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .slice(0, 2)
     .join("");
+}
+
+/// Settings — owner-configurable surface (2026-08-14). Hosts the Telegram
+/// owner-channel connect (reusable, also in the setup wizard) so messaging can
+/// be set up / reconnected any time, not just first-run.
+function SettingsView() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Settings</CardTitle>
+        <CardDescription>
+          Connect or reconnect your messaging. Each Casting install uses its own
+          Telegram bot — the PM you talk to on your phone.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <TelegramConnect />
+      </CardContent>
+    </Card>
+  );
 }
 
 function Decisions({

@@ -405,10 +405,32 @@ pub fn start_loop(state: &AppState, cfg: TelegramConfig) -> bool {
     if state.telegram_started.swap(true, Ordering::SeqCst) {
         return false;
     }
+    spawn_loop(state, cfg);
+    true
+}
+
+/// Replace the running Telegram loop with a NEW one (new token / chat_id). Used
+/// by `POST /api/telegram/configure` so a user can reconnect messaging any
+/// time, not just at first-run/boot. Aborts the previous loop (if any), starts
+/// a fresh cursor-driven loop, and returns true.
+pub fn replace_loop(state: &AppState, cfg: TelegramConfig) -> bool {
+    // Abort any previously-running loop.
+    if let Some(handle) = state.telegram_handle.lock().unwrap().take() {
+        handle.abort();
+    }
+    use std::sync::atomic::Ordering;
+    state.telegram_started.store(true, Ordering::SeqCst);
+    spawn_loop(state, cfg);
+    true
+}
+
+/// Spawn the run loop + record its JoinHandle (assumes the caller already
+/// decided this should happen — start_loop guards, replace_loop aborts first).
+fn spawn_loop(state: &AppState, cfg: TelegramConfig) {
     let (channel, rx) = TelegramChannel::new(cfg);
     let state_with = state.clone().with_channel(Arc::new(channel.clone()));
-    tokio::spawn(run(state_with, channel, rx));
-    true
+    let handle = tokio::spawn(run(state_with, channel, rx));
+    *state.telegram_handle.lock().unwrap() = Some(handle);
 }
 
 /// One full channel pass: outbound (immediate queue + durable owner-message

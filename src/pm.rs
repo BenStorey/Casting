@@ -102,6 +102,10 @@ pub struct AppState {
     /// can be started from boot env OR from the UI `POST /api/telegram/configure`,
     /// but must run exactly once. Set the first time a channel is attached.
     pub telegram_started: Arc<std::sync::atomic::AtomicBool>,
+    /// The running Telegram loop's JoinHandle (2026-08-14, batch 3): lets a
+    /// reconfigure (new bot token / chat) abort the old loop and start a fresh
+    /// one — so messaging can be reconnected any time, not just at boot.
+    pub telegram_handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -135,6 +139,7 @@ impl AppState {
             ),
             channel: Arc::new(crate::channel::NoopChannel),
             telegram_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            telegram_handle: Arc::new(std::sync::Mutex::new(None)),
             events: Arc::new(tx),
         }
     }

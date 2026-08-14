@@ -52,7 +52,7 @@ pub(crate) async fn telegram_configure_handler(
             if let Some(dir) = &state.state_dir {
                 let _ = crate::setup::persist_telegram_config(dir, &token, chat_id);
             }
-            crate::telegram::start_loop(
+            crate::telegram::replace_loop(
                 &state,
                 crate::telegram::TelegramConfig::from_pieces(&token, chat_id),
             )
