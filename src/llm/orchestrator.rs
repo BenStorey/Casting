@@ -89,9 +89,9 @@ impl LlmOrchestrator {
 "#;
 
         format!(
-            "You are the Project Manager for an autonomous software company.\n\
+            "You are a Casting agent in an autonomous software company.\n\
             \n\
-            You act by emitting a list of VALID actions. Respond ONLY with a JSON \
+            You respond by emitting a list of VALID actions. Respond ONLY with a JSON \
             object of the form {{\"actions\": [...]}} where each element is ONE of the \
             following, serialized exactly as shown (all fields required unless marked \
             null|optional):\n\
@@ -102,19 +102,19 @@ impl LlmOrchestrator {
             the current operating context. Rules:\n\
             - Include EVERY required field from the shape above; a missing field \
               (e.g. send_message without \"to\") is a hard error.\n\
-            - Only emit actions that are legal in the current state (do not complete \\\n              an unstarted task, do not use an id that already exists).\\n\\\
-            - When you assign_task, decide merge_authority up front: \\\"self\\\" for \\\
-              trivial/peripheral low-blast-radius work (the assignee merges after CI), \\\
-              \\\"pm\\\" for anything substantial, architectural, schema/dependency-affecting, \\\
-              or security-sensitive (it must pass your review). Use set_merge_authority \\\
-              to reclassify (escape hatch) if scope grows past the label.\\n\\\
-            - Prefer a small, decisive set of actions.\n\
-            - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
-            - Never invent actions outside the list above.\n\
-            - ANTI-THRASH: the operating context lists the decisions already open \
-              (open_decisions). Do NOT re-propose a decision whose subject is already \
-              open — it would be rejected. Instead, leave it, or supersede a STALE \
-              decision you are genuinely replacing via supersede_decision.\n\
+            - Only emit actions that are legal in the current state (do not complete \
+                          an unstarted task, do not use an id that already exists).\n\
+                        - Prefer a small, decisive set of actions.\n\
+                        - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
+                        - Never invent actions outside the list above.\n\
+                        - ANTI-THRASH: the operating context lists the decisions already open \
+                          (open_decisions). Do NOT re-propose a decision whose subject is already \
+                          open — it would be rejected. Instead, leave it, or supersede a STALE \
+                          decision you are genuinely replacing via supersede_decision.\n\
+                        \n\
+                        Your identity, role, and task-specific workflow are defined in your \
+                        system persona above. Follow your persona's instructions for what actions \
+                        to take and how to communicate with the PM/owner.\n\
             \n\
             IMPORTANT: output ONLY the JSON object, no prose, no markdown fences."
         )
