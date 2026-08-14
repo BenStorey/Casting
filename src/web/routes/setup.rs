@@ -1,7 +1,7 @@
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::pm::AppState;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 
@@ -40,8 +40,15 @@ pub(crate) struct SetupIn {
 /// POST /api/setup — the first-run wizard's submit. Hires the chosen cast
 /// (idempotently), persists the owner token, then fires the owner's objective
 /// as a message so `plan_onboard` kicks off the build.
+///
+/// FAIL-CLOSED against silent token rotation: persist_config would otherwise
+/// overwrite an already-persisted owner token. We refuse to replace a token
+/// that is already persisted with a different one unless the request presents
+/// the CURRENT token (the one already on disk). First-run (no previously
+/// persisted token) may still SET a token.
 pub(crate) async fn setup_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(input): Json<SetupIn>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let cast_roles: Vec<String> = if input.cast.is_empty() {
@@ -58,11 +65,26 @@ pub(crate) async fn setup_handler(
 
     // Persist the owner token + name so `cast run` picks up auth on restart.
     if let Some(dir) = &state.state_dir {
-        let _ = crate::setup::persist_config(
-            dir,
-            &input.name,
-            input.owner_token.as_deref().filter(|t| !t.is_empty()),
-        );
+        let owner_token = input.owner_token.as_deref().filter(|t| !t.is_empty());
+        // Fail-closed against silent token rotation: never replace an
+        // already-persisted owner token with a *different* one unless the
+        // request presents the current (persisted) token. First-run SET is
+        // still allowed (no prior token). Requires that a state dir has been
+        // attached (as `cast run` does), so this mirrors exactly what will be
+        // read back — there is no other persistence seam.
+        if let Some(existing) = crate::setup::read_config(dir)
+            .and_then(|cfg| cfg.owner_token)
+            .filter(|t| !t.is_empty())
+        {
+            let replacing = owner_token.is_none_or(|incoming| incoming != existing);
+            if replacing && !crate::auth::authorized(&headers, &existing) {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    "refusing to replace owner token: current token required".into(),
+                ));
+            }
+        }
+        let _ = crate::setup::persist_config(dir, &input.name, owner_token);
     }
 
     // Fire the owner's objective so onboarding produces the build plan.

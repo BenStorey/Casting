@@ -107,3 +107,47 @@ async fn read_endpoints_stay_open_with_auth_enabled() {
         "reads stay open even when auth is on"
     );
 }
+
+// The first-run SetupWizard POSTs to /api/setup BEFORE any token exists, so
+// with no token configured the setup + telegram-configure writes must stay
+// OPEN. Once a token IS configured they go behind the guard.
+#[tokio::test]
+async fn setup_and_telegram_configure_require_token_when_configured() {
+    let app = boot_api(Some("s3cr3t"));
+
+    // POST /api/setup without a token: 401 even though setup is first-run-
+    // oriented (auth is configured, so it must be presented).
+    let status = post(
+        &app,
+        "/api/setup",
+        r#"{"name":"Acme","objective":"x","cast":["engineer"]}"#,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // POST /api/telegram/configure without a token: 401.
+    let status = post(
+        &app,
+        "/api/telegram/configure",
+        r#"{"token":"botfoo"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn setup_and_telegram_configure_open_when_no_token_configured() {
+    // No auth configured -> require_auth is a no-op, so the first-run setup
+    // flow is NOT guarded (the SetupWizard posts here before a token exists).
+    let app = boot_api(None);
+    let status = post(
+        &app,
+        "/api/setup",
+        r#"{"name":"Acme","objective":"x","cast":["engineer"]}"#,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "first-run setup stays open");
+}

@@ -79,6 +79,17 @@ pub fn router(state: AppState) -> Router {
         .route("/api/budget", axum::routing::post(budget_handler))
         .route("/api/pause", axum::routing::post(pause_handler))
         .route("/api/resume", axum::routing::post(resume_handler))
+        // POST /api/setup and POST /api/telegram/configure are also owner-
+        // mutating writes (they persist the owner token / a bot secret), so
+        // they get the same bearer guard. require_auth is a NO-OP when no
+        // token is configured, so the first-run SetupWizard (which posts to
+        // /api/setup before any token exists) keeps working; once a token is
+        // set, these endpoints require it.
+        .route("/api/setup", axum::routing::post(setup_handler))
+        .route(
+            "/api/telegram/configure",
+            axum::routing::post(telegram_configure_handler),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_auth,
@@ -87,11 +98,6 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/login", axum::routing::post(login_handler))
         .route("/api/setup/status", get(setup_status_handler))
-        .route("/api/setup", axum::routing::post(setup_handler))
-        .route(
-            "/api/telegram/configure",
-            axum::routing::post(telegram_configure_handler),
-        )
         .route("/api/state", get(state_handler))
         .route("/api/events", get(events_handler))
         .route("/api/events/stream", get(events_stream))

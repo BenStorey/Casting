@@ -201,3 +201,82 @@ async fn setup_is_idempotent_and_persists_token() {
         .count();
     assert_eq!(engineers, 1, "no duplicate hires on re-setup");
 }
+
+// FAIL-CLOSED against silent token rotation: once an owner token is persisted,
+// POST /api/setup can only REPLACE it with a different value when the request
+// presents the CURRENT token. An unauthenticated POST must never rotate it.
+#[tokio::test]
+async fn setup_refuses_silent_token_rotation_without_current_token() {
+    use casting::setup::read_config;
+
+    let dir = tempfile::tempdir().unwrap();
+    // Simulate a repo whose setup already persisted a token (`cast init`).
+    std::fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"Acme Inc","owner_token":"old-secret"}"#,
+    )
+    .unwrap();
+
+    let store = SqliteEventStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
+    let state = AppState::new(store, cursors, "proj-web").with_state_dir(dir.path().to_path_buf());
+    let app = casting::web::router(state);
+
+    // Try to rotate the token with a DIFFERENT token and NO bearer: must be 401.
+    let body = r#"{"name":"Acme Inc","objective":"x","cast":[],"owner_token":"attacker-token"}"#;
+    let (status, _) = post_json(&app, "/api/setup", body).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "rotating a persisted token without the current token must fail"
+    );
+
+    // The persisted token is left untouched.
+    let cfg = read_config(dir.path()).unwrap();
+    assert_eq!(cfg.owner_token.as_deref(), Some("old-secret"));
+
+    // With the CURRENT token presented, rotation is allowed.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/setup")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer old-secret")
+                .body(Body::from(
+                    r#"{"name":"Acme Inc","objective":"x","cast":[],"owner_token":"new-secret"}"#
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK, "rotation w/ current token ok");
+    let cfg = read_config(dir.path()).unwrap();
+    assert_eq!(cfg.owner_token.as_deref(), Some("new-secret"));
+}
+
+// First-run with NO previously-persisted token may still SET a token.
+#[tokio::test]
+async fn setup_may_set_token_on_first_run() {
+    use casting::setup::read_config;
+
+    let dir = tempfile::tempdir().unwrap();
+    // No config.json yet, but a state_dir is attached (bare `cast run`).
+    let store = SqliteEventStore::in_memory().unwrap();
+    let cursors = SqliteCursorStore::in_memory().unwrap();
+    let state = AppState::new(store, cursors, "proj-web").with_state_dir(dir.path().to_path_buf());
+    let app = casting::web::router(state);
+
+    let (status, _) = post_json(
+        &app,
+        "/api/setup",
+        r#"{"name":"Acme","objective":"x","cast":[],"owner_token":"first-secret"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "first-run may set a token");
+
+    let cfg = read_config(dir.path()).unwrap();
+    assert_eq!(cfg.owner_token.as_deref(), Some("first-secret"));
+}
