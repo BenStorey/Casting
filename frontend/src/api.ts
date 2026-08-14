@@ -301,6 +301,38 @@ export function fetchInbox(): Promise<Inbox> {
   return j<Inbox>("/api/inbox");
 }
 
+// ---- Telegram owner channel (2026-08-14) -----------------------------------
+
+export interface TelegramConfigureResult {
+  bot_id: number;
+  bot_name: string;
+  bot_username: string;
+  chat_id: number | null;
+  chat_linked: boolean;
+  loop_started: boolean;
+}
+
+export interface TelegramStatus {
+  configured: boolean;
+  chat_id: number | null;
+  bot_name: string | null;
+  bot_username: string | null;
+}
+
+export function fetchTelegramStatus(): Promise<TelegramStatus> {
+  return j<TelegramStatus>("/api/telegram/status");
+}
+
+/** Paste a BotFather token: validate, brand the bot as the PM, learn the
+ *  chat_id, persist, and start the loop. */
+export function configureTelegram(token: string): Promise<TelegramConfigureResult> {
+  return j<TelegramConfigureResult>("/api/telegram/configure", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
 // ---- Operating picture (/api/model) -----------------------------------------
 // Mirrors src/mental.rs OperatingModel + the context/plan shapes it embeds.
 

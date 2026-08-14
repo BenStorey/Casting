@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PM_IDENTITY } from "./identities";
+import TelegramConnect from "./TelegramConnect";
 
 /// First-run onboarding — an in-character, stepped experience.
 /// Sarah Chen (the Project Manager) introduces herself, explains the setup,
 /// and walks the owner through: team -> objective -> security. On launch she
 /// hires the cast and kicks off the build (the SAME engine as `cast init`).
 
-type Step = 0 | 1 | 2 | 3;
+type Step = 0 | 1 | 2 | 3 | 4;
 
 export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
@@ -59,7 +60,13 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
   const roles: SetupRole[] = status?.roles ?? [];
   const canContinue =
-    step === 0 ? true : step === 1 ? selected.size > 0 : step === 2 ? objective.trim().length > 0 : true;
+    step === 0
+      ? true
+      : step === 1
+      ? selected.size > 0
+      : step === 2
+      ? objective.trim().length > 0
+      : true;
 
   return (
     <div className="app max-w-2xl">
@@ -88,6 +95,8 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               ? "Pick who starts on your team."
               : step === 2
               ? "What should we build first?"
+              : step === 3
+              ? "Talk to me from your phone."
               : "A note on security."}
           </CardTitle>
         </CardHeader>
@@ -183,6 +192,18 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
           {step === 3 && (
             <div className="space-y-3">
               <p className="text-sm leading-relaxed text-muted-foreground">
+                This is optional — but it means you can message me from your phone
+                instead of this screen. You'll create your <strong>own</strong>{" "}
+                Telegram bot (each Casting install has its own — never shared), and
+                I'll brand it with my name and learn who you are automatically.
+              </p>
+              <TelegramConnect />
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-3">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 One last thing: who's allowed to make decisions here? By default writes are open, but
                 I recommend setting an <strong>owner token</strong> — a secret only you know. When it's
                 set, the endpoints that change the company require it.
@@ -209,7 +230,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
             <Button variant="ghost" disabled={step === 0} onClick={() => setStep((s) => (s - 1) as Step)}>
               Back
             </Button>
-            {step < 3 ? (
+            {step < 4 ? (
               <Button onClick={() => setStep((s) => (s + 1) as Step)} disabled={!canContinue}>
                 Continue
               </Button>
@@ -220,7 +241,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
             )}
           </div>
           <div className="mt-3 flex items-center justify-center gap-1.5">
-            {[0, 1, 2, 3].map((i) => (
+            {[0, 1, 2, 3, 4].map((i) => (
               <span
                 key={i}
                 className={"h-1.5 rounded-full transition-all " + (i <= step ? "w-6 bg-primary" : "w-3 bg-border")}

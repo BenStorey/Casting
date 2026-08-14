@@ -249,6 +249,14 @@ pub struct RuntimeConfig {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_token: Option<String>,
+    /// Persisted Telegram channel config (2026-08-14). Set via the UI
+    /// `POST /api/telegram/configure` so a user of Casting never touches env.
+    /// Both are secrets-adjacent (a bot token; a user's chat id) and live in
+    /// the gitignored `.casting/` dir, never in committed config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_chat_id: Option<i64>,
 }
 
 const CONFIG_FILE: &str = "config.json";
@@ -257,6 +265,8 @@ fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
     let cfg = RuntimeConfig {
         name: spec.name.clone(),
         owner_token: spec.owner_token.clone(),
+        telegram_token: None,
+        telegram_chat_id: None,
     };
     let json = serde_json::to_string_pretty(&cfg)?;
     std::fs::write(dir.join(CONFIG_FILE), json).context("write state-dir config")
@@ -266,6 +276,32 @@ fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
 pub fn read_config(dir: &std::path::Path) -> Option<RuntimeConfig> {
     let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).ok()?;
     serde_json::from_str(&raw).ok()
+}
+
+/// Persist the Telegram channel config, MERGING into any existing config (so
+/// an already-persisted owner token / name is never clobbered). If no config
+/// exists yet we create a minimal one with an empty name. Mirrors the setup
+/// "fresh-only" rule in the reverse direction: a UI Telegram configure never
+/// wipes the owner token that `cast init`/setup already wrote.
+pub fn persist_telegram_config(
+    dir: &std::path::Path,
+    token: impl Into<String>,
+    chat_id: i64,
+) -> Result<()> {
+    let prior = read_config(dir).unwrap_or(RuntimeConfig {
+        name: String::new(),
+        owner_token: None,
+        telegram_token: None,
+        telegram_chat_id: None,
+    });
+    let cfg = RuntimeConfig {
+        name: prior.name,
+        owner_token: prior.owner_token,
+        telegram_token: Some(token.into()),
+        telegram_chat_id: Some(chat_id),
+    };
+    let json = serde_json::to_string_pretty(&cfg)?;
+    std::fs::write(dir.join(CONFIG_FILE), json).context("write persisted telegram config")
 }
 
 /// Write a NO-SECRETS `casting.example.json` template to `dir` (the repo

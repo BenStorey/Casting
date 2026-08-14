@@ -11,6 +11,7 @@ mod provenance;
 mod setup;
 mod state;
 mod static_files;
+mod telegram;
 mod views;
 
 use crate::event::Event;
@@ -31,6 +32,7 @@ use provenance::{provenance_commit_handler, provenance_decision_handler, provena
 use setup::{setup_handler, setup_status_handler};
 use state::{events_handler, events_stream, state_handler};
 use static_files::static_handler;
+use telegram::{telegram_configure_handler, telegram_status_handler};
 use views::{
     consultants_handler, context_handler, graph_handler, graph_task_context_handler, model_handler,
     persona_handler, routing_handler,
@@ -86,6 +88,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/login", axum::routing::post(login_handler))
         .route("/api/setup/status", get(setup_status_handler))
         .route("/api/setup", axum::routing::post(setup_handler))
+        .route(
+            "/api/telegram/configure",
+            axum::routing::post(telegram_configure_handler),
+        )
         .route("/api/state", get(state_handler))
         .route("/api/events", get(events_handler))
         .route("/api/events/stream", get(events_stream))
@@ -109,6 +115,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/graph", get(graph_handler))
         .route("/api/consultants", get(consultants_handler))
         .route("/api/routing", get(routing_handler))
+        .route("/api/telegram/status", get(telegram_status_handler))
         .route("/api/graph/task/{task_id}", get(graph_task_context_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)

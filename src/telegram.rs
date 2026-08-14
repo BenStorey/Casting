@@ -45,6 +45,18 @@ pub struct TelegramConfig {
 }
 
 impl TelegramConfig {
+    /// Build a config from explicit pieces (token + chat_id), for callers that
+    /// resolved them from persisted config / a UI configure flow rather than
+    /// env. `poll_secs` defaults to 30.
+    pub fn from_pieces(token: impl Into<String>, chat_id: i64) -> Self {
+        TelegramConfig {
+            token: token.into(),
+            chat_id,
+            poll_secs: 30,
+            api_base: "https://api.telegram.org".to_string(),
+        }
+    }
+
     /// Read `CAST_TELEGRAM_TOKEN` + `CAST_TELEGRAM_CHAT_ID` (+ optional
     /// `CAST_TELEGRAM_POLL_SECS`). Returns `None` when unconfigured (the
     /// channel stays off, no network/cost — mirrors the LLM seam).
@@ -160,6 +172,163 @@ impl OwnerChannel for TelegramChannel {
     }
 }
 
+// === Token-level operations (for the UI configure flow) ===================
+//
+// These work on a RAW bot token — validation, branding, chat_id discovery —
+// independent of a fully-configured TelegramChannel. They back
+// `POST /api/telegram/configure` so a user of Casting pastes a BotFather
+// token and the server does the rest.
+
+/// The bot identity returned by `getMe` (validates a token + shows what the
+/// bot is called / its username).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BotIdentity {
+    pub id: i64,
+    #[serde(default)]
+    pub first_name: String,
+    #[serde(default, rename = "username")]
+    pub username: String,
+    #[serde(default = "default_true")]
+    pub is_bot: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Validate a raw token + return the bot identity. Errors if the token is
+/// rejected by Telegram. `api_base` "" = the real endpoint (overridable for
+/// stub tests).
+pub async fn get_me(token: &str, api_base: &str) -> Result<BotIdentity> {
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let base = if api_base.is_empty() {
+        "https://api.telegram.org".to_string()
+    } else {
+        api_base.to_string()
+    };
+    let url = format!("{}/bot{token}/getMe", base.trim_end_matches('/'));
+    let resp = http.get(&url).send().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(anyhow::anyhow!("invalid bot token (HTTP {status})"));
+    }
+    let payload: ApiPayload<BotIdentity> = resp.json().await?;
+    if !payload.ok {
+        return Err(anyhow::anyhow!(
+            "telegram rejected token: {:?}",
+            payload.description
+        ));
+    }
+    Ok(payload.result)
+}
+
+/// Brand the bot as the owner's PM: set its display name + short description.
+/// This is what makes the bot *be* the PM in the user's chat list. Best-effort
+/// — name/description branding failing should not block config persistence.
+async fn brand_bot(token: &str, name: &str, description: &str, api_base: &str) -> Result<()> {
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let base = if api_base.is_empty() {
+        "https://api.telegram.org".to_string()
+    } else {
+        api_base.to_string()
+    };
+    for (method, value) in [
+        ("setMyName", serde_json::json!({ "name": name })),
+        (
+            "setMyDescription",
+            serde_json::json!({ "description": description }),
+        ),
+    ] {
+        let url = format!("{}/bot{token}/{method}", base.trim_end_matches('/'));
+        let resp = http
+            .post(&url)
+            .json(&value)
+            .send()
+            .await?
+            .error_for_status()?;
+        let payload: ApiPayload<serde_json::Value> = resp.json().await?;
+        if !payload.ok {
+            anyhow::bail!("telegram {method} refused: {:?}", payload.description);
+        }
+    }
+    Ok(())
+}
+
+/// Discover the owner's chat_id: the FIRST private-chat message the bot has
+/// received (`getUpdates`). Telegram requires the user to DM the bot once, so
+/// this is the natural "link me" step — the user never types a chat_id.
+/// `api_base` is overridable for tests (a stub server).
+pub async fn discover_chat_id(token: &str, api_base: &str) -> Result<Option<i64>> {
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let base = if api_base.is_empty() {
+        "https://api.telegram.org".to_string()
+    } else {
+        api_base.to_string()
+    };
+    let url = format!("{}/bot{token}/getUpdates", base.trim_end_matches('/'));
+    let resp = http
+        .post(&url)
+        .json(&serde_json::json!({ "timeout": 2, "allowed_updates": ["message"] }))
+        .send()
+        .await?
+        .error_for_status()?;
+    let payload: ApiPayload<Vec<Update>> = resp.json().await?;
+    if !payload.ok {
+        anyhow::bail!("telegram getUpdates refused: {:?}", payload.description);
+    }
+    // First private-chat message from a non-bot is the owner.
+    for u in payload.result {
+        if let Some(m) = u.message {
+            if m.chat.id > 0 {
+                // positive chat ids = private chats (not groups)
+                return Ok(Some(m.chat.id));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// The result of a UI `configure` call: validated bot identity + the learned
+/// chat_id (or None if the owner hasn't DM'd the bot yet).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConfigureOutcome {
+    pub bot_id: i64,
+    pub bot_name: String,
+    pub bot_username: String,
+    pub chat_id: Option<i64>,
+    /// Whether the run loop was started for the first time.
+    pub loop_started: bool,
+}
+
+/// One-shot UI configure flow: validate the pasted BotFather token, brand the
+/// bot as the PM (display name + description), discover the owner's chat_id,
+/// and (if found) persist + start the loop. `api_base` "" = real Telegram
+/// (overridable for stub tests).
+pub async fn configure(
+    token: &str,
+    pm_name: &str,
+    pm_description: &str,
+    api_base: &str,
+) -> Result<ConfigureOutcome> {
+    let me = get_me(token, api_base).await?;
+    // Brand best-effort: a name/description-set failure shouldn't block config.
+    let _ = brand_bot(token, pm_name, pm_description, api_base).await;
+    let chat_id = discover_chat_id(token, api_base).await?;
+    Ok(ConfigureOutcome {
+        bot_id: me.id,
+        bot_name: me.first_name,
+        bot_username: me.username,
+        chat_id,
+        loop_started: false,
+    })
+}
+
 /// One Telegram update (the message subset we care about).
 #[derive(Debug, Deserialize)]
 pub struct Update {
@@ -180,13 +349,29 @@ pub struct UpdateChat {
     pub id: i64,
 }
 
-#[derive(Deserialize)]
 struct ApiPayload<T> {
     ok: bool,
-    #[serde(default)]
     description: Option<String>,
-    #[serde(default)]
     result: T,
+}
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for ApiPayload<T> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw<T> {
+            ok: bool,
+            #[serde(default)]
+            description: Option<String>,
+            result: T,
+        }
+        Raw::deserialize(deserializer).map(|r| ApiPayload {
+            ok: r.ok,
+            description: r.description,
+            result: r.result,
+        })
+    }
 }
 
 /// The durable cursor-backed run loop. Spawned by `cast run` when the channel
@@ -209,6 +394,21 @@ pub async fn run(
         }
         tokio::time::sleep(Duration::from_secs(cfg.poll_secs)).await;
     }
+}
+
+/// Start the Telegram run loop from a config, exactly ONCE per AppState.
+/// Composable: called from boot env wiring OR the UI configure route; the
+/// `telegram_started` AtomicBool makes it idempotent. Must run inside a tokio
+/// runtime. Returns true if this call started the loop (false = already on).
+pub fn start_loop(state: &AppState, cfg: TelegramConfig) -> bool {
+    use std::sync::atomic::Ordering;
+    if state.telegram_started.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let (channel, rx) = TelegramChannel::new(cfg);
+    let state_with = state.clone().with_channel(Arc::new(channel.clone()));
+    tokio::spawn(run(state_with, channel, rx));
+    true
 }
 
 /// One full channel pass: outbound (immediate queue + durable owner-message

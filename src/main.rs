@@ -14,7 +14,6 @@ use casting::store::EventStore;
 use casting::web;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// Open a project's storage backend from the CLI (workspace + selector), then
 /// build an integrity-enforcing, snapshot-aware AppState. Shared by the
@@ -667,17 +666,24 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // The loop also triggers the git observer on each drain pass.
         tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));
 
-        // Telegram owner channel (2026-08-14): when CAST_TELEGRAM_TOKEN/CHAT_ID
-        // are set, attach the channel to the live state + spawn the cursor-driven
-        // owner-messaging loop (inbound owner messages → MessageSent → PM wakes;
-        // outbound owner-bound messages → sendMessage). Off by default — no
-        // channel, no network (mirrors the LLM seam).
-        let state = match casting::telegram::TelegramConfig::from_env() {
+        // Telegram owner channel (2026-08-14): enabled from (in priority order)
+        // a persisted `.casting/config.json` (set via the UI
+        // POST /api/telegram/configure) then the `CAST_TELEGRAM_TOKEN`/CHAT_ID
+        // env vars. Attaches the channel + spawns the cursor-driven run loop
+        // exactly once (idempotent via AppState.telegram_started). Off by
+        // default — no channel, no network (mirrors the LLM seam).
+        let telegram_cfg = casting::setup::read_config(ws.casting_dir())
+            .and_then(|c| match (c.telegram_token, c.telegram_chat_id) {
+                (Some(t), Some(cid)) => {
+                    Some(casting::telegram::TelegramConfig::from_pieces(t, cid))
+                }
+                _ => None,
+            })
+            .or_else(casting::telegram::TelegramConfig::from_env);
+        let state = match telegram_cfg {
             Some(cfg) => {
-                let (channel, rx) = casting::telegram::TelegramChannel::new(cfg);
-                let with_channel = state.with_channel(Arc::new(channel.clone()));
-                tokio::spawn(casting::telegram::run(with_channel.clone(), channel, rx));
-                with_channel
+                casting::telegram::start_loop(&state, cfg);
+                state
             }
             None => state,
         };

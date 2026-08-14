@@ -71,6 +71,8 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/budget",
         "/api/pause",
         "/api/resume",
+        "/api/telegram/status",
+        "/api/telegram/configure",
     ] {
         let req = Request::builder().uri(path).body(Body::empty()).unwrap();
         let resp = app

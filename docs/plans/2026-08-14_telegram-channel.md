@@ -1,6 +1,6 @@
 # Telegram owner-messaging channel (2026-08-14)
 
-Status: PLAN → IMPLEMENTED
+Status: PLAN → IMPLEMENTED (batch 1) → IMPLEMENTED (batch 2: user-config UX)
 Decision: **Telegram only** (WhatsApp/WeChat deferred — see below).
 
 ## Why Telegram, not WhatsApp/WeChat
@@ -78,3 +78,26 @@ Local stub Telegram HTTP server on `127.0.0.1:0` (like `tests/llm_e2e.rs`):
 
 WhatsApp/WeChat adapters; decision-ask push (needs "what needs the owner"
 derivation wired to channel, a later slice); media/callbacks; encryption.
+
+## Batch 2: per-user connect UX (2026-08-14)
+
+Every Casting install configures its OWN bot (never shared) — the bot Ben made
+here is his, as a user. The server-side config lives in the gitignored
+`.casting/config.json` (not env), so a user never touches env:
+
+- `RuntimeConfig` gains `telegram_token` + `telegram_chat_id` (setup.rs).
+  `persist_telegram_config` MERGES into an existing config (never wipes the
+  owner token — the "fresh-only" rule in reverse).
+- `src/telegram.rs` TokenOps: `get_me` (validate), `brand_bot` (setMyName /
+  setMyDescription → the bot becomes the PM in your chat list), `discover_chat_id`
+  (first private-chat message), and `configure` (validate → brand → learn).
+- Routes: `POST /api/telegram/configure` (unguarded, like /api/setup — it writes
+  the user's own bot secret to their own local config, and must work before auth
+  is set) + `GET /api/telegram/status`. `start_loop` (guarded by an AtomicBool)
+  runs the loop exactly once whether started from boot-env OR the UI.
+- `cast run` boot now prefers persisted config over env.
+- Frontend: `TelegramConnect.tsx` (BotFather walkthrough + paste token +
+  "I've messaged it") reused as a new wizard step ("Talk to me from your phone").
+  Avatar (profile photo) deferred: PM avatar is SVG-only; Telegram needs PNG.
+- Tests: `tests/telegram_configure.rs` (validate/brand/learn/reject + config
+  persist merge) against a stub Telegram server.

@@ -98,6 +98,10 @@ pub struct AppState {
     /// default — a pipe to nowhere, off until configured. Never authoritative;
     /// the event log / projection stay the only truth.
     pub channel: Arc<dyn crate::channel::OwnerChannel>,
+    /// Guards against double-spawning the Telegram run loop (2026-08-14): it
+    /// can be started from boot env OR from the UI `POST /api/telegram/configure`,
+    /// but must run exactly once. Set the first time a channel is attached.
+    pub telegram_started: Arc<std::sync::atomic::AtomicBool>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -130,6 +134,7 @@ impl AppState {
                 crate::consultants::ConsultantRegistry::from_embedded().unwrap_or_default(),
             ),
             channel: Arc::new(crate::channel::NoopChannel),
+            telegram_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             events: Arc::new(tx),
         }
     }
