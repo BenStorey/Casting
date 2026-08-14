@@ -609,6 +609,7 @@ mod tests {
             kind: "feature".into(),
             status,
             assignee: None,
+            merge_authority: crate::types::MergeAuthority::default(),
             priority: crate::plan::Priority::default(),
             review: None,
             parent_id: None,

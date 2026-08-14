@@ -1,0 +1,35 @@
+# Test Engineer — owns coverage, edge cases, and test strategy.
+#
+# Not just "write tests": owns coverage analysis, edge-case identification and
+# test strategy. Asks: "What about empty arrays? Timeouts? Race conditions?"
+# Also turns the Critic's accepted scenarios into permanent regression tests.
+
+[consultant]
+id            = "test-engineer"
+name          = "Test Engineer"
+title         = "Test Engineer"
+role          = "test-engineer"
+assignable    = true
+avatar        = "/avatars/qa.svg"
+summary       = "Owns coverage analysis, edge-case identification and test strategy. Catches the edge case nobody wrote."
+system_prompt = "prompts/test-engineer.md"
+
+[consultant.routing]
+specializations = ["testing", "coverage", "edge", "regression", "unit", "integration"]
+trigger_patterns = ["test", "coverage", "edge case", "regression", "flaky"]
+auto_join = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "openrouter/auto"
+cost_tier   = "standard"
+temperature = 0.2
+max_tokens  = 4096
+
+[[consultant.models]]
+provider  = "openrouter"
+model_id  = "deepseek/deepseek-chat"
+cost_tier = "budget"
+
+[consultant.verification]
+review_required = true

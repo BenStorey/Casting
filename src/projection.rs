@@ -196,6 +196,7 @@ impl Projection {
                 kind: string_field(e, "kind").unwrap_or_else(|| "feature".into()),
                 status: TaskStatus::Backlog,
                 assignee: None,
+                merge_authority: crate::types::MergeAuthority::default(),
                 priority: crate::plan::Priority::default(),
                 review: None,
                 parent_id: string_field(e, "parent_id"),
@@ -203,6 +204,23 @@ impl Projection {
             EventType::TaskAssigned => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
                     task.assignee = string_field(e, "assignee");
+                    task.merge_authority = e
+                        .data
+                        .get("merge_authority")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                        .unwrap_or_default();
+                }
+            }
+            // Reclassification of the merge decision (tiered merge policy).
+            EventType::MergeAuthorityChanged => {
+                if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
+                    if let Some(to) = e
+                        .data
+                        .get("to")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    {
+                        task.merge_authority = to;
+                    }
                 }
             }
             EventType::TaskStarted => {

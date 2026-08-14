@@ -140,10 +140,10 @@ async fn simulated_pm_onboards_company_from_owner_message() {
     );
     assert_eq!(proj.requirements[0].title, "Build me a todo app");
     assert!(
-        proj.agents.iter().any(|a| a.id == "marcus-reed"),
-        "engineer hired"
+        proj.agents.iter().any(|a| a.id == "lead-programmer"),
+        "Lead Programmer hired"
     );
-    assert!(proj.agents.iter().any(|a| a.id == "maya-patel"), "qa hired");
+    assert!(proj.agents.iter().any(|a| a.id == "test-engineer"), "Test Engineer hired");
     assert!(!proj.tasks.is_empty(), "tasks created");
     // The onboarding raises a decision for the owner.
     assert!(

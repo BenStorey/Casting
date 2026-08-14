@@ -202,6 +202,7 @@ fn prompt_contract_matches_serde_shape() {
             PmAction::AssignTask {
                 task_id: "t".into(),
                 assignee: "m".into(),
+                merge_authority: casting::types::MergeAuthority::SelfMerge,
             },
             "assign_task",
         ),

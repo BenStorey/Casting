@@ -184,7 +184,7 @@ pub(crate) fn plan_onboard(
         ),
         (
             crate::pm::PM_CONSUMER.into(),
-            PmAction::AssignTask { task_id: "task-design".into(), assignee: AGENT_ENG.into() },
+            PmAction::AssignTask { task_id: "task-design".into(), assignee: AGENT_ENG.into(), merge_authority: crate::types::MergeAuthority::SelfMerge },
         ),
         (
             AGENT_ENG.into(),
@@ -204,7 +204,7 @@ pub(crate) fn plan_onboard(
         ),
         (
             crate::pm::PM_CONSUMER.into(),
-            PmAction::AssignTask { task_id: "task-core".into(), assignee: AGENT_ENG.into() },
+            PmAction::AssignTask { task_id: "task-core".into(), assignee: AGENT_ENG.into(), merge_authority: crate::types::MergeAuthority::PmMerge },
         ),
         (AGENT_ENG.into(), PmAction::StartTask { task_id: "task-core".into() }),
         (
@@ -215,13 +215,6 @@ pub(crate) fn plan_onboard(
                 subject: "HTTPS not enabled in the scaffold".into(),
                 body: "Noted during review. Won't fix now, but worth a task later.".into(),
                 pm_action_required: false,
-            },
-        ),
-        (
-            AGENT_ENG.into(),
-            PmAction::CompleteTask {
-                task_id: "task-core".into(),
-                result: format!("Core implementation of {title} done"),
             },
         ),
         // Marcus submits the core work for review; the PM routes it to QA.
@@ -250,7 +243,7 @@ pub(crate) fn plan_onboard(
         ),
         (
             crate::pm::PM_CONSUMER.into(),
-            PmAction::AssignTask { task_id: "task-qa".into(), assignee: AGENT_QA.into() },
+            PmAction::AssignTask { task_id: "task-qa".into(), assignee: AGENT_QA.into(), merge_authority: crate::types::MergeAuthority::SelfMerge },
         ),
         (AGENT_QA.into(), PmAction::StartTask { task_id: "task-qa".into() }),
         (
@@ -383,6 +376,7 @@ pub(crate) fn plan_onboard(
                     PmAction::AssignTask {
                         task_id: child.id.clone(),
                         assignee: assignee.into(),
+                        merge_authority: crate::types::MergeAuthority::SelfMerge,
                     },
                 ));
                 plan.push((
@@ -427,7 +421,7 @@ pub(crate) fn plan_onboard(
     while i < plan.len() {
         if let (_, PmAction::StartTask { task_id }) = &plan[i] {
             let assigned_to_consultant = plan.iter().any(|(_, a)| {
-                matches!(a, PmAction::AssignTask { task_id: tid, assignee }
+                matches!(a, PmAction::AssignTask { task_id: tid, assignee, .. }
                     if tid == task_id && assignee != OWNER)
             });
             if assigned_to_consultant {
@@ -552,6 +546,7 @@ pub(crate) fn plan_owner_decision(
             PmAction::AssignTask {
                 task_id: format!("task-adopt-{decision_id}"),
                 assignee: AGENT_ENG.into(),
+                merge_authority: crate::types::MergeAuthority::SelfMerge,
             },
         ));
         out.push((

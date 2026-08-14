@@ -84,6 +84,7 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
     let task_assigned = PmAction::AssignTask {
         task_id: "task-design".into(),
         assignee: "marcus-reed".into(),
+        merge_authority: casting::types::MergeAuthority::SelfMerge,
     }
     .to_events("proj-idem", "pm", &cause, &corr);
     for e in task_assigned {

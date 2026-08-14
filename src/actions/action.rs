@@ -11,10 +11,23 @@ use serde_json::Value;
 /// any agent id (roles are "engineer"/"qa"...; agents are "marcus-reed"...).
 pub const OWNER: &str = "owner";
 
+/// The reserved, NON-assignable special-role actors: the PM (co-ordinator) and
+/// the Advisor (strategic thinking partner). They coordinate / advise / debate
+/// but can NEVER be assigned implementation work — the PM cannot route a task
+/// to itself, and the Advisor's conversations stay isolated from the project
+/// event log. The policy gate (is_valid_assignee + HireAgent) treats these as
+/// not-assignable and not-hirable, so an owner or model cannot accidentally
+/// turn a special role into a task-doer.
+pub const SPECIAL_ACTORS: &[&str] = &["pm", "advisor"];
+
 /// True if `candidate` is a valid task assignee: either the human owner or a
-/// hired agent. (owner 2026-08-10 — human-as-consultant delivery.)
+/// hired agent — and never one of the reserved special roles. (owner
+/// 2026-08-10 — human-as-consultant delivery.)
 pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
-    candidate == OWNER || state.agents.iter().any(|a| a.id == candidate)
+    if candidate == OWNER || SPECIAL_ACTORS.contains(&candidate) {
+        return candidate == OWNER;
+    }
+    state.agents.iter().any(|a| a.id == candidate)
 }
 
 /// One organizational move the PM may propose. Serde-tagged so an LLM can emit
@@ -44,10 +57,26 @@ pub enum PmAction {
         title: String,
         kind: String,
     },
-    /// Assign a task to a hired agent.
+    /// Assign a task to a hired agent. `merge_authority` is the PM's up-front
+    /// decision on how the work merges (tiered merge policy, 2026-08-14):
+    /// `self` = the assignee completes to Done directly after CI (trivial /
+    /// peripheral); `pm` = the work must pass through the PM's review first.
+    /// Recorded on the TaskAssigned event, so the decision is auditable.
     AssignTask {
         task_id: String,
         assignee: String,
+        #[serde(default)]
+        merge_authority: crate::types::MergeAuthority,
+    },
+    /// Reclassify a task's merge authority (the escape hatch when scope grows
+    /// past its assignment label, e.g. a "trivial" change turned out to touch
+    /// the core). PM/owner authority only. Records a `MergeAuthorityChanged`
+    /// event so the merge decision stays auditable. `self -> pm` escalates the
+    /// gate; `pm -> self` downgrades it (allowed, but a deliberate call).
+    SetMergeAuthority {
+        task_id: String,
+        #[serde(default)]
+        merge_authority: crate::types::MergeAuthority,
     },
     /// Provision an isolated worktree for a task (owner 2026-08-12): the
     /// platform gives a summoned consultant a dedicated working tree on its own

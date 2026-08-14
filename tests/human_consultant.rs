@@ -54,6 +54,7 @@ fn assign_task_to_owner_is_valid() {
         &casting::actions::PmAction::AssignTask {
             task_id: "task-1".into(),
             assignee: casting::actions::OWNER.into(),
+            merge_authority: casting::types::MergeAuthority::PmMerge,
         },
         "pm",
         &proj,
@@ -65,6 +66,7 @@ fn assign_task_to_owner_is_valid() {
         &casting::actions::PmAction::AssignTask {
             task_id: "task-1".into(),
             assignee: "ghost-agent".into(),
+            merge_authority: casting::types::MergeAuthority::PmMerge,
         },
         "pm",
         &proj,

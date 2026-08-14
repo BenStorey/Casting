@@ -92,10 +92,13 @@ impl ModelResolver {
         match self.consultants.by_id(actor) {
             Some(consultant) => {
                 let persona = consultant.system_prompt.clone().unwrap_or(fallback);
-                let temp = consultant.model.temperature;
-                let max = consultant.model.max_tokens;
-                let (in_price, out_price) = tier_prices(consultant.model.cost_tier);
-                match model_from_consultant(&consultant.model, &self.base) {
+                let primary = consultant.primary_model();
+                let temp = primary.and_then(|m| m.temperature);
+                let max = primary.and_then(|m| m.max_tokens);
+                let (in_price, out_price) = tier_prices(
+                    primary.map(|m| m.cost_tier).unwrap_or_default(),
+                );
+                match primary.and_then(|m| model_from_consultant(m, &self.base)) {
                     Some(config) => ResolvedModel {
                         config,
                         system_prompt: persona,
@@ -122,6 +125,59 @@ impl ModelResolver {
                 input_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).0,
                 output_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).1,
             },
+        }
+    }
+
+    /// Resolve the FULL ordered model chain for an actor, preferred first.
+    /// The first entry is what `resolve` returns; each subsequent entry is a
+    /// fallback to walk when the previous provider/model is unavailable
+    /// (region block, rate limit, outage). D2's exec loop tries these in
+    /// order. Empty when the actor has no binding (all paths fall back to the
+    /// env base config as a single entry).
+    pub fn resolve_chain(&self, actor: &str) -> Vec<ResolvedModel> {
+        let generic = format!("You are {actor}.");
+        let fallback = if self.default_persona.is_empty() {
+            generic
+        } else {
+            self.default_persona.clone()
+        };
+        let Some(consultant) = self.consultants.by_id(actor) else {
+            return vec![self.env_resolved(fallback)];
+        };
+        let persona = consultant.system_prompt.clone().unwrap_or(fallback);
+        let mut chain: Vec<ResolvedModel> = consultant
+            .model_chain()
+            .iter()
+            .filter_map(|m| {
+                model_from_consultant(m, &self.base).map(|config| {
+                    let (in_price, out_price) = tier_prices(m.cost_tier);
+                    ResolvedModel {
+                        config,
+                        system_prompt: persona.clone(),
+                        temperature: m.temperature,
+                        max_tokens: m.max_tokens,
+                        input_price_per_mtok: in_price,
+                        output_price_per_mtok: out_price,
+                    }
+                })
+            })
+            .collect();
+        if chain.is_empty() {
+            // No usable binding declared — fall back to the env base once.
+            chain.push(self.env_resolved(persona));
+        }
+        chain
+    }
+
+    /// A single `ResolvedModel` from the env base config + a persona.
+    fn env_resolved(&self, persona: String) -> ResolvedModel {
+        ResolvedModel {
+            config: self.base.clone(),
+            system_prompt: persona,
+            temperature: None,
+            max_tokens: None,
+            input_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).0,
+            output_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).1,
         }
     }
 }

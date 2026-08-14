@@ -109,6 +109,49 @@ model_id = "local-llama"
     assert_eq!(resolved.config.provider, "litellm");
 }
 
+#[test]
+fn resolver_model_chain_uses_first_as_priority_and_orders_fallbacks() {
+    // A multi-model chain: models[0] is preferred, the rest are fallbacks.
+    let pkg = r#"
+[consultant]
+id = "chained"
+name = "Chained"
+role = "engineer"
+system_prompt = "prompts/custom.md"
+
+[[consultant.models]]
+provider = "openrouter"
+model_id = "priority-model"
+cost_tier = "premium"
+temperature = 0.3
+
+[[consultant.models]]
+provider = "openrouter"
+model_id = "fallback-1"
+cost_tier = "standard"
+
+[[consultant.models]]
+provider = "openrouter"
+model_id = "fallback-2"
+cost_tier = "budget"
+"#;
+    let registry = registry_with_model(pkg, "You are Chained.");
+    let resolver = ModelResolver::new(base_cfg(), registry);
+
+    // `resolve` returns the FIRST (preferred) entry.
+    let primary = resolver.resolve("chained");
+    assert_eq!(primary.config.model, "priority-model");
+    assert_eq!(primary.temperature, Some(0.3));
+
+    // `resolve_chain` exposes the full ordered fallback chain.
+    let chain = resolver.resolve_chain("chained");
+    let ids: Vec<&str> = chain.iter().map(|r| r.config.model.as_str()).collect();
+    assert_eq!(ids, vec!["priority-model", "fallback-1", "fallback-2"]);
+    // Each link keeps its own tier prices (premium first → highest prices).
+    assert!(chain[0].input_price_per_mtok > chain[1].input_price_per_mtok);
+    assert!(chain[1].input_price_per_mtok > chain[2].input_price_per_mtok);
+}
+
 // === Routing flows into the request ===
 
 #[tokio::test]
@@ -422,10 +465,15 @@ temperature = 0.2
     assert_eq!(r.config.provider, "openrouter");
     assert_eq!(r.config.model, "cheap-model");
     assert_eq!(r.temperature, Some(0.2));
-    // pm has no binding → env base, no temp/max.
+    // An actor with NO consultant binding → env base, no temp/max.
+    let nobody = resolver.resolve("nobody-bound");
+    assert_eq!(nobody.config.model, "default-model");
+    assert_eq!(nobody.temperature, None);
+
+    // The embedded PM package now binds pm to its own model (2026-08-14 cast).
     let pm = resolver.resolve("pm");
-    assert_eq!(pm.config.model, "default-model");
-    assert_eq!(pm.temperature, None);
+    assert_ne!(pm.config.model, "default-model", "pm ships a consultant binding");
+    assert_eq!(pm.config.model, "anthropic/claude-sonnet-5");
 }
 
 // === #2 Reactive anti-thrash ===

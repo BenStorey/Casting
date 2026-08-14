@@ -1,0 +1,40 @@
+# PM — the SPECIAL Project Manager.
+#
+# The sole interface to the owner. The PM receives requests, assigns work to
+# the assignable cast, reports status, and handles escalations. It is a SPECIAL
+# role: `assignable = false` → it is never itself assigned implementation work
+# (enforced by the policy gate). Every default cast ships exactly one PM.
+
+[consultant]
+id            = "pm"
+name          = "Project Manager"
+title         = "Project Manager"
+assignable    = false
+avatar        = "/avatars/pm.svg"
+summary       = "Sole interface to the owner. Receives requests, assigns work to the cast, reports status, escalates."
+system_prompt = "prompts/pm.md"
+
+[consultant.new_role]
+id    = "pm"
+title = "Project Manager"
+scope = "governance"
+
+[consultant.routing]
+specializations = ["coordination", "planning", "routing", "triage", "escalation", "status"]
+trigger_patterns = ["assign", "prioritize", "schedule", "status", "report", "where should"]
+auto_join = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-sonnet-5"
+cost_tier   = "standard"
+temperature = 0.1
+max_tokens  = 4096
+
+[[consultant.models]]
+provider  = "openrouter"
+model_id  = "deepseek/deepseek-chat"
+cost_tier = "standard"
+
+[consultant.verification]
+review_required = false

@@ -221,7 +221,7 @@ fn company_boots_and_onboards_entirely_on_postgres() {
         proj.tasks.len()
     );
     assert!(
-        proj.agents.iter().any(|a| a.id == "marcus-reed"),
-        "default engineer hired on Postgres"
+        proj.agents.iter().any(|a| a.id == "lead-programmer"),
+        "default assignable engineer (Lead Programmer) hired on Postgres"
     );
 }

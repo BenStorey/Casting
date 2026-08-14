@@ -49,6 +49,10 @@ pub enum EventType {
     /// A task's priority changed (per docs/SEMANTIC_EVENTS.md: a mutation; the
     /// projection reduces it to `task.priority` deterministically).
     TaskPriorityChanged,
+    /// A task's merge_authority (tiered merge policy, 2026-08-14) was
+    /// reclassified — the escape hatch when scope grows past its assignment
+    /// label (`{ from, to }`). Event-sourced so the merge decision is auditable.
+    MergeAuthorityChanged,
     /// A task was decomposed into child tasks (parallel-work fan-out). The
     /// parent is the join point — the graph aggregates its children's
     /// resolution into the parent. Records the decomposition *intent* for

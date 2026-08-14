@@ -1,0 +1,35 @@
+# Stage Manager — build pipeline health (formerly the Ergonomics Expert).
+#
+# Ensures the build works, build times are sane, the environment is clean, and
+# flaky tests are caught. Prevents other consultants from burning tokens
+# fighting setup. Cheap model — it is plumbing, not reasoning.
+
+[consultant]
+id            = "stage-manager"
+name          = "Stage Manager"
+title         = "Stage Manager"
+role          = "stage-manager"
+assignable    = true
+avatar        = "/avatars/devops.svg"
+summary       = "Build pipeline health: keeps cargo test working, build times sane, environment clean, catches flaky tests."
+system_prompt = "prompts/stage-manager.md"
+
+[consultant.routing]
+specializations = ["build", "ci", "tooling", "flaky", "environment", "dependencies"]
+trigger_patterns = ["build", "ci", "flaky", "test fail", "compile", "setup"]
+auto_join = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "deepseek/deepseek-chat"
+cost_tier   = "budget"
+temperature = 0.2
+max_tokens  = 4096
+
+[[consultant.models]]
+provider  = "openrouter"
+model_id  = "luna/luna-1"
+cost_tier = "budget"
+
+[consultant.verification]
+review_required = true

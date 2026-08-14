@@ -47,6 +47,36 @@ pub const ROLE_CATALOG: &[Role] = &[
         title: "DevOps / SRE",
         scope: "engineering",
     },
+    // The curated default assignable cast (the "Default Cast" from the
+    // consultant plan 2026-08-14). Each is a real catalog role the PM can
+    // assign implementation work to. The special (non-assignable) roles —
+    // PM, Advisor — are NOT catalog roles: they are fixed co-ordinator /
+    // adviser actors, never hireable agents.
+    Role {
+        id: "lead-programmer",
+        title: "Lead Programmer",
+        scope: "engineering",
+    },
+    Role {
+        id: "test-engineer",
+        title: "Test Engineer",
+        scope: "qa",
+    },
+    Role {
+        id: "systems-architect",
+        title: "Systems Architect",
+        scope: "architecture",
+    },
+    Role {
+        id: "stage-manager",
+        title: "Stage Manager",
+        scope: "engineering",
+    },
+    Role {
+        id: "critic",
+        title: "The Critic",
+        scope: "qa",
+    },
 ];
 
 /// Look up a role by id from the catalog.
@@ -67,15 +97,31 @@ pub struct CastMember {
     pub role_id: &'static str,
 }
 
-/// The default cast a freshly onboarded company starts with: the PM plus a
-/// small engineering/QA team. A CEO will extend this by hiring more agents.
+/// The default cast a freshly onboarded company starts with: the five
+/// ASSIGNABLE consultants the PM can route implementation work to. The two
+/// SPECIAL roles — the PM and the Advisor — are NOT seeded as hireable agents:
+/// they are fixed co-ordinator / adviser actors with their own personas and
+/// can never be assigned tasks (enforced by the policy gate). A CEO extends
+/// the assignable cast by hiring more agents.
 pub const DEFAULT_CAST: &[CastMember] = &[
     CastMember {
-        agent_id: "marcus-reed",
-        role_id: "engineer",
+        agent_id: "lead-programmer",
+        role_id: "lead-programmer",
     },
     CastMember {
-        agent_id: "maya-patel",
-        role_id: "qa",
+        agent_id: "test-engineer",
+        role_id: "test-engineer",
+    },
+    CastMember {
+        agent_id: "systems-architect",
+        role_id: "systems-architect",
+    },
+    CastMember {
+        agent_id: "stage-manager",
+        role_id: "stage-manager",
+    },
+    CastMember {
+        agent_id: "critic",
+        role_id: "critic",
     },
 ];

@@ -1,6 +1,6 @@
 //! The policy gate: validation of a proposed action against the projection, and
 //! the `PolicyError` rejection vocabulary.
-use super::action::{is_valid_assignee, PmAction, OWNER};
+use super::action::{is_valid_assignee, PmAction, OWNER, SPECIAL_ACTORS};
 use crate::policy;
 use crate::projection::Projection;
 
@@ -15,6 +15,9 @@ pub enum PolicyError {
     TaskNotFound(String),
     /// Assigning work to an agent who has not been hired.
     AgentNotHired(String),
+    /// Assigning work to a reserved SPECIAL role (PM/Advisor) — they
+    /// coordinate/advise, never take implementation tasks.
+    SpecialRoleNotAssignable(String),
     /// Reviewing a task that isn't currently in review.
     TaskNotInReview(String),
     /// Starting/completing/blocking a task that has not been assigned yet.
@@ -25,6 +28,11 @@ pub enum PolicyError {
         actor: String,
         assignee: String,
     },
+    /// A `pm`-merge task cannot be completed straight to Done by a consultant —
+    /// it must pass through the PM's review first (tiered merge policy).
+    PmMergeRequiresReview(String),
+    /// The actor lacks authority for a PM/owner-only action.
+    ActionNotAuthorized(String),
     /// The authority-downgrade guard fired: a decision was proposed with less
     /// owner involvement than its class's policy requires (from `policy.rs`).
     /// A producer may never under-claim owner involvement — it would silently
@@ -90,6 +98,9 @@ impl std::fmt::Display for PolicyError {
             PolicyError::AgentNotHired(id) => {
                 write!(f, "cannot assign task to {id}: not hired")
             }
+            PolicyError::SpecialRoleNotAssignable(id) => {
+                write!(f, "cannot assign task to {id}: special role, not assignable")
+            }
             PolicyError::TaskNotInReview(id) => {
                 write!(f, "cannot review task {id}: it is not in review")
             }
@@ -105,6 +116,13 @@ impl std::fmt::Display for PolicyError {
                     f,
                     "cannot act on task {task_id}: {actor} is not the assignee ({assignee})"
                 )
+            }
+            PolicyError::PmMergeRequiresReview(id) => write!(
+                f,
+                "cannot complete task {id} directly: it is a pm-merge task and must pass the PM's review first"
+            ),
+            PolicyError::ActionNotAuthorized(who) => {
+                write!(f, "{who} lacks authority for this action")
             }
             PolicyError::AuthorityDowngrade {
                 class,
@@ -180,6 +198,11 @@ impl std::error::Error for PolicyError {}
 pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), PolicyError> {
     match action {
         PmAction::HireAgent { agent_id, .. } => {
+            // The special roles (PM/Advisor) can never be hired as task-doers;
+            // they are fixed co-ordinator / adviser actors.
+            if crate::actions::action::SPECIAL_ACTORS.contains(&agent_id.as_str()) {
+                return Err(PolicyError::SpecialRoleNotAssignable(agent_id.clone()));
+            }
             if state.agents.iter().any(|a| a.id == *agent_id) {
                 Err(PolicyError::AgentAlreadyHired(agent_id.clone()))
             } else {
@@ -243,7 +266,11 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             // The assignee is either a hired agent OR the human owner (owner can
             // take a task on personally and deliver via their harness). Anything
-            // else is rejected.
+            // else is rejected — and a reserved special role (PM/Advisor) is
+            // rejected with a distinct, clearer error.
+            if SPECIAL_ACTORS.contains(&assignee.as_str()) {
+                return Err(PolicyError::SpecialRoleNotAssignable(assignee.clone()));
+            }
             if !is_valid_assignee(state, assignee) {
                 return Err(PolicyError::AgentNotHired(assignee.clone()));
             }
@@ -307,8 +334,32 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
-        PmAction::CompleteTask { task_id, .. } => check_assignee(task_id, who, state),
+        PmAction::CompleteTask { task_id, .. } => {
+            check_assignee(task_id, who, state)?;
+            // Tiered merge gate (2026-08-14): a `pm`-merge task cannot be
+            // completed straight to Done by a consultant — it must pass
+            // through the PM's review (RequestReview → ReviewTask). `self`-merge
+            // tasks and owner-delivered tasks may complete directly (the fast
+            // path).
+            let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
+            let is_owner_task = task.assignee.as_deref() == Some(OWNER);
+            if task.merge_authority == crate::types::MergeAuthority::PmMerge && !is_owner_task {
+                return Err(PolicyError::PmMergeRequiresReview(task_id.clone()));
+            }
+            Ok(())
+        }
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
+        // Reclassifying merge authority is the escape hatch (scope grew past its
+        // assignment label). PM/owner/system authority only; the task must exist.
+        PmAction::SetMergeAuthority { task_id, .. } => {
+            if !matches!(who, "pm" | "owner" | "system") {
+                return Err(PolicyError::ActionNotAuthorized(who.to_string()));
+            }
+            if !state.tasks.iter().any(|t| t.id == *task_id) {
+                return Err(PolicyError::TaskNotFound(task_id.clone()));
+            }
+            Ok(())
+        }
         // Submitting work for review: the assignee submits their own work, and
         // the reviewer must be a real agent.
         PmAction::RequestReview { task_id, reviewer } => {

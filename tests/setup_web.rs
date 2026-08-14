@@ -120,7 +120,7 @@ async fn status_is_unconfigured_then_configured_after_setup() {
         .iter()
         .map(|a| a["id"].as_str().unwrap())
         .collect();
-    assert!(agents.contains(&"marcus-reed"));
+    assert!(agents.contains(&"engineer-1"));
     assert!(agents.contains(&"devops-1"));
     // The objective fired as an owner message.
     assert!(
@@ -197,7 +197,7 @@ async fn setup_is_idempotent_and_persists_token() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|a| a["id"] == "marcus-reed")
+        .filter(|a| a["id"] == "engineer-1")
         .count();
     assert_eq!(engineers, 1, "no duplicate hires on re-setup");
 }

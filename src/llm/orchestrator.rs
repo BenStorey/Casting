@@ -64,7 +64,8 @@ impl LlmOrchestrator {
         // the parse fails. The gate is the hard authority; this is the legible
         // contract that makes the model's output parse.
         let actions = r#"- create_task:      {"action":"create_task","id":str,"title":str,"kind":str}
-- assign_task:      {"action":"assign_task","task_id":str,"assignee":str}
+- assign_task:      {"action":"assign_task","task_id":str,"assignee":str,"merge_authority":"self"|"pm"}
+- set_merge_authority: {"action":"set_merge_authority","task_id":str,"merge_authority":"self"|"pm"}
 - start_task:       {"action":"start_task","task_id":str}
 - complete_task:    {"action":"complete_task","task_id":str,"result":str}
 - request_review:   {"action":"request_review","task_id":str,"reviewer":str}
@@ -101,8 +102,12 @@ impl LlmOrchestrator {
             the current operating context. Rules:\n\
             - Include EVERY required field from the shape above; a missing field \
               (e.g. send_message without \"to\") is a hard error.\n\
-            - Only emit actions that are legal in the current state (do not complete \
-              an unstarted task, do not use an id that already exists).\n\
+            - Only emit actions that are legal in the current state (do not complete \\\n              an unstarted task, do not use an id that already exists).\\n\\\
+            - When you assign_task, decide merge_authority up front: \\\"self\\\" for \\\
+              trivial/peripheral low-blast-radius work (the assignee merges after CI), \\\
+              \\\"pm\\\" for anything substantial, architectural, schema/dependency-affecting, \\\
+              or security-sensitive (it must pass your review). Use set_merge_authority \\\
+              to reclassify (escape hatch) if scope grows past the label.\\n\\\
             - Prefer a small, decisive set of actions.\n\
             - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
             - Never invent actions outside the list above.\n\

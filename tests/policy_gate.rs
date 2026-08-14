@@ -29,6 +29,7 @@ fn state_with(agents: &[&str], tasks: &[&str]) -> Projection {
                 kind: "feature".into(),
                 status: casting::projection::TaskStatus::Backlog,
                 assignee: None,
+                merge_authority: Default::default(),
                 priority: casting::plan::Priority::default(),
                 review: None,
                 parent_id: None,
@@ -67,6 +68,7 @@ fn cannot_assign_a_task_that_does_not_exist() {
     let act = casting::actions::PmAction::AssignTask {
         task_id: "task-nope".into(),
         assignee: "marcus-reed".into(),
+        merge_authority: casting::types::MergeAuthority::PmMerge,
     };
     assert_eq!(
         validate(&act, "system", &st),
@@ -81,6 +83,7 @@ fn cannot_assign_work_to_an_unhired_agent() {
     let act = casting::actions::PmAction::AssignTask {
         task_id: "task-1".into(),
         assignee: "ghost-agent".into(),
+        merge_authority: casting::types::MergeAuthority::PmMerge,
     };
     assert_eq!(
         validate(&act, "system", &st),
@@ -147,15 +150,17 @@ fn a_full_valid_sequence_passes() {
         title: "x".into(),
         kind: "feature".into(),
         status: casting::projection::TaskStatus::Backlog,
-        assignee: None,
-        priority: casting::plan::Priority::default(),
-        review: None,
-        parent_id: None,
+                assignee: None,
+                merge_authority: Default::default(),
+                priority: casting::plan::Priority::default(),
+                review: None,
+                parent_id: None,
     });
     assert!(validate(
         &casting::actions::PmAction::AssignTask {
             task_id: "task-1".into(),
             assignee: "marcus-reed".into(),
+            merge_authority: casting::types::MergeAuthority::PmMerge,
         },
         "system",
         &st
@@ -479,6 +484,7 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 kind: "backend".into(),
                 status: TaskStatus::Backlog,
                 assignee: Some("marcus-reed".into()),
+                merge_authority: Default::default(),
                 priority: casting::plan::Priority::default(),
                 review: None,
                 parent_id: None,
@@ -489,6 +495,7 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 kind: "infra".into(),
                 status: TaskStatus::Backlog,
                 assignee: Some("maya-patel".into()),
+                merge_authority: Default::default(),
                 priority: casting::plan::Priority::default(),
                 review: None,
                 parent_id: None,

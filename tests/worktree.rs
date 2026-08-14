@@ -613,6 +613,7 @@ fn worktree_surfaces_in_context_and_operating_model() {
             kind: "feature".into(),
             status: casting::projection::TaskStatus::Backlog,
             assignee: Some("marcus-reed".into()),
+            merge_authority: Default::default(),
             priority: casting::plan::Priority::default(),
             review: None,
             parent_id: None,

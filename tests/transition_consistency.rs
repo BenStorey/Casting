@@ -20,6 +20,7 @@ fn task(id: &str, status: TaskStatus, assignee: Option<&str>) -> Task {
         kind: "feature".into(),
         status,
         assignee: assignee.map(Into::into),
+        merge_authority: Default::default(),
         priority: Priority::Medium,
         review: None,
         parent_id: None,

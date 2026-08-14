@@ -141,11 +141,40 @@ pub struct ConsultantConfig {
     /// The loaded system prompt text (the D2 setup prompt).
     pub system_prompt: Option<String>,
     pub routing: RoutingConfig,
-    pub model: ModelConfig,
+    /// The ordered model chain: `models[0]` is the PREFERRED model, each
+    /// subsequent entry is a fallback tried in order when the previous is
+    /// unavailable (region block, rate limit, outage). An arbitrarily long
+    /// list collapses to "first is priority, walk the rest". Empty = no
+    /// binding (the env base config is used).
+    pub models: Vec<ModelConfig>,
+    /// Whether this consultant can be ASSIGNED implementation work. `false`
+    /// marks a SPECIAL role (the PM, the Advisor): they coordinate / advise /
+    /// strategize, but never take tasks like the assignable cast. Enforced by
+    /// the policy gate (`is_valid_assignee` + the reserved-special-actor
+    /// guard). Defaults to true.
+    pub assignable: bool,
     pub verification: VerificationConfig,
 }
 
 impl ConsultantConfig {
+    /// True if this consultant can be assigned implementation work (not a
+    /// special coordinator/adviser role).
+    pub fn is_assignable(&self) -> bool {
+        self.assignable
+    }
+
+    /// The preferred model binding (`models[0]`), if any. D2 starts here and
+    /// walks `models[1..]` as fallbacks on failure.
+    pub fn primary_model(&self) -> Option<&ModelConfig> {
+        self.models.first()
+    }
+
+    /// Every model binding in priority order (preferred first). Empty when
+    /// the consultant declares no binding (falls back to the env base).
+    pub fn model_chain(&self) -> &[ModelConfig] {
+        &self.models
+    }
+
     /// Does this consultant declare a hint that plausibly matches the task?
     /// **A hint only** — the PM makes the routing judgment over these.
     pub fn hint_matches(&self, task_description: &str) -> bool {

@@ -8,9 +8,27 @@ fn catalog_has_sane_roles_with_scopes() {
     let ids: Vec<&str> = ROLE_CATALOG.iter().map(|r| r.id).collect();
     assert!(ids.contains(&"engineer"));
     assert!(ids.contains(&"qa"));
+    // The assignable default-cast roles (the "Default Cast" roster).
+    for rid in [
+        "lead-programmer",
+        "test-engineer",
+        "systems-architect",
+        "stage-manager",
+        "critic",
+    ] {
+        assert!(ids.contains(&rid), "catalog must contain {rid}");
+    }
     // Every role has a scope (governance area).
     for r in ROLE_CATALOG {
         assert!(!r.scope.is_empty());
+    }
+    // None of the catalog roles are the special (non-assignable) actors —
+    // PM/Advisor are fixed coordinator/adviser roles, never hireable.
+    for rid in ids {
+        assert!(
+            !matches!(rid, "pm" | "advisor"),
+            "special role {rid} must NOT be a hireable catalog role"
+        );
     }
 }
 
@@ -33,7 +51,19 @@ fn default_cast_members_have_catalog_roles() {
         assert!(!role.title.is_empty());
         assert!(!role.scope.is_empty());
     }
-    assert_eq!(DEFAULT_CAST.len(), 2);
+    // The default cast is the five ASSIGNABLE consultants — the special roles
+    // (PM/Advisor) are NOT seeded as hireable agents.
+    assert_eq!(DEFAULT_CAST.len(), 5);
+    let ids: Vec<&str> = DEFAULT_CAST.iter().map(|m| m.agent_id).collect();
+    for expect in [
+        "lead-programmer",
+        "test-engineer",
+        "systems-architect",
+        "stage-manager",
+        "critic",
+    ] {
+        assert!(ids.contains(&expect), "default cast must include {expect}");
+    }
 }
 
 // --- Team change (AddConsultant) via the decision pipeline ---
@@ -208,4 +238,82 @@ async fn unknown_role_proposal_is_rejected() {
     )
     .expect_err("unknown role must be rejected");
     assert!(matches!(err, PolicyError::UnknownRole(_)));
+}
+
+// --- Special roles (PM / Advisor) are never assignable nor hireable ---
+
+#[test]
+fn special_roles_cannot_be_assigned_tasks() {
+    use casting::actions::{validate, PmAction, PolicyError};
+    use casting::cursor::SqliteCursorStore;
+    use casting::pm::AppState;
+    use casting::projection::Projection;
+    use casting::sqlite_store::SqliteEventStore;
+    use casting::types::TaskStatus;
+
+    let state = {
+        let store = SqliteEventStore::in_memory().unwrap();
+        let cursors = SqliteCursorStore::in_memory().unwrap();
+        AppState::new(store, cursors, "proj-cast")
+    };
+    state
+        .append(casting::event::Event::new(
+            "proj-cast",
+            casting::event::Actor::System,
+            casting::event::EventType::TaskCreated,
+            casting::event::Aggregate {
+                kind: "task".into(),
+                id: "task-1".into(),
+            },
+            serde_json::json!({ "title": "t", "kind": "k" }),
+        ))
+        .unwrap();
+    let proj = Projection::build(&state.store, "proj-cast").unwrap();
+    let _ = proj.tasks.iter().any(|t| t.status == TaskStatus::Backlog);
+
+    // The PM cannot route a task to itself or to the Advisor.
+    for special in ["pm", "advisor"] {
+        let err = validate(
+            &PmAction::AssignTask {
+                task_id: "task-1".into(),
+                assignee: special.into(),
+                merge_authority: casting::types::MergeAuthority::PmMerge,
+            },
+            "pm",
+            &proj,
+        )
+        .expect_err("assigning to a special role must be rejected");
+        assert!(
+            matches!(err, PolicyError::SpecialRoleNotAssignable(ref a) if a == special),
+            "expected SpecialRoleNotAssignable for {special}, got {err:?}"
+        );
+    }
+}
+
+#[test]
+fn special_roles_cannot_be_hired_as_agents() {
+    use casting::actions::{validate, PmAction, PolicyError};
+    use casting::cursor::SqliteCursorStore;
+    use casting::pm::AppState;
+    use casting::projection::Projection;
+    use casting::sqlite_store::SqliteEventStore;
+
+    let state = {
+        let store = SqliteEventStore::in_memory().unwrap();
+        let cursors = SqliteCursorStore::in_memory().unwrap();
+        AppState::new(store, cursors, "proj-cast")
+    };
+    let proj = Projection::build(&state.store, "proj-cast").unwrap();
+    for special in ["pm", "advisor"] {
+        let err = validate(
+            &PmAction::HireAgent {
+                agent_id: special.into(),
+                role: "Engineer".into(),
+            },
+            "owner",
+            &proj,
+        )
+        .expect_err("hiring a special role must be rejected");
+        assert!(matches!(err, PolicyError::SpecialRoleNotAssignable(_)));
+    }
 }

@@ -1,0 +1,41 @@
+# Advisor — the SPECIAL strategic thinking partner.
+#
+# Free-form strategic thinking: brainstorms, debates architecture, explores
+# what-if scenarios. No task pressure. Its conversations are NOT written to the
+# project event log and do not pollute the PM's context; only a bounded summary
+# can be forwarded to the PM (by the owner's choice). Frontier model for deep
+# reasoning; `assignable = false` → it never takes implementation work.
+
+[consultant]
+id            = "advisor"
+name          = "Advisor"
+title         = "Advisor"
+assignable    = false
+avatar        = "/avatars/advisor.svg"
+summary       = "Free-form strategic thinking partner. Brainstorms, debates architecture, explores what-if scenarios. Context is isolated from the PM."
+system_prompt = "prompts/advisor.md"
+
+[consultant.new_role]
+id    = "advisor"
+title = "Advisor"
+scope = "strategy"
+
+[consultant.routing]
+specializations = ["architecture", "strategy", "brainstorm", "tradeoff", "what-if", "design"]
+trigger_patterns = ["what if", "debate", "brainstorm", "is it better to"]
+auto_join = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-opus-4"
+cost_tier   = "premium"
+temperature = 0.7
+max_tokens  = 8192
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-sonnet-5"
+cost_tier   = "premium"
+
+[consultant.verification]
+review_required = false

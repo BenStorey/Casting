@@ -49,14 +49,30 @@ struct RawConsultant {
     system_prompt: Option<String>,
     #[serde(default)]
     routing: RoutingConfig,
+    /// The ordered model chain (preferred first). Backward-compatible with the
+    /// legacy single `[consultant.model]` table: when `models` is empty the
+    /// loader falls back to wrapping `model` (if any) as a one-entry chain.
     #[serde(default)]
-    model: ModelConfig,
+    models: Vec<ModelConfig>,
+    /// Legacy single-model binding. Kept for backward compatibility — the
+    /// canonical form is the `models` list; `from_raw` normalizes a lone
+    /// `model` into a one-element chain.
+    #[serde(default)]
+    model: Option<ModelConfig>,
     #[serde(default)]
     verification: VerificationConfig,
     /// An OPTIONAL self-defined role. When present, this consultant OWNS a new
     /// capability (role id/title/scope) instead of binding to a catalog role.
     #[serde(default)]
     new_role: Option<NewRole>,
+    /// Whether this consultant can be assigned implementation work. Marks a
+    /// SPECIAL role (PM, Advisor) as `false`. Defaults to true.
+    #[serde(default = "default_assignable")]
+    assignable: bool,
+}
+
+fn default_assignable() -> bool {
+    true
 }
 
 impl ConsultantRegistry {
@@ -199,9 +215,20 @@ fn from_raw(
         }
     };
 
-    if let Some(t) = raw.model.temperature {
-        if !(0.0..=2.0).contains(&t) {
-            bail!("consultant '{id}' temperature {t} out of range [0, 2]");
+    // Normalize the model chain: the canonical `models` list wins; a legacy
+    // lone `model` is wrapped as a one-element chain. Every entry's temp
+    // must be in range (fail loudly on a malformed package).
+    let mut models = raw.models;
+    if models.is_empty() {
+        if let Some(m) = raw.model {
+            models.push(m);
+        }
+    }
+    for m in &models {
+        if let Some(t) = m.temperature {
+            if !(0.0..=2.0).contains(&t) {
+                bail!("consultant '{id}' temperature {t} out of range [0, 2]");
+            }
         }
     }
 
@@ -226,7 +253,8 @@ fn from_raw(
         system_prompt_file,
         system_prompt,
         routing: raw.routing,
-        model: raw.model,
+        models,
+        assignable: raw.assignable,
         verification: raw.verification,
     })
 }

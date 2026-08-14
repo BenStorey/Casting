@@ -69,6 +69,15 @@ pub struct Task {
     pub kind: String,
     pub status: TaskStatus,
     pub assignee: Option<String>,
+    /// The PM's up-front decision on how this task's work is merged (tiered
+    /// merge policy, 2026-08-14). `SelfMerge` = the assignee completes it
+    /// directly to Done after CI (the fast/trivial path). `PmMerge` = it must
+    /// pass through the PM's review before Done. Set at assignment; reclassifiable
+    /// via `SetMergeAuthority` (the escape hatch when scope grows). Defaults to
+    /// `PmMerge`. This is a recorded decision (event-sourced via TaskAssigned /
+    /// MergeAuthorityChanged), so the outcome is auditable.
+    #[serde(default)]
+    pub merge_authority: MergeAuthority,
     /// Current priority, reduced from `TaskPriorityChanged` events
     /// (defaults to Medium). Per docs/SEMANTIC_EVENTS.md this is derived state.
     pub priority: crate::plan::Priority,
@@ -79,6 +88,20 @@ pub struct Task {
     /// children into the parent's resolution. `None` for top-level tasks.
     #[serde(default)]
     pub parent_id: Option<String>,
+}
+
+/// How a task's completed work is merged into main (the tiered merge policy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeAuthority {
+    /// The assignee merges directly to Done after CI — the fast/trivial path
+    /// (small, peripheral, low blast radius). No PM review layer.
+    #[default]
+    SelfMerge,
+    /// The work must pass through the PM's review before Done — the default and
+    /// the path for anything substantial, architectural, or shared-contract /
+    /// schema / dependency-affecting.
+    PmMerge,
 }
 
 /// A recordable decision and its eventual owner verdict.

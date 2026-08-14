@@ -21,17 +21,21 @@ fn setup_creates_company_and_default_cast() {
     })
     .unwrap();
     let written = plan.apply(tmp.path()).unwrap();
-    assert!(written >= 3, "project + PM + cast members");
+    assert!(written >= 7, "project + PM + 5 assignable cast members");
 
     let store = setup::open_store(tmp.path()).unwrap();
     let proj = Projection::build(&store, "project-demo").unwrap();
     assert!(!proj.agents.is_empty());
-    // Default cast => the two canonical default agents hired.
-    assert!(proj.agents.iter().any(|a| a.id == "pm"));
-    assert!(proj.agents.iter().any(|a| a.id == "marcus-reed"));
-    assert!(proj.agents.iter().any(|a| a.id == "maya-patel"));
+    // Default cast => PM + 5 assignable consultants (2026-08-14 roster).
+    for id in &["pm", "lead-programmer", "test-engineer", "systems-architect", "stage-manager", "critic"] {
+        assert!(
+            proj.agents.iter().any(|a| a.id == *id),
+            "default cast must include {id}"
+        );
+    }
+    assert_eq!(proj.agents.len(), 6, "pm + 5 assignable");
     // Company name recorded on the project.
-    assert!(store.latest_sequence("project-demo").unwrap() >= 3);
+    assert!(store.latest_sequence("project-demo").unwrap() >= 7);
 }
 
 #[test]
@@ -76,7 +80,7 @@ fn setup_is_idempotent_on_rerun() {
     let store = setup::open_store(tmp.path()).unwrap();
     let proj = Projection::build(&store, "project-demo").unwrap();
     assert!(
-        proj.agents.len() == 3,
+        proj.agents.len() == 6,
         "no duplicate hires on re-run: {:?}",
         proj.agents
     );
@@ -190,7 +194,7 @@ async fn setup_then_onboard_does_not_double_hire() {
 
     let proj = Projection::build(&state.store, "project-demo").unwrap();
     // Exactly one of each default agent — no duplicates from onboarding.
-    for expected in ["pm", "marcus-reed", "maya-patel"] {
+    for expected in ["pm", "lead-programmer", "test-engineer", "systems-architect", "stage-manager", "critic"] {
         let count = proj.agents.iter().filter(|a| a.id == expected).count();
         assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
     }
@@ -232,14 +236,14 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
 
     let proj = Projection::build(&state.store, "project-demo").unwrap();
     let ids: Vec<&str> = proj.agents.iter().map(|a| a.id.as_str()).collect();
-    assert!(ids.contains(&"marcus-reed"), "engineer in the custom cast");
+    assert!(ids.contains(&"engineer-1"), "engineer in the custom cast");
     assert!(ids.contains(&"devops-1"), "devops in the custom cast");
     assert!(
-        !ids.contains(&"maya-patel"),
-        "default QA must NOT be topped up: {ids:?}"
+        !ids.contains(&"lead-programmer"),
+        "default Lead Programmer must NOT be topped up: {ids:?}"
     );
     assert!(
-        !ids.contains(&"security-1"),
+        !ids.contains(&"critic"),
         "no other defaults added: {ids:?}"
     );
 }

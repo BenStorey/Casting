@@ -101,13 +101,31 @@ impl PmAction {
                 }),
                 meta,
             )],
-            PmAction::AssignTask { task_id, assignee } => vec![ev(
+            PmAction::AssignTask {
+                task_id,
+                assignee,
+                merge_authority,
+            } => vec![ev(
                 project,
                 actor,
                 task_id,
                 "task",
                 EventType::TaskAssigned,
-                json!({ "assignee": assignee }),
+                json!({ "assignee": assignee, "merge_authority": merge_authority }),
+                meta,
+            )],
+            PmAction::SetMergeAuthority {
+                task_id,
+                merge_authority,
+            } => vec![ev(
+                project,
+                actor,
+                task_id,
+                "task",
+                EventType::MergeAuthorityChanged,
+                // `from` omitted here (to_events lacks the projection); the
+                // reducer only needs `to`. Mirrors SetTaskPriority.
+                json!({ "task_id": task_id, "to": merge_authority }),
                 meta,
             )],
             PmAction::ProvisionWorktree {

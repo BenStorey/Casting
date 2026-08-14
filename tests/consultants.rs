@@ -4,26 +4,39 @@
 use casting::consultants::ConsultantRegistry;
 
 #[test]
-fn embedded_defaults_cover_all_catalog_roles() {
+fn embedded_defaults_cover_all_assignable_catalog_roles() {
     let reg = ConsultantRegistry::from_embedded().expect("defaults parse + validate");
-    // One package per catalog role.
-    assert_eq!(reg.count(), 4);
+    // The default cast ships seven introduced consultants (the cast of 2026-08-14):
+    // two SPECIAL non-assignable roles (pm, advisor) + five assignable ones.
+    assert_eq!(reg.count(), 7);
 
-    for role in ["engineer", "qa", "security", "devops"] {
+    // Every assignable catalog role is bound to a consultant package.
+    for role in [
+        "lead-programmer",
+        "test-engineer",
+        "systems-architect",
+        "stage-manager",
+        "critic",
+    ] {
         let c = reg
             .for_role(role)
             .unwrap_or_else(|| panic!("no consultant bound to role {role}"));
         assert_eq!(c.role, role);
         assert!(!c.name.is_empty(), "role {role} consultant has a name");
-        assert!(
-            !c.scope.is_empty(),
-            "role {role} consultant carries a scope"
-        );
+        assert!(!c.scope.is_empty(), "role {role} consultant carries a scope");
+        assert!(c.assignable, "role {role} must be assignable");
+    }
+
+    // The two SPECIAL roles ship as packages but bind to their OWN roles
+    // (via new_role), carry `assignable = false`, and are never catalog roles.
+    for id in ["pm", "advisor"] {
+        let c = reg.by_id(id).unwrap_or_else(|| panic!("no {id} package"));
+        assert!(!c.assignable, "{id} is a special, non-assignable role");
     }
 }
 
 #[test]
-fn default_cast_is_the_two_core_members() {
+fn default_cast_is_the_seven_introduced_consultants() {
     let reg = ConsultantRegistry::from_embedded().unwrap();
     let default: Vec<String> = reg
         .default_cast()
@@ -31,11 +44,21 @@ fn default_cast_is_the_two_core_members() {
         .map(|c| c.id.to_string())
         .collect();
 
-    // Engineers + QA are always on; specialists are summoned, not default.
-    assert!(default.contains(&"marcus-reed".to_string()));
-    assert!(default.contains(&"maya-patel".to_string()));
-    assert!(!default.contains(&"devon-carter".to_string()));
-    assert!(!default.contains(&"priya-sharma".to_string()));
+    // All seven consultants are "introduced in the beginning" (auto_join).
+    for id in [
+        "pm",
+        "advisor",
+        "lead-programmer",
+        "test-engineer",
+        "systems-architect",
+        "stage-manager",
+        "critic",
+    ] {
+        assert!(
+            default.contains(&id.to_string()),
+            "default cast must introduce {id}"
+        );
+    }
 }
 
 #[test]
@@ -59,18 +82,26 @@ fn every_embedded_system_prompt_is_loaded() {
 fn routing_hints_rank_the_right_specialist_first() {
     let reg = ConsultantRegistry::from_embedded().unwrap();
 
-    // A clear security task surfaces the Security specialist as the best hint.
-    let picks: Vec<String> = reg
-        .specialists_for("implement the oauth login flow with jwt tokens")
+    // A testing-heavy task surfaces the Test Engineer as the best hint.
+    let testing: Vec<String> = reg
+        .specialists_for("write unit tests for the auth service covering empty arrays and timeouts")
         .into_iter()
         .map(|c| c.id.to_string())
         .collect();
-    assert_eq!(picks.first().map(String::as_str), Some("devon-carter"));
+    assert_eq!(testing.first().map(String::as_str), Some("test-engineer"));
+
+    // An adversarial security/scale review surfaces The Critic.
+    let review: Vec<String> = reg
+        .specialists_for("review the payment endpoint for security at 10k requests and hostile input")
+        .into_iter()
+        .map(|c| c.id.to_string())
+        .collect();
+    assert_eq!(review.first().map(String::as_str), Some("critic"));
 
     // hint_matches is a lightweight containment check on the hints.
-    let devon = reg.by_id("devon-carter").unwrap();
-    assert!(devon.hint_matches("add oauth authentication"));
-    assert!(!devon.hint_matches("style the homepage"));
+    let architect = reg.by_id("systems-architect").unwrap();
+    assert!(architect.hint_matches("how should we structure the data layer for scale"));
+    assert!(!architect.hint_matches("tweak the button color"));
 }
 
 #[test]
