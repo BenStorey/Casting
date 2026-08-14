@@ -11,10 +11,14 @@
 //! - `orchestrator`: [`LlmOrchestrator`] — implements the [`crate::orchestrator::Orchestrator`]
 //!   seam: prompt build → call → `PmAction` parse → `CostMetering`.
 
+pub mod advisor;
 pub mod client;
 pub mod config;
 pub mod orchestrator;
+pub mod routing;
 
+pub use advisor::{advisor_reply, AdvisorOutcome};
 pub use client::OpenAiClient;
 pub use config::ProviderConfig;
 pub use orchestrator::LlmOrchestrator;
+pub use routing::{model_from_consultant, ModelResolver, ResolvedModel};

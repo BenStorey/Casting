@@ -32,6 +32,10 @@ pub enum PolicyError {
     DecisionNotFound(String),
     /// Making a decision on one not yet proposed / already decided.
     DecisionNotOpen(String),
+    /// Re-proposing a decision whose subject already has an OPEN decision
+    /// (reactive anti-thrash: the PM must not accumulate duplicate open
+    /// decisions on the same subject).
+    DecisionAlreadyOpen(String),
     /// Resolving/updating a risk that does not exist.
     RiskNotFound(String),
     /// Acting on a directive that does not exist.
@@ -106,6 +110,10 @@ impl std::fmt::Display for PolicyError {
                     "cannot resolve decision {id}: not open (proposed, unresolved)"
                 )
             }
+            PolicyError::DecisionAlreadyOpen(subject) => write!(
+                f,
+                "cannot re-propose decision on '{subject}': an open decision on this subject already exists"
+            ),
             PolicyError::RiskNotFound(id) => write!(f, "cannot resolve risk {id}: no such risk"),
             PolicyError::DirectiveNotFound(id) => {
                 write!(f, "cannot act on directive {id}: no such directive")
@@ -329,9 +337,22 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // against the project's EVENT-SOURCED policy (state.policy, folded from
         // DecisionPolicyChanged) — so owner-configured autonomy is enforced.
         PmAction::ProposeDecision {
-            class, involvement, ..
-        } => policy::check_proposal(*class, *involvement, &state.policy)
-            .map_err(PolicyError::DecisionPolicy),
+            class,
+            involvement,
+            subject,
+            ..
+        } => {
+            // Reactive anti-thrash: don't accumulate a duplicate OPEN decision
+            // on the same subject. The PM must instead supersede a stale one or
+            // leave it — never re-propose.
+            if let Some(existing) = state.decisions.iter().find(|d| {
+                d.status == crate::projection::DecisionStatus::Proposed && d.subject == *subject
+            }) {
+                return Err(PolicyError::DecisionAlreadyOpen(existing.subject.clone()));
+            }
+            policy::check_proposal(*class, *involvement, &state.policy)
+                .map_err(PolicyError::DecisionPolicy)
+        }
         // Resolving a decision is the universal decider step; the decision must
         // exist and still be open. The decider (`who`) is whatever the policy
         // routed it to — the actor label is what distinguishes Owner vs agent.

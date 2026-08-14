@@ -18,9 +18,7 @@ use anyhow::Result;
 /// back into `PmAction`s. Every action still flows through `actions::validate`
 /// in `pm::run_planned`, so the LLM can only do what it's authorized to.
 pub struct LlmOrchestrator {
-    client: OpenAiClient,
-    config: ProviderConfig,
-    system_prompt: String,
+    resolver: crate::llm::routing::ModelResolver,
     /// Input/output price per 1M tokens, for metering (if known).
     input_price_per_mtok: Option<f64>,
     output_price_per_mtok: Option<f64>,
@@ -28,14 +26,24 @@ pub struct LlmOrchestrator {
 
 impl LlmOrchestrator {
     pub fn new(config: ProviderConfig, system_prompt: String) -> Self {
-        let client = OpenAiClient::new(config.base_url.clone(), config.api_key.clone());
+        let resolver = crate::llm::routing::ModelResolver::new(config, Default::default())
+            .with_default_persona(system_prompt);
         LlmOrchestrator {
-            client,
-            config,
-            system_prompt,
+            resolver,
             input_price_per_mtok: None,
             output_price_per_mtok: None,
         }
+    }
+
+    /// Route per-actor through a resolver (per-consultant model bindings).
+    pub fn with_resolver(mut self, resolver: crate::llm::routing::ModelResolver) -> Self {
+        self.resolver = resolver;
+        self
+    }
+
+    /// The base config (for boot banners / tests).
+    pub fn base_config(&self) -> &ProviderConfig {
+        self.resolver.base()
     }
 
     /// Attach metering prices (per 1M input/output tokens) so `estimated_usd`
@@ -98,6 +106,10 @@ impl LlmOrchestrator {
             - Prefer a small, decisive set of actions.\n\
             - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
             - Never invent actions outside the list above.\n\
+            - ANTI-THRASH: the operating context lists the decisions already open \
+              (open_decisions). Do NOT re-propose a decision whose subject is already \
+              open — it would be rejected. Instead, leave it, or supersede a STALE \
+              decision you are genuinely replacing via supersede_decision.\n\
             \n\
             IMPORTANT: output ONLY the JSON object, no prose, no markdown fences."
         )
@@ -135,6 +147,13 @@ impl LlmOrchestrator {
 #[async_trait::async_trait]
 impl Orchestrator for LlmOrchestrator {
     async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
+        // Per-actor routing: the actor decides the model + persona.
+        let resolved = self.resolver.resolve(&context.actor);
+        let client = OpenAiClient::new(
+            resolved.config.base_url.clone(),
+            resolved.config.api_key.clone(),
+        );
+
         // The owner's message body (the trigger) must reach the model — the
         // abstracted AgentContext keeps only derived state, whose objective is
         // None before a Requirement exists. The raw ask is the thing to act on.
@@ -146,11 +165,15 @@ impl Orchestrator for LlmOrchestrator {
             .to_string();
         let user_payload = serde_json::to_string_pretty(context)?;
         let req = ChatRequest {
-            model: self.config.model.clone(),
+            model: resolved.config.model.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".into(),
-                    content: format!("{}\n\n{}", self.system_prompt, self.planning_instructions()),
+                    content: format!(
+                        "{}\n\n{}",
+                        resolved.system_prompt,
+                        self.planning_instructions()
+                    ),
                 },
                 ChatMessage {
                     role: "user".into(),
@@ -166,7 +189,7 @@ impl Orchestrator for LlmOrchestrator {
         };
 
         let started = std::time::Instant::now();
-        let completion = self.client.chat(&req).await?;
+        let completion = client.chat(&req).await?;
         let latency_ms = started.elapsed().as_millis() as u64;
 
         let actions = self.parse_actions(&completion.content)?;
@@ -179,11 +202,11 @@ impl Orchestrator for LlmOrchestrator {
             / 1_000_000.0;
 
         let metering = CostMetering {
-            agent_id: "pm".into(),
+            agent_id: context.actor.clone(),
             task_id: None,
             model_tier: "standard".into(),
-            model: Some(self.config.model.clone()),
-            provider: Some(self.config.provider.clone()),
+            model: Some(resolved.config.model.clone()),
+            provider: Some(resolved.config.provider.clone()),
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             cache_read_input_tokens: u
@@ -199,7 +222,10 @@ impl Orchestrator for LlmOrchestrator {
         };
 
         Ok(PlanOutput {
-            actions: actions.into_iter().map(|a| ("pm".into(), a)).collect(),
+            actions: actions
+                .into_iter()
+                .map(|a| (context.actor.clone(), a))
+                .collect(),
             metering: Some(metering),
         })
     }

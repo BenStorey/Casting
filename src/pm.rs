@@ -238,7 +238,17 @@ impl AppState {
                     "🧠 LLM orchestrator enabled: provider={} model={} base={}",
                     cfg.provider, cfg.model, cfg.base_url
                 );
-                self.with_orchestrator(Arc::new(crate::llm::LlmOrchestrator::new(cfg, persona)))
+                // Per-actor routing: the env config is the base; consultants
+                // with a declared model binding route to their own model, key
+                // falling back to env.
+                let resolver = crate::llm::routing::ModelResolver::new(
+                    cfg.clone(),
+                    (*self.consultants).clone(),
+                )
+                .with_default_persona(persona.clone());
+                self.with_orchestrator(Arc::new(
+                    crate::llm::LlmOrchestrator::new(cfg, persona).with_resolver(resolver),
+                ))
             }
             Ok(None) => self,
             Err(e) => {
