@@ -195,8 +195,15 @@ impl Orchestrator for LlmOrchestrator {
         let actions = self.parse_actions(&completion.content)?;
 
         let u = &completion.usage;
-        let input_price = self.input_price_per_mtok.unwrap_or(0.0);
-        let output_price = self.output_price_per_mtok.unwrap_or(0.0);
+        // Per-actor prices: an explicit `with_prices` override wins, else the
+        // resolved cost_tier prices (so real LLM spend is non-zero and the
+        // budget breaker can trip).
+        let input_price = self
+            .input_price_per_mtok
+            .unwrap_or(resolved.input_price_per_mtok);
+        let output_price = self
+            .output_price_per_mtok
+            .unwrap_or(resolved.output_price_per_mtok);
         let estimated_usd = (u.prompt_tokens as f64 * input_price
             + u.completion_tokens as f64 * output_price)
             / 1_000_000.0;
@@ -216,8 +223,8 @@ impl Orchestrator for LlmOrchestrator {
                 .unwrap_or(0),
             cache_creation_input_tokens: 0,
             latency_ms,
-            input_price_per_mtok: self.input_price_per_mtok,
-            output_price_per_mtok: self.output_price_per_mtok,
+            input_price_per_mtok: Some(input_price),
+            output_price_per_mtok: Some(output_price),
             estimated_usd,
         };
 

@@ -19,6 +19,23 @@ pub struct ResolvedModel {
     pub temperature: Option<f32>,
     /// Max output tokens, if the actor's binding declares one.
     pub max_tokens: Option<u32>,
+    /// Per-1M-token prices (input, output) for metering — derived from the
+    /// actor's cost_tier (Standard default). Used to compute `estimated_usd`.
+    pub input_price_per_mtok: f64,
+    pub output_price_per_mtok: f64,
+}
+
+/// Default per-1M-token prices for a cost tier. These are CONFIG-SOURCED
+/// defaults (the harness's "prices stay configured" stance — we do NOT query
+/// a provider pricing API at runtime). Real spend for a given model may differ;
+/// the point is that metering is non-zero so the budget breaker can work.
+pub fn tier_prices(tier: crate::consultants::CostTier) -> (f64, f64) {
+    use crate::consultants::CostTier::*;
+    match tier {
+        Budget => (0.15, 0.60),
+        Standard => (1.00, 3.00),
+        Premium => (5.00, 15.00),
+    }
 }
 
 /// Maps an actor to its model binding + persona, from the consultant registry
@@ -77,18 +94,23 @@ impl ModelResolver {
                 let persona = consultant.system_prompt.clone().unwrap_or(fallback);
                 let temp = consultant.model.temperature;
                 let max = consultant.model.max_tokens;
+                let (in_price, out_price) = tier_prices(consultant.model.cost_tier);
                 match model_from_consultant(&consultant.model, &self.base) {
                     Some(config) => ResolvedModel {
                         config,
                         system_prompt: persona,
                         temperature: temp,
                         max_tokens: max,
+                        input_price_per_mtok: in_price,
+                        output_price_per_mtok: out_price,
                     },
                     None => ResolvedModel {
                         config: self.base.clone(),
                         system_prompt: persona,
                         temperature: temp,
                         max_tokens: max,
+                        input_price_per_mtok: in_price,
+                        output_price_per_mtok: out_price,
                     },
                 }
             }
@@ -97,6 +119,8 @@ impl ModelResolver {
                 system_prompt: fallback,
                 temperature: None,
                 max_tokens: None,
+                input_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).0,
+                output_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).1,
             },
         }
     }

@@ -88,6 +88,9 @@ pub async fn advisor_reply(
     }
 
     let u = &completion.usage;
+    let estimated_usd = (u.prompt_tokens as f64 * resolved.input_price_per_mtok
+        + u.completion_tokens as f64 * resolved.output_price_per_mtok)
+        / 1_000_000.0;
     let metering = Some(crate::orchestrator::CostMetering {
         agent_id: "advisor".into(),
         task_id: None,
@@ -103,9 +106,9 @@ pub async fn advisor_reply(
             .unwrap_or(0),
         cache_creation_input_tokens: 0,
         latency_ms,
-        input_price_per_mtok: None,
-        output_price_per_mtok: None,
-        estimated_usd: 0.0,
+        input_price_per_mtok: Some(resolved.input_price_per_mtok),
+        output_price_per_mtok: Some(resolved.output_price_per_mtok),
+        estimated_usd,
     });
 
     Ok(AdvisorOutcome { reply, metering })

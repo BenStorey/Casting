@@ -655,3 +655,105 @@ async fn llm_loop_rejects_and_audits_reproposing_an_open_subject_e2e() {
         "the duplicate re-proposal was audited as rejected"
     );
 }
+
+// === #1 Cost-tier prices: real spend + budget breaker ===
+
+#[test]
+fn tier_prices_map_is_ordered_and_nonzero() {
+    use casting::consultants::CostTier;
+    let (b_in, b_out) = casting::llm::routing::tier_prices(CostTier::Budget);
+    let (s_in, s_out) = casting::llm::routing::tier_prices(CostTier::Standard);
+    let (p_in, p_out) = casting::llm::routing::tier_prices(CostTier::Premium);
+    assert!(b_in > 0.0 && b_out > 0.0, "budget prices non-zero");
+    assert!(s_in > b_in, "standard input > budget input");
+    assert!(p_in > s_in, "premium input > standard input");
+    assert!(p_out > s_out, "premium output > standard output");
+}
+
+#[test]
+fn resolver_carries_tier_prices() {
+    // A Premium consultant resolves to premium prices; an unbound actor (pm)
+    // defaults to Standard prices.
+    let pkg = r#"
+[consultant]
+id = "prem-guy"
+name = "Prem"
+role = "engineer"
+system_prompt = "prompts/custom.md"
+
+[consultant.model]
+provider = "openrouter"
+model_id = "prem-model"
+cost_tier = "premium"
+"#;
+    let registry = registry_with_model(pkg, "You are Prem.");
+    let resolver = ModelResolver::new(base_cfg(), registry);
+    let prem = resolver.resolve("prem-guy");
+    assert!(
+        prem.input_price_per_mtok > 1.0,
+        "premium input price elevated"
+    );
+    let pm = resolver.resolve("pm");
+    assert!(
+        (pm.input_price_per_mtok - 1.0).abs() < 1e-9,
+        "unbound actor defaults to Standard input price"
+    );
+}
+
+#[tokio::test]
+async fn metering_reports_nonzero_usd_with_real_prices() {
+    // Drive the LLM with a stub; assert the CostIncurred carries a NON-ZERO
+    // estimated_usd (prompt 1200 * $1.00/M + completion 80 * $3.00/M), proving
+    // the budget breaker now has real spend to trip on.
+    use axum::routing::post;
+    use axum::{Json, Router};
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move || async move {
+            Json(json!({
+                "choices": [{"message": {"content": r#"{"actions":[{"action":"create_task","id":"tc","title":"X","kind":"feature"}]}"#}}],
+                "usage": {"prompt_tokens": 1200, "completion_tokens": 80, "prompt_tokens_details": {"cached_tokens": 300}}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let mut cfg = base_cfg();
+    cfg.base_url = format!("http://{addr}/v1");
+    let orch = LlmOrchestrator::new(cfg, "PM".into());
+    let st = state_with_pm_and_cast()
+        .with_orchestrator(Arc::new(orch))
+        .with_step_delay(std::time::Duration::ZERO);
+    st.append(Event::new(
+        "proj-anti",
+        Actor::Owner,
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "m1".into(),
+        },
+        json!({ "body": "build it" }),
+    ))
+    .unwrap();
+    casting::pm::drive_pm(&st).await.unwrap();
+
+    let cost = st
+        .store
+        .read_since("proj-anti", 0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.event_type == EventType::CostIncurred)
+        .expect("a CostIncurred event");
+    // Standard tier: in $1.00/M, out $3.00/M. prompt 1200, completion 80.
+    let expected = (1200.0 * 1.00 + 80.0 * 3.00) / 1_000_000.0;
+    let usd = cost.data["estimated_usd"].as_f64().unwrap();
+    assert!(
+        (usd - expected).abs() < 1e-9,
+        "real metered spend: {usd} vs expected {expected}"
+    );
+    assert!(usd > 0.0, "spend is non-zero (budget breaker can trip)");
+    assert_eq!(cost.data["input_price_per_mtok"], 1.0);
+    assert_eq!(cost.data["output_price_per_mtok"], 3.0);
+}

@@ -187,6 +187,23 @@ export function fetchConsultants(): Promise<ConsultantConfig[]> {
   return j<ConsultantConfig[]>("/api/consultants");
 }
 
+// ---- Per-actor model routing (/api/routing) --------------------------------
+
+export interface ActorRouting {
+  actor: string;
+  provider: string;
+  model: string;
+  base_url: string;
+  temperature: number | null;
+  max_tokens: number | null;
+  input_price_per_mtok: number;
+  output_price_per_mtok: number;
+}
+
+export function fetchRouting(): Promise<ActorRouting[]> {
+  return j<ActorRouting[]>("/api/routing");
+}
+
 // ---- Diagnostics audit trail (/api/model) -----------------------------------
 
 export interface ActionRejection {

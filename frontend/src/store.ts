@@ -12,6 +12,7 @@
 // instead of masquerading as "all quiet".
 import { create } from "zustand";
 import {
+  ActorRouting,
   ConsultantConfig,
   EventEnvelope,
   GraphView,
@@ -23,6 +24,7 @@ import {
   fetchGraph,
   fetchInbox,
   fetchModel,
+  fetchRouting,
   fetchState,
   subscribe,
 } from "./api";
@@ -44,6 +46,8 @@ interface CastStore {
   /** The consultant registry (`/api/consultants`) — identity/meta for every
    *  available (default + user-added) consultant. Configuration, not authority. */
   consultants: ConsultantConfig[];
+  /** Per-actor model routing (`/api/routing`) — what each actor runs on. */
+  routing: ActorRouting[];
   inbox: Inbox | null;
   events: EventEnvelope[];
   /** Per-resource fetch errors from the last refresh (empty = all good). */
@@ -81,6 +85,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
   model: null,
   graph: null,
   consultants: [],
+  routing: [],
   inbox: null,
   events: [],
   errors: [],
@@ -94,7 +99,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
     // whole snapshot silently and isn't reported as an opaque "Error".
     const errors: ResourceError[] = [];
     try {
-      const [s, m, g, c, i, e] = await Promise.all([
+      const [s, m, g, c, r, i, e] = await Promise.all([
         fetchWithError("state", fetchState).catch((err) => {
           errors.push({ resource: "state", message: String(err), at: Date.now() });
           return null;
@@ -111,6 +116,10 @@ export const useCastStore = create<CastStore>((set, get) => ({
           errors.push({ resource: "consultants", message: String(err), at: Date.now() });
           return [];
         }),
+        fetchWithError("routing", fetchRouting).catch((err) => {
+          errors.push({ resource: "routing", message: String(err), at: Date.now() });
+          return [];
+        }),
         fetchWithError("inbox", fetchInbox).catch((err) => {
           errors.push({ resource: "inbox", message: String(err), at: Date.now() });
           return null;
@@ -125,6 +134,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
         model: m ?? cur.model,
         graph: g ?? cur.graph,
         consultants: c,
+        routing: r,
         inbox: i ?? cur.inbox,
         events: e.map((x) => ({ ...x, actor: actorName(x.actor) })),
         // Auto-clear errors that recovered; keep only still-failing resources.

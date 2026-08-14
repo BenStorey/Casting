@@ -27,6 +27,9 @@ pub(crate) struct ActorRouting {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    /// Per-1M-token prices used to meter this actor (from cost_tier).
+    pub input_price_per_mtok: f64,
+    pub output_price_per_mtok: f64,
 }
 
 /// GET /api/routing — resolve the per-actor model routing from the env base
@@ -60,6 +63,8 @@ pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<A
                 base_url: r.config.base_url,
                 temperature: r.temperature,
                 max_tokens: r.max_tokens,
+                input_price_per_mtok: r.input_price_per_mtok,
+                output_price_per_mtok: r.output_price_per_mtok,
             }
         })
         .collect();

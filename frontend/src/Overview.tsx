@@ -7,6 +7,7 @@
 import { useState, type ReactNode } from "react";
 import { useCastStore } from "./store";
 import {
+  ActorRouting,
   AgentContext,
   DiagnosticsView,
   fetchTaskProvenance,
@@ -170,7 +171,34 @@ function ProvenanceLookup() {
   );
 }
 
+function RoutingView({ routing }: { routing: ActorRouting[] }) {
+  if (routing.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        No LLM routing configured (set CAST_LLM_API_KEY to enable the model layer).
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1 text-sm">
+      {routing.map((r) => (
+        <div key={r.actor} className="flex items-center justify-between gap-2">
+          <span className="font-medium">{r.actor}</span>
+          <span className="text-muted-foreground">
+            {r.provider}/{r.model}
+            {r.temperature != null && <span className="ml-1">· t={r.temperature}</span>}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ${r.input_price_per_mtok.toFixed(2)}/M in · ${r.output_price_per_mtok.toFixed(2)}/M out
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Overview({ model }: { model: OperatingModel | null }) {
+  const routing = useCastStore((s) => s.routing);
   if (!model) return null;
   const { governance, knowledge, context, requests, spend, worktrees, drift_signals } = model;
   const { guards, diagnostics } = model;
@@ -239,6 +267,10 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
           </div>
         </CardContent>
       </Card>
+
+      <Section title="Model routing" description="Which model each actor runs on.">
+        <RoutingView routing={routing} />
+      </Section>
 
       {drift_signals.length > 0 && (
         <Card className="border-destructive/40">
