@@ -570,11 +570,25 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
 /// pass. Each action is validated against a *running* projection (updated as we
 /// append), so within one plan an earlier action's effect is visible to a later
 /// validation. Returns how many events were appended.
+///
+/// IDEMPOTENT against re-entry: a mid-drain failure (a store append error that
+/// propagates via `?` before the cursor advances) would otherwise make the next
+/// drain re-read the SAME causes and re-plan the SAME actions, re-emitting
+/// duplicate DOMAIN events. We therefore skip appending a real-entity domain
+/// event that was ALREADY applied for this same planning cause (same
+/// `event_type` + `aggregate.id` + correlation). Audit/telemetry records are
+/// deliberately NEVER deduped — see [`dedup_applies`].
 async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction>) -> Result<u32> {
     if planned.is_empty() {
         return Ok(0);
     }
     let correlation = format!("run-{}", cause.sequence);
+    // One store read per plan: the set of real-entity domain events already in
+    // the log (keyed by event_type + aggregate.id + correlation). Built once so
+    // the whole pass dedups against the same picture of history. EventType has
+    // no `Hash`, so the event_type is keyed by its Debug (variant) name.
+    let mut applied: std::collections::HashSet<(String, String, String)> =
+        applied_domain_keys(&state.store, &state.project)?;
     let mut projection = state.projection()?;
     let mut authored = 0u32;
     let mut rejected = 0u32;
@@ -611,6 +625,22 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             }
         }
         for event in action.to_events(&state.project, &who, cause, &correlation) {
+            // Idempotency guard: skip a real-entity DOMAIN event that was ALREADY
+            // applied for this same planning cause. Without this, a mid-drain
+            // failure (cursor not advanced) that re-drains the same causes would
+            // re-emit a duplicate. Audit/telemetry records are NOT subject to
+            // this (they keep appending as-is).
+            if dedup_applies(&event) {
+                let key = (
+                    format!("{:?}", event.event_type),
+                    event.aggregate.id.clone(),
+                    correlation.clone(),
+                );
+                if applied.contains(&key) {
+                    continue; // already emitted by a (failed) prior drain — skip, no re-count.
+                }
+                applied.insert(key);
+            }
             // Durable intent FIRST. The domain event is the truth of what was
             // attempted; it must be in the log before we try to make it
             // physical, so a crash between intent and effect still has an
@@ -686,6 +716,50 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         eprintln!("[pm] rejected {rejected} invalid action(s) this pass");
     }
     Ok(authored)
+}
+
+/// Should the PM's idempotent-drain dedup apply to this event?
+///
+/// Dedup applies ONLY to real-entity DOMAIN events (task / decision /
+/// requirement / opinion / risk / worktree / agent / observation / ...).
+/// Audit / telemetry / guard records — `PlanActionRejected`, `OrchestrationRun`,
+/// `CostIncurred`, `BudgetSet`, `WorkPaused`/`WorkResumed`, `MessageSent` acks,
+/// and ANY aggregate kind `"plan"` — are NEVER deduped: they deliberately reuse
+/// ONE shared aggregate id AND the `run-{seq}` correlation per planning pass,
+/// so a naive dedup by (event_type, aggregate.id, correlation) would collapse
+/// multiple distinct audit records and break the audit trail. They must keep
+/// appending as-is.
+fn dedup_applies(e: &Event) -> bool {
+    use EventType::*;
+    match e.event_type {
+        PlanActionRejected | OrchestrationRun | CostIncurred | BudgetSet | WorkPaused
+        | WorkResumed | MessageSent => false,
+        // The "plan" aggregate is the shared audit aggregate — never dedup.
+        _ => e.aggregate.kind != "plan",
+    }
+}
+
+/// Collect the set of real-entity DOMAIN events already in the log, keyed by
+/// `(event_type, aggregate.id, correlation_id)`. The PM drain uses this to skip
+/// re-emitting an already-applied domain event for the same planning cause on
+/// re-entry (a mid-drain failure must not duplicate events).
+fn applied_domain_keys(
+    store: &Arc<dyn crate::store::EventStore>,
+    project: &str,
+) -> Result<std::collections::HashSet<(String, String, String)>> {
+    let mut keys = std::collections::HashSet::new();
+    for e in store.read_since(project, 0)? {
+        if dedup_applies(&e) {
+            if let Some(corr) = &e.metadata.correlation_id {
+                keys.insert((
+                    format!("{:?}", e.event_type),
+                    e.aggregate.id.clone(),
+                    corr.clone(),
+                ));
+            }
+        }
+    }
+    Ok(keys)
 }
 
 /// Build a `ProvisionWorktree` action for a task, allocating a distinct port
