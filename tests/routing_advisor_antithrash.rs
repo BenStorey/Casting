@@ -832,3 +832,112 @@ async fn metering_threads_cache_write_tokens_from_provider() {
     );
     assert_eq!(spend.cache_creation_input_tokens, 200);
 }
+
+// === #1 Advisory briefings reach the operating context ===
+
+#[test]
+fn pm_context_carries_advisory_briefings() {
+    // An advisor handoff / imported briefing must reach the PM's assembled
+    // context (the thing the LLM is handed), clearly marked advisory — the
+    // advisor→PM integration loop.
+    let st = state_with_pm_and_cast();
+    st.append(Event::new(
+        "proj-anti",
+        Actor::Owner,
+        EventType::AdvisoryBriefingImported,
+        Aggregate {
+            kind: "briefing".into(),
+            id: "brief-1".into(),
+        },
+        json!({
+            "source": "advisor",
+            "subject": "direction",
+            "title": "Open-core recommendation",
+            "body": "Consider going open-core to grow adoption.",
+        }),
+    ))
+    .unwrap();
+    let ctx = st.projection().unwrap().context_for("pm");
+    assert!(
+        ctx.advisory_briefings
+            .iter()
+            .any(|b| b.contains("open-core")),
+        "PM context includes the advisory briefing"
+    );
+    assert!(
+        ctx.advisory_briefings
+            .iter()
+            .any(|b| b.contains("[advisory")),
+        "briefing is explicitly marked advisory"
+    );
+    assert!(
+        !ctx.advisory_briefings
+            .iter()
+            .any(|b| b.contains("[directive")),
+        "advice is never confusable with a directive"
+    );
+}
+
+#[test]
+fn advisor_grounding_includes_prior_briefings() {
+    use casting::context::AgentContext;
+    let ctx = AgentContext {
+        actor: "advisor".into(),
+        advisory_briefings: vec!["[advisory · advisor] Open-core: go open-core".into()],
+        ..Default::default()
+    };
+    let summary = casting::llm::advisor::advisor_context_summary(&ctx);
+    assert!(
+        summary.contains("open-core"),
+        "advisor sees its own prior advice"
+    );
+    assert!(summary.contains("Prior advisory briefings"));
+}
+
+// === #2 LLM summary for the handoff ===
+
+#[tokio::test]
+async fn advisor_summarize_uses_the_model_but_never_hard_fails() {
+    use axum::routing::post;
+    use axum::{Json, Router};
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move || async move {
+            Json(json!({
+                "choices": [{"message": {"content": "Concise distilled briefing."}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 3}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let mut cfg = base_cfg();
+    cfg.base_url = format!("http://{addr}/v1");
+    let resolver = ModelResolver::new(cfg, Default::default());
+    let thread = vec![
+        casting::types::Message {
+            id: "m1".into(),
+            from: "owner".into(),
+            to: "advisor".into(),
+            body: "open-core or closed?".into(),
+        },
+        casting::types::Message {
+            id: "m2".into(),
+            from: "advisor".into(),
+            to: "owner".into(),
+            body: "Consider open-core.".into(),
+        },
+    ];
+    let summary = casting::llm::advisor_summarize(&resolver, &thread)
+        .await
+        .unwrap();
+    assert!(summary.contains("Concise"), "uses the model's summary");
+
+    // Empty thread → deterministic fallback, no call needed.
+    let empty = casting::llm::advisor_summarize(&resolver, &[])
+        .await
+        .unwrap();
+    assert_eq!(empty, "Advisor conversation handed off to PM.");
+}

@@ -45,6 +45,14 @@ pub struct AgentContext {
     pub constraints: Vec<String>,
     /// Decisions awaiting the owner (the whole open-decision set).
     pub open_decisions: Vec<String>,
+    /// EXTERNAL advisor briefings (advisory, never authoritative) scoped to this
+    /// actor — e.g. an advisor handoff or a pasted plan. Formatted as
+    /// "[advisory · <source>] <title>: <body>". Included so the PM/LLM can
+    /// genuinely CONSIDER advice without it ever asserting rules.
+    pub advisory_briefings: Vec<String>,
+    /// External intake requests (e.g. GitHub issues/PRs) scoped to this actor —
+    /// "what a user reported", triaged but NOT the owner's intent.
+    pub external_requests: Vec<String>,
     /// The consultant's isolated workspace, if one is provisioned for their
     /// current task (2026-08-12). This is the "desk" the platform hands a
     /// summoned consultant — path, own branch, private build target, and API
@@ -84,12 +92,13 @@ pub fn summary(ctx: &AgentContext) -> String {
         })
         .unwrap_or_else(|| "<no objective>".to_string());
     format!(
-        "objective=\"{obj}\"; priorities={} my_tasks={} directives={} risks={} decisions={}",
+        "objective=\"{obj}\"; priorities={} my_tasks={} directives={} risks={} decisions={} briefings={}",
         ctx.priorities.len(),
         ctx.my_tasks.len(),
         ctx.active_directives.len(),
         ctx.open_risks.len(),
         ctx.open_decisions.len(),
+        ctx.advisory_briefings.len(),
     )
 }
 
@@ -138,6 +147,31 @@ impl crate::projection::Projection {
             .map(|d| format!("[{}] {}", d.kind.label(), d.statement))
             .collect();
 
+        // External advisory briefings (scoped). Format explicitly marks them
+        // advisory + provenance so the reader never conflates advice with rules.
+        let advisory_briefings = self
+            .briefings
+            .iter()
+            .filter(|b| b.status == crate::types::BriefingStatus::Active)
+            .map(|b| format!("[advisory · {}] {}: {}", b.source, b.title, b.body))
+            .collect::<Vec<_>>();
+
+        // External intake requests, scoped to this actor's scope areas.
+        let external_requests = self
+            .external_requests
+            .iter()
+            .filter(|_| actor == "pm" || actor == "owner" || actor == "system")
+            .map(|r| {
+                format!(
+                    "[external · {}] {} ({}): {}",
+                    r.source,
+                    r.title,
+                    format!("{:?}", r.status).to_lowercase(),
+                    r.body
+                )
+            })
+            .collect::<Vec<_>>();
+
         // The consultant's desk: their most recent non-done task's worktree.
         // The platform provisions it at summon, so the agent is handed a ready
         // isolated workspace (path + branch + build target + port) to work in.
@@ -163,6 +197,8 @@ impl crate::projection::Projection {
             assumptions: self.assumptions.iter().map(|a| a.body.clone()).collect(),
             constraints: self.constraints.iter().map(|c| c.body.clone()).collect(),
             open_decisions: plan.open_decisions.clone(),
+            advisory_briefings,
+            external_requests,
             worktree,
         }
     }

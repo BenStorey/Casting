@@ -139,6 +139,13 @@ export function handoffAdvisor(summary: string, title?: string): Promise<unknown
   });
 }
 
+export function summarizeAdvisor(): Promise<{ summary: string }> {
+  return j("/api/advisor/summarize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export interface EventEnvelope {
   event_id: string;
   project_id: string;

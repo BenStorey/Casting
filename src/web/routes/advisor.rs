@@ -182,3 +182,28 @@ pub(crate) async fn advisor_handoff_handler(
     );
     append_json(&state, ev)
 }
+
+/// POST /api/advisor/summarize — have the LLM distill the owner↔advisor thread
+/// into a concise briefing summary (used to pre-fill the handoff). Falls back
+/// to the deterministic summarizer (or "nothing to summarize") when there's no
+/// LLM or the call fails — never a hard error.
+pub(crate) async fn advisor_summarize_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let proj = state
+        .projection()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let thread = proj.advisor_thread.clone();
+    let fallback = crate::llm::advisor_summarize_deterministic(&thread);
+    let Some(base_cfg) = crate::llm::config::from_env().ok().flatten() else {
+        return Ok(Json(serde_json::json!({ "summary": fallback })));
+    };
+    let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());
+    match crate::llm::advisor_summarize(&resolver, &thread).await {
+        Ok(summary) if !summary.trim().is_empty() => {
+            Ok(Json(serde_json::json!({ "summary": summary })))
+        }
+        // Empty/broken LLM summary → deterministic fallback (never explode).
+        _ => Ok(Json(serde_json::json!({ "summary": fallback }))),
+    }
+}

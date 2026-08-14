@@ -128,6 +128,14 @@ pub fn advisor_context_summary(context: &AgentContext) -> String {
         "- Objective: {}",
         context.objective.as_deref().unwrap_or("<none set>")
     ));
+    if context.advisory_briefings.is_empty() {
+        out.push("- Prior advisory briefings: none".to_string());
+    } else {
+        out.push(format!(
+            "- Prior advisory briefings:\n    {}",
+            context.advisory_briefings.join("\n    ")
+        ));
+    }
     if context.active_directives.is_empty() {
         out.push("- Governance: none active".to_string());
     } else {
@@ -169,4 +177,74 @@ pub fn advisor_context_summary(context: &AgentContext) -> String {
         }
     ));
     out.join("\n")
+}
+
+/// Produce a concise, faithful summary of the owner↔advisor thread — used for
+/// the handoff briefing the PM reads. Reuses the advisor's model binding.
+/// Returns an `Err` on any provider/parse failure; the caller falls back to the
+/// deterministic summarizer (never a hard failure).
+pub async fn advisor_summarize(resolver: &ModelResolver, thread: &[Message]) -> Result<String> {
+    let resolved = resolver.resolve("advisor");
+    let mut messages = vec![ChatMessage {
+        role: "system".into(),
+        content: format!(
+            "{}\n\nSummarize the owner's advisor conversation below into a concise, \
+             faithful briefing (3–6 sentences) for a project manager to act on. \
+             Preserve any concrete decisions, options weighed, and open questions.\
+             ",
+            resolved.system_prompt
+        ),
+    }];
+    for m in thread.iter().rev().take(20).rev() {
+        let role = if m.from == "owner" {
+            "user"
+        } else {
+            "assistant"
+        };
+        messages.push(ChatMessage {
+            role: role.into(),
+            content: m.body.clone(),
+        });
+    }
+    if messages.len() == 1 {
+        // No actual content — nothing to summarize.
+        return Ok("Advisor conversation handed off to PM.".to_string());
+    }
+
+    let client = crate::llm::client::OpenAiClient::new(
+        resolved.config.base_url.clone(),
+        resolved.config.api_key.clone(),
+    );
+    let req = ChatRequest {
+        model: resolved.config.model.clone(),
+        messages,
+        temperature: resolved.temperature,
+        max_tokens: resolved.max_tokens,
+        response_format: None,
+    };
+    let completion = client.chat(&req).await?;
+    let summary = completion.content.trim().to_string();
+    if summary.is_empty() {
+        anyhow::bail!("advisor summarize returned an empty summary");
+    }
+    Ok(summary)
+}
+
+/// The deterministic fallback summarizer (when no LLM or the call fails):
+/// headings from the owner's messages. Mirrors the (previously frontend-only)
+/// logic server-side so the summarize endpoint always has a value to return.
+pub fn advisor_summarize_deterministic(thread: &[Message]) -> String {
+    if thread.is_empty() {
+        return "Advisor conversation handed off to PM.".to_string();
+    }
+    let owners: Vec<String> = thread
+        .iter()
+        .filter(|m| m.from == "owner")
+        .map(|m| m.body.clone())
+        .collect();
+    if owners.is_empty() {
+        "Advisor conversation handed off to PM.".to_string()
+    } else {
+        format!("Advisor session — owner's thinking: {}", owners.join("; "))
+    }
 }

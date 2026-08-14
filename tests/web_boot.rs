@@ -67,6 +67,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/diagram",
         "/api/advisor/message",
         "/api/advisor/handoff",
+        "/api/advisor/summarize",
         "/api/budget",
         "/api/pause",
         "/api/resume",

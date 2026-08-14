@@ -17,7 +17,9 @@ pub mod config;
 pub mod orchestrator;
 pub mod routing;
 
-pub use advisor::{advisor_reply, AdvisorOutcome};
+pub use advisor::{
+    advisor_reply, advisor_summarize, advisor_summarize_deterministic, AdvisorOutcome,
+};
 pub use client::OpenAiClient;
 pub use config::ProviderConfig;
 pub use orchestrator::LlmOrchestrator;

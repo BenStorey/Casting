@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ADVISOR_IDENTITY } from "./identities";
-import { Message, handoffAdvisor, sendToAdvisor } from "./api";
+import { Message, handoffAdvisor, sendToAdvisor, summarizeAdvisor } from "./api";
 import { useCastStore } from "./store";
 
 /// The Direction Advisor — a special second role the owner talks to directly.
@@ -45,8 +45,14 @@ export default function Advisor({ thread, onChanged }: { thread: Message[]; onCh
     setBusy(true);
     setMsg(null);
     try {
-      // The owner writes the distilled take; it becomes a Briefing the PM reads.
-      const summary = draft.trim();
+      // Ask the LLM to distill the conversation into a briefing (falls back to a
+      // deterministic summarizer server-side when no LLM is configured).
+      let summary = "";
+      try {
+        summary = (await summarizeAdvisor()).summary;
+      } catch {
+        summary = summarizer(thread); // local deterministic fallback
+      }
       await handoffAdvisor(summary || "Advisor conversation handed off to PM", summarizer(thread));
       setDraft("");
       setMsg("✅ Handed off to the PM as an advisor briefing");

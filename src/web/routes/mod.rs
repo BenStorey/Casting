@@ -19,7 +19,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
 
-use advisor::{advisor_handoff_handler, advisor_message_handler};
+use advisor::{advisor_handoff_handler, advisor_message_handler, advisor_summarize_handler};
 use auth::{login_handler, require_auth};
 use inbox::inbox_handler;
 use intake::{brief_handler, diagram_handler, message_handler, request_handler};
@@ -65,6 +65,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/advisor/handoff",
             axum::routing::post(advisor_handoff_handler),
+        )
+        .route(
+            "/api/advisor/summarize",
+            axum::routing::post(advisor_summarize_handler),
         )
         .route("/api/decision", axum::routing::post(decision_handler))
         .route("/api/policy", axum::routing::post(policy_handler))
