@@ -258,6 +258,176 @@ async fn advisor_reply_stays_isolated_from_pm_context() {
     assert!(!outcome.reply.is_empty());
 }
 
+// === #1b Advisor grounded in the operating context ===
+
+#[test]
+fn advisor_context_summary_curates_high_level_state() {
+    use casting::context::AgentContext;
+    let ctx = AgentContext {
+        actor: "advisor".into(),
+        objective: Some("Ship the CLI".into()),
+        active_directives: vec!["[policy] no telemetry".into()],
+        open_risks: vec!["r1".into()],
+        open_decisions: vec!["d1".into()],
+        ..Default::default()
+    };
+    let summary = casting::llm::advisor::advisor_context_summary(&ctx);
+    assert!(summary.contains("Ship the CLI"), "objective grounded");
+    assert!(summary.contains("no telemetry"), "governance grounded");
+    assert!(summary.contains("r1"), "risk grounded");
+    assert!(
+        !summary.contains("priorities"),
+        "no task machinery for the advisor"
+    );
+}
+
+#[tokio::test]
+async fn advisor_reply_builds_grounding_into_system_prompt() {
+    // The stub records the system prompt so we can assert the advisor's reply
+    // call actually received the operating context.
+    use axum::routing::post;
+    use axum::{Json, Router};
+    let recorded = Arc::new(MutexText::default());
+    let rec = recorded.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |body: Json<serde_json::Value>| async move {
+            let sys = body["messages"][0]["content"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            rec.0.lock().unwrap().push(sys);
+            Json(json!({
+                "choices": [{"message": {"content": "advice"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 3}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let mut cfg = base_cfg();
+    cfg.base_url = format!("http://{addr}/v1");
+    let resolver = ModelResolver::new(cfg, Default::default());
+    let ctx = casting::context::AgentContext {
+        objective: Some("Ship the CLI".into()),
+        ..Default::default()
+    };
+    let thread = vec![casting::types::Message {
+        id: "am-1".into(),
+        from: "owner".into(),
+        to: "advisor".into(),
+        body: "advise me".into(),
+    }];
+    casting::llm::advisor_reply(&resolver, &ctx, &thread, "advise me")
+        .await
+        .unwrap();
+    let sys = recorded.0.lock().unwrap().join("\n");
+    assert!(
+        sys.contains("Ship the CLI"),
+        "the advisor's reply prompt carried the objective"
+    );
+}
+
+#[derive(Default)]
+struct MutexText(std::sync::Mutex<Vec<String>>);
+
+// === #2 Wiring temperature/max_tokens into the request ===
+
+#[tokio::test]
+async fn orchestrator_passes_consultant_temperature_and_max_tokens() {
+    use axum::routing::post;
+    use axum::{Json, Router};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let seen_temp = Arc::new(AtomicUsize::new(0));
+    let st = seen_temp.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |body: Json<serde_json::Value>| async move {
+            assert_eq!(body["temperature"], 0.7);
+            assert_eq!(body["max_tokens"], 500);
+            st.fetch_add(1, Ordering::SeqCst);
+            Json(json!({
+                "choices": [{"message": {"content": r#"{"actions":[{"action":"no_op"}]}"#}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 3}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let mut cfg = base_cfg();
+    cfg.base_url = format!("http://{addr}/v1");
+    let pkg = format!(
+        r#"
+[consultant]
+id = "temp-guy"
+name = "Temp"
+role = "engineer"
+system_prompt = "prompts/custom.md"
+
+[consultant.model]
+provider = "stub"
+base_url = "http://{addr}/v1"
+model_id = "temp-model"
+temperature = 0.7
+max_tokens = 500
+"#
+    );
+    let registry = registry_with_model(&pkg, "You are Temp.");
+    let resolver = ModelResolver::new(cfg, registry);
+    let orch = LlmOrchestrator::new(base_cfg(), "PM".into()).with_resolver(resolver);
+    let ctx = casting::context::AgentContext {
+        actor: "temp-guy".into(),
+        ..Default::default()
+    };
+    let cause = Event::new(
+        "proj",
+        Actor::Owner,
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "m1".into(),
+        },
+        json!({ "body": "hi" }),
+    );
+    orch.plan(&ctx, &cause).await.unwrap();
+    assert_eq!(seen_temp.load(Ordering::SeqCst), 1);
+}
+
+// === #3 Routing surface (resolver-driven) ===
+
+#[test]
+fn resolver_round_trips_routing_surface_fields() {
+    // The /api/routing view calls resolver.resolve(actor) for each actor; assert
+    // the resolved struct exposes provider/model/base_url + temperature/max_tokens
+    // (what the UI shows). The web handler itself is boot-tested in web_boot.rs.
+    let pkg = r#"
+[consultant]
+id = "marcus-reed"
+name = "Marcus"
+role = "engineer"
+system_prompt = "prompts/custom.md"
+
+[consultant.model]
+provider = "openrouter"
+model_id = "cheap-model"
+temperature = 0.2
+"#;
+    let registry = registry_with_model(pkg, "You are Marcus.");
+    let resolver = ModelResolver::new(base_cfg(), registry);
+    let r = resolver.resolve("marcus-reed");
+    assert_eq!(r.config.provider, "openrouter");
+    assert_eq!(r.config.model, "cheap-model");
+    assert_eq!(r.temperature, Some(0.2));
+    // pm has no binding → env base, no temp/max.
+    let pm = resolver.resolve("pm");
+    assert_eq!(pm.config.model, "default-model");
+    assert_eq!(pm.temperature, None);
+}
+
 // === #2 Reactive anti-thrash ===
 
 fn state_with_pm_and_cast() -> AppState {
@@ -372,4 +542,116 @@ fn cause() -> Event {
         },
         json!({ "body": "go" }),
     )
+}
+
+// === #4 Anti-thrash end-to-end through the LLM loop ===
+
+#[tokio::test]
+async fn llm_loop_rejects_and_audits_reproposing_an_open_subject_e2e() {
+    // Drive the FULL PM loop with a stub model that, on the second pass,
+    // re-proposes a decision subject that's already open. The gate must reject
+    // it cleanly (a PlanActionRejected), no panic, and the audit trail shows it.
+    use axum::routing::post;
+    use axum::{Json, Router};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c2 = calls.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |_body: Json<serde_json::Value>| async move {
+            let n = c2.fetch_add(1, Ordering::SeqCst);
+            // First pass: propose a decision. Second pass: re-propose the SAME
+            // subject (anti-thrash should reject it).
+            let content = if n == 0 {
+                r#"{"actions":[
+                    {"action":"propose_decision","id":"dec-1","subject":"Pick a DB","options":{"A":"pg","B":"sqlite"},"recommendation":"A","class":"internal_implementation","involvement":"pm"}
+                ]}"#
+            } else {
+                r#"{"actions":[
+                    {"action":"propose_decision","id":"dec-dup","subject":"Pick a DB","options":{"A":"pg"},"recommendation":"A","class":"internal_implementation","involvement":"pm"}
+                ]}"#
+            };
+            Json(json!({
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let mut cfg = base_cfg();
+    cfg.base_url = format!("http://{addr}/v1");
+    let orch = LlmOrchestrator::new(cfg, "PM".into());
+    let st = state_with_pm_and_cast()
+        .with_orchestrator(Arc::new(orch))
+        .with_step_delay(std::time::Duration::ZERO);
+
+    // First owner message → the model proposes "Pick a DB" (accepted).
+    st.append(Event::new(
+        "proj-anti",
+        Actor::Owner,
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "m1".into(),
+        },
+        json!({ "body": "do it" }),
+    ))
+    .unwrap();
+    casting::pm::drive_pm(&st).await.unwrap();
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "first pass = one provider call"
+    );
+    let proj = st.projection().unwrap();
+    assert!(
+        proj.decisions.iter().any(|d| d.subject == "Pick a DB"),
+        "first proposal landed"
+    );
+
+    // Second owner message → the model re-proposes the SAME subject. The gate
+    // rejects it as PlanActionRejected; the loop does NOT panic.
+    st.append(Event::new(
+        "proj-anti",
+        Actor::Owner,
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "m2".into(),
+        },
+        json!({ "body": "again" }),
+    ))
+    .unwrap();
+    casting::pm::drive_pm(&st).await.unwrap();
+
+    // Only ONE open "Pick a DB" decision survives (the dup was rejected).
+    let proj = st.projection().unwrap();
+    let open_subject = proj
+        .decisions
+        .iter()
+        .filter(|d| {
+            d.subject == "Pick a DB" && d.status == casting::projection::DecisionStatus::Proposed
+        })
+        .count();
+    assert_eq!(
+        open_subject, 1,
+        "no duplicate OPEN decision on the same subject"
+    );
+
+    // The rejected re-proposal is audited.
+    let rejected = st
+        .store
+        .read_since("proj-anti", 0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event_type == EventType::PlanActionRejected)
+        .count();
+    assert!(
+        rejected >= 1,
+        "the duplicate re-proposal was audited as rejected"
+    );
 }

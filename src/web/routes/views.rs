@@ -14,6 +14,58 @@ pub(crate) async fn consultants_handler(
     Json(state.consultants.all().into_iter().cloned().collect())
 }
 
+/// The per-actor EFFECTIVE model routing — what each actor will actually run
+/// on after env-fallback resolution (not just the raw package binding). Lets
+/// the UI show "Marcus → cheap-model (openrouter)" vs "advisor → premium".
+#[derive(serde::Serialize)]
+pub(crate) struct ActorRouting {
+    pub actor: String,
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+}
+
+/// GET /api/routing — resolve the per-actor model routing from the env base
+/// config + the consultant registry (the same resolver `cast run` builds).
+/// Read-only debug surface: which model each actor is handed.
+pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<ActorRouting>> {
+    let Some(base_cfg) = crate::llm::config::from_env().ok().flatten() else {
+        return Json(Vec::new()); // LLM not configured — nothing to route.
+    };
+    let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());
+    // Resolve for every known consultant id, plus pm and advisor.
+    let mut actors: Vec<String> = state
+        .consultants
+        .all()
+        .iter()
+        .map(|c| c.id.clone())
+        .collect();
+    actors.push("pm".into());
+    actors.push("advisor".into());
+    actors.sort();
+    actors.dedup();
+
+    let rows = actors
+        .into_iter()
+        .map(|actor| {
+            let r = resolver.resolve(&actor);
+            ActorRouting {
+                actor,
+                provider: r.config.provider,
+                model: r.config.model,
+                base_url: r.config.base_url,
+                temperature: r.temperature,
+                max_tokens: r.max_tokens,
+            }
+        })
+        .collect();
+    Json(rows)
+}
+
 /// GET /api/context/{actor} — the assembled operating context for an actor
 /// (agent id, "owner", or "pm"): objective, priorities, their tasks, the
 /// governance directives that apply to them, risks, and open decisions.

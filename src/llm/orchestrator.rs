@@ -183,8 +183,8 @@ impl Orchestrator for LlmOrchestrator {
                     ),
                 },
             ],
-            temperature: None,
-            max_tokens: None,
+            temperature: resolved.temperature,
+            max_tokens: resolved.max_tokens,
             response_format: Some(serde_json::json!({"type": "json_object"})),
         };
 

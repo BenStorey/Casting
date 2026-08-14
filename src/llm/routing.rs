@@ -15,6 +15,10 @@ pub struct ResolvedModel {
     pub config: ProviderConfig,
     /// The actor's persona (system prompt) to seed the call with.
     pub system_prompt: String,
+    /// Sampling temperature, if the actor's binding declares one.
+    pub temperature: Option<f32>,
+    /// Max output tokens, if the actor's binding declares one.
+    pub max_tokens: Option<u32>,
 }
 
 /// Maps an actor to its model binding + persona, from the consultant registry
@@ -71,20 +75,28 @@ impl ModelResolver {
         match self.consultants.by_id(actor) {
             Some(consultant) => {
                 let persona = consultant.system_prompt.clone().unwrap_or(fallback);
+                let temp = consultant.model.temperature;
+                let max = consultant.model.max_tokens;
                 match model_from_consultant(&consultant.model, &self.base) {
                     Some(config) => ResolvedModel {
                         config,
                         system_prompt: persona,
+                        temperature: temp,
+                        max_tokens: max,
                     },
                     None => ResolvedModel {
                         config: self.base.clone(),
                         system_prompt: persona,
+                        temperature: temp,
+                        max_tokens: max,
                     },
                 }
             }
             None => ResolvedModel {
                 config: self.base.clone(),
                 system_prompt: fallback,
+                temperature: None,
+                max_tokens: None,
             },
         }
     }

@@ -24,8 +24,10 @@ pub struct AdvisorOutcome {
 /// (the advisor's memory) and the resolver (for the advisor's model binding).
 ///
 /// `owner_msg` is the newest owner→advisor message; `thread` is the full
-/// isolated thread (including that message) for context. Returns an `Err` on
-/// any provider/parse failure — the caller audits it, never panics.
+/// isolated thread (including that message) for context; `context` is the
+/// assembled operating context (objective / governance / risks / decisions)
+/// the advisor grounds its advice in. Returns an `Err` on any provider/parse
+/// failure — the caller audits it, never panics.
 pub async fn advisor_reply(
     resolver: &ModelResolver,
     context: &AgentContext,
@@ -38,7 +40,11 @@ pub async fn advisor_reply(
     // continue the strategic conversation.
     let mut messages = vec![ChatMessage {
         role: "system".into(),
-        content: resolved.system_prompt,
+        content: format!(
+            "{}\n\n## Current operating context (for grounding your advice)\n{}",
+            resolved.system_prompt,
+            advisor_context_summary(context)
+        ),
     }];
     for m in thread.iter().rev().take(20).rev() {
         let role = if m.from == "owner" {
@@ -68,8 +74,8 @@ pub async fn advisor_reply(
     let req = ChatRequest {
         model: resolved.config.model.clone(),
         messages,
-        temperature: None,
-        max_tokens: None,
+        temperature: resolved.temperature,
+        max_tokens: resolved.max_tokens,
         response_format: None,
     };
 
@@ -102,6 +108,58 @@ pub async fn advisor_reply(
         estimated_usd: 0.0,
     });
 
-    let _ = context; // reserved: future advisor context assembly (high-level state)
     Ok(AdvisorOutcome { reply, metering })
+}
+
+/// Curate the HIGH-LEVEL operating context the advisor grounds its advice in:
+/// the objective, active governance, open risks/assumptions/constraints, and
+/// open decisions — deliberately NOT task machinery (the advisor operates
+/// ABOVE task priorities by design).
+pub fn advisor_context_summary(context: &AgentContext) -> String {
+    let mut out = Vec::new();
+    out.push(format!(
+        "- Objective: {}",
+        context.objective.as_deref().unwrap_or("<none set>")
+    ));
+    if context.active_directives.is_empty() {
+        out.push("- Governance: none active".to_string());
+    } else {
+        out.push(format!(
+            "- Governance: {}",
+            context.active_directives.join("; ")
+        ));
+    }
+    out.push(format!(
+        "- Open decisions: {}",
+        if context.open_decisions.is_empty() {
+            "none".to_string()
+        } else {
+            context.open_decisions.join("; ")
+        }
+    ));
+    out.push(format!(
+        "- Open risks: {}",
+        if context.open_risks.is_empty() {
+            "none".to_string()
+        } else {
+            context.open_risks.join("; ")
+        }
+    ));
+    out.push(format!(
+        "- Assumptions: {}",
+        if context.assumptions.is_empty() {
+            "none".to_string()
+        } else {
+            context.assumptions.join("; ")
+        }
+    ));
+    out.push(format!(
+        "- Constraints: {}",
+        if context.constraints.is_empty() {
+            "none".to_string()
+        } else {
+            context.constraints.join("; ")
+        }
+    ));
+    out.join("\n")
 }

@@ -69,13 +69,11 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
     }
     let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());
     let thread = proj.advisor_thread.clone();
-    let outcome = crate::llm::advisor_reply(
-        &resolver,
-        &crate::context::AgentContext::default(),
-        &thread,
-        owner_body,
-    )
-    .await;
+    // Ground the advisor in the real high-level operating context (objective,
+    // governance, risks, decisions) — NOT task machinery (the advisor's role
+    // operates above task priorities).
+    let advisor_context = proj.context_for("advisor");
+    let outcome = crate::llm::advisor_reply(&resolver, &advisor_context, &thread, owner_body).await;
     match outcome {
         Ok(outcome) => {
             let reply_ev = Event::new(
