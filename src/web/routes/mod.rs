@@ -30,7 +30,7 @@ use owner::{
 };
 use provenance::{provenance_commit_handler, provenance_decision_handler, provenance_task_handler};
 use setup::{setup_handler, setup_status_handler};
-use state::{events_handler, events_stream, state_handler};
+use state::{events_handler, events_stream, health_handler, state_handler};
 use static_files::static_handler;
 use telegram::{telegram_configure_handler, telegram_status_handler};
 use views::{
@@ -122,6 +122,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/consultants", get(consultants_handler))
         .route("/api/routing", get(routing_handler))
         .route("/api/telegram/status", get(telegram_status_handler))
+        .route("/api/health", get(health_handler))
         .route("/api/graph/task/{task_id}", get(graph_task_context_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)

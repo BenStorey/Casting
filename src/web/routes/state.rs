@@ -21,7 +21,7 @@ pub(crate) async fn state_handler(
     Ok(Json(proj))
 }
 
-/// GET /api/events?after=N — raw event history slice (activity stream / catch-up).
+/// GET /api/events — raw event history slice (activity stream / catch-up).
 pub(crate) async fn events_handler(
     State(state): State<AppState>,
     Query(q): Query<EventsQuery>,
@@ -32,6 +32,28 @@ pub(crate) async fn events_handler(
         .read_since(&state.project, after)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(events))
+}
+
+/// GET /api/health — cheap store-liveness probe (200 vs 503).
+///
+/// Exercises the store (a real round-trip) so a wedged backend — e.g. the
+/// Postgres thread's connection dropping — is visible to a load balancer or
+/// `systemctl` healthcheck instead of surfacing as opaque 500s on real reads.
+/// The store is the single dependency the whole product needs, so this is the
+/// highest-signal liveness check available.
+pub(crate) async fn health_handler(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match state.store.latest_sequence(&state.project) {
+        Ok(seq) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "ok": true, "latest_sequence": seq })),
+        ),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        ),
+    }
 }
 
 #[derive(Deserialize)]

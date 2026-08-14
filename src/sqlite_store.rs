@@ -73,10 +73,14 @@ impl SqliteEventStore {
 
 impl EventStore for SqliteEventStore {
     fn append(&self, mut event: Event) -> Result<Event> {
-        let conn = self.conn.lock().unwrap();
-        // Next sequence = (current max for project) + 1. Serialized by the
-        // mutex, so this is atomic for slice one.
-        let max: Option<i64> = conn
+        let mut conn = self.conn.lock().unwrap();
+        // Next sequence = (current max for project) + 1. Serialized in-process
+        // by the mutex; the IMMEDIATE write-lock transaction additionally makes
+        // MAX + INSERT atomic against any second writer to the same DB file, so
+        // a concurrent process can't observe a sequence gap or race the
+        // UNIQUE(project_id, sequence) constraint.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let max: Option<i64> = tx
             .query_row(
                 "SELECT COALESCE(MAX(sequence), 0) FROM events WHERE project_id = ?1",
                 [&event.project_id],
@@ -91,7 +95,7 @@ impl EventStore for SqliteEventStore {
             Actor::System => ("system", None),
         };
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO events (
                 event_id, project_id, sequence, timestamp,
                 actor_type, actor_id, event_type,
@@ -116,6 +120,7 @@ impl EventStore for SqliteEventStore {
         )
         .with_context(|| format!("insert event seq {}", event.sequence))?;
 
+        tx.commit()?;
         Ok(event)
     }
 
