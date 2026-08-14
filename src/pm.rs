@@ -25,6 +25,11 @@ use tokio::sync::broadcast;
 
 pub const PM_CONSUMER: &str = "pm";
 
+/// Max events a snapshot may lag before the read path catches it up (writes).
+/// Below this, `projection()` folds the tail in-memory and skips the write so a
+/// busy `/api/state` isn't a snapshot write on every call.
+const SNAPSHOT_CATCHUP: i64 = 64;
+
 /// Stable agent roster the simulated company uses.
 const AGENT_PM: &str = PM_CONSUMER;
 const AGENT_ENG: &str = "marcus-reed";
@@ -285,14 +290,23 @@ impl AppState {
 
     /// Build the current projection, using the snapshot store when present.
     /// Reads come from snapshot + tail (or full fold); we also (re)store a
-    /// snapshot as a side effect so the read path stays warm — but the event
-    /// log remains the only authority.
+    /// snapshot so the read path stays warm — but the event log remains the
+    /// only authority. The save is THROTTLED: we only catch the snapshot up
+    /// when it is stale by more than [`SNAPSHOT_CATCHUP`] events, so a live
+    /// `/api/state` / background pass isn't a write on every call (esp. the
+    /// Postgres backend, where writes serialize behind the single thread).
     pub fn projection(&self) -> anyhow::Result<Projection> {
         match &self.snapshots {
             Some(snaps) => {
                 let proj = crate::snapshot::build_from(&self.store, snaps, &self.project)?;
                 let seq = self.store.latest_sequence(&self.project)?;
-                let _ = snaps.save(&self.project, seq, &proj);
+                let stale = snaps
+                    .load(&self.project)
+                    .map(|(last_seq, _)| seq - last_seq > SNAPSHOT_CATCHUP)
+                    .unwrap_or(true);
+                if stale {
+                    let _ = snaps.save(&self.project, seq, &proj);
+                }
                 Ok(proj)
             }
             None => Projection::build(&self.store, &self.project),
