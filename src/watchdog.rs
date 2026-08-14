@@ -103,6 +103,11 @@ pub struct WatchModel {
     pub repeated_errors: Vec<(String, usize)>,
 }
 
+/// How far back `scan` counts ActivityFailed errors for the retry-loop signal.
+/// Recently-recurring errors are the real "stuck agent" signal; counting over
+/// all history would let stale repeats accumulate and false-trigger.
+const RETRY_ERROR_WINDOW: Duration = Duration::hours(1);
+
 /// Build a [`WatchModel`] from the current log + wall clock.
 pub fn scan(state: &AppState, now: DateTime<Utc>) -> WatchModel {
     let events = state
@@ -115,9 +120,15 @@ pub fn scan(state: &AppState, now: DateTime<Utc>) -> WatchModel {
         .map(|e| (now - e.timestamp).max(Duration::zero()))
         .unwrap_or_default();
 
+    // Only failures within a recent window count toward a retry-loop signal.
+    // Counting over ALL history would let a recurring-but-transient error from
+    // weeks ago accumulate and false-trigger an auto-pause while current work
+    // is healthy. Windowed counting keeps the "same error looping NOW" signal.
+    let retry_window = now - RETRY_ERROR_WINDOW;
+
     let mut err_counts: HashMap<String, usize> = HashMap::new();
     for e in &events {
-        if e.event_type == EventType::ActivityFailed {
+        if e.event_type == EventType::ActivityFailed && e.timestamp >= retry_window {
             if let Some(err) = e.data.get("error").and_then(|v| v.as_str()) {
                 *err_counts.entry(err.to_string()).or_insert(0) += 1;
             }

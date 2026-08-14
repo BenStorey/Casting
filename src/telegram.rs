@@ -448,7 +448,13 @@ pub async fn drain(
             guard.try_recv().ok()
         };
         match text {
-            Some(t) => channel.send_message(&t).await?,
+            Some(t) => {
+                // A transient send failure must NOT abort the drain: this is the
+                // immediate outbox (best-effort "notify now"). Log and continue.
+                if let Err(e) = channel.send_message(&t).await {
+                    eprintln!("[telegram] outbox send failed: {e:#}");
+                }
+            }
             None => break,
         }
     }
@@ -467,7 +473,16 @@ pub async fn drain(
             {
                 let body = string_field(ev, "body").unwrap_or_default();
                 if !body.is_empty() && !body.starts_with("msg-") {
-                    channel.send_message(&body).await?;
+                    // A transient send failure must NOT abort the drain BEFORE
+                    // the durable out-cursor advances (that re-sends the whole
+                    // window next pass = duplicate pushes to the owner). Log,
+                    // keep going, and let the cursor advance past it so each
+                    // message is sent at-most-once-per-cursor.
+                    if let Err(e) = channel.send_message(&body).await {
+                        eprintln!(
+                            "[telegram] outbound send failed (cursor still advances to avoid dup): {e:#}"
+                        );
+                    }
                 }
             }
             out = out.max(ev.sequence); // keep cursor even if a send fails
