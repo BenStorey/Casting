@@ -806,6 +806,30 @@ fn seed_project(state: &AppState) -> Result<()> {
         },
         serde_json::json!({"role": "Project Manager"}),
     ))?;
+
+    // Hire the default cast at seed so EVERY fresh open — scripted OR LLM-driven
+    // — always has a working team (at least one developer) to assign work to.
+    // The scripted `plan_onboard` also hires the default cast on the first owner
+    // message, but its already-hired filter makes this idempotent (no dupes); the
+    // LLM path never runs plan_onboard, so seeding here is what guarantees the
+    // developer exists before the model tries to assign. A custom cast chosen via
+    // setup is a separate store (apply_to_store), so `seed_project` only fires on
+    // a genuinely bare first open.
+    for m in casting::cast::DEFAULT_CAST {
+        let role = casting::cast::role_by_id(m.role_id)
+            .map(|r| r.title.to_string())
+            .unwrap_or_else(|| m.role_id.to_string());
+        state.append(Event::new(
+            &project,
+            Actor::System,
+            EventType::AgentHired,
+            Aggregate {
+                kind: "agent".into(),
+                id: m.agent_id.into(),
+            },
+            serde_json::json!({ "role": role }),
+        ))?;
+    }
     Ok(())
 }
 
