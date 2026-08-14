@@ -136,7 +136,7 @@ export default function ActivityView() {
         <div className="stream">
           {filtered.slice(0, 120).map((ev) => {
             const type = String(ev.event_type);
-            const isFailure = FAILURE_TYPES.has(type.toLowerCase());
+            const isFailure = FAILURE_TYPES.has(type);
             const line = dataLine(ev);
             const isOpen = expanded === ev.sequence;
             return (

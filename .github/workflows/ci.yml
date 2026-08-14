@@ -91,6 +91,14 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Frontend typecheck (catches TS / api.ts mirror drift)
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend tests (vitest — regression guards e.g. board columns)
+        working-directory: frontend
+        run: npm test
+
       - name: Build (embeds the real SPA)
         run: cargo build
 

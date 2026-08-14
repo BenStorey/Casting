@@ -28,6 +28,7 @@ import {
   decide,
   sendMessage,
 } from "./api";
+import { TASK_COLUMNS } from "./boardColumns";
 import TelegramConnect from "./TelegramConnect";
 
 type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "advisor" | "sketch" | "settings";
@@ -35,13 +36,6 @@ type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inb
 // Lazy: Excalidraw is ~1MB — never load it unless the owner opens Sketch.
 const Whiteboard = lazy(() => import("./Whiteboard"));
 const Advisor = lazy(() => import("./Advisor"));
-
-const TASK_COLUMNS: { key: TaskStatus; label: string }[] = [
-  { key: "backlog", label: "Backlog" },
-  { key: "working", label: "Working" },
-  { key: "blocked", label: "Blocked" },
-  { key: "done", label: "Done" },
-];
 
 const AGENT_NAMES: Record<string, string> = {
   pm: "Sarah Chen · PM",

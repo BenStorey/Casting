@@ -1,5 +1,5 @@
 // Types mirroring the Rust projection + event JSON shapes (see src/projection.rs).
-export type TaskStatus = "backlog" | "working" | "blocked" | "done";
+export type TaskStatus = "backlog" | "working" | "blocked" | "in_review" | "done";
 
 export interface Agent {
   id: string;

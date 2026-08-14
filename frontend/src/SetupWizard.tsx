@@ -114,7 +114,6 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
                   if (!m) return null;
                   return (
                     <div key={m.id} className="flex items-center gap-3 border rounded-lg p-2">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={m.avatar ?? ""} alt={m.name} className="h-10 w-10 rounded-lg" />
                       <div>
                         <div className="text-sm font-medium">{m.name}</div>
