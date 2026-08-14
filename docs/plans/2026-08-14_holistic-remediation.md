@@ -1,8 +1,17 @@
 # Casting — Holistic Review Remediation (2026-08-14)
 
-Status: Plan for the 18-item remediation from the holistic code review.
+Status: **COMPLETE — all 18 review findings addressed across 16 batches, pushed to
+`main` (052000c..0e63661). Full `make` gate green, 342 tests passing (was ~217).**
 Owner: Ben · Author: Hermes
 Method: fixed in testable, committable batches; `make` green + commit + push per batch.
+
+Batches 1–16 all shipped. New modules/tests added: `src/planning.rs` (PM planning
+extracted from the pm.rs monolith), `tests/roundtrip.rs`, `tests/drain_idempotency.rs`,
+`tests/transition_consistency.rs`, `tests/api_contract.rs`, `frontend/src/boardColumns.ts`.
+Deliberately deferred (documented, safe to pick up later): deep `AppState` field-layout
+slimming (B16 did conservative code-motion only) and the fuller frontend codegen for
+`api.ts` (B15 shipped the deterministic Rust-side contract pin instead; a codegen step
+remains an option).
 
 ## Review summary (what we're fixing)
 
