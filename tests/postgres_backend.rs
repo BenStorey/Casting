@@ -107,6 +107,41 @@ fn postgres_snapshot_round_trip() {
 }
 
 #[test]
+fn postgres_sequence_monotonic_contiguous() {
+    // Atomic sequence allocation (INSERT .. ON CONFLICT .. RETURNING) hands
+    // out a contiguous, strictly-monotonic 1..N per project, even across a
+    // fresh backend instance (new connection, same counters).
+    let Some(store) = connect() else { return };
+    let proj = format!("pg-seqmono-{}", uuid::Uuid::new_v4());
+
+    let mut seen = Vec::new();
+    for _i in 0..5 {
+        let ev = store
+            .append(sample(&proj, 0, EventType::TaskCreated))
+            .unwrap();
+        seen.push(ev.sequence);
+    }
+    // Exactly 1..N, no gaps, no duplicates, monotonic.
+    assert_eq!(seen, vec![1i64, 2, 3, 4, 5], "contiguous sequence");
+    assert_eq!(store.latest_sequence(&proj).unwrap(), 5);
+
+    // A second, independent backend (its own connection) must continue the
+    // same counter rather than restarting at 1 (cross-connection safety).
+    let store2 = PostgresBackend::connect(&pg_url().unwrap()).expect("second connect");
+    let ev = store2
+        .append(sample(&proj, 0, EventType::TaskCreated))
+        .unwrap();
+    assert_eq!(ev.sequence, 6, "counter shared across connections");
+    assert_eq!(store.latest_sequence(&proj).unwrap(), 6);
+
+    // A second, independent backend (its own connection) must always report
+    // healthy once its initial connect succeeds and the reconnect driver is
+    // looping.
+    assert!(store.is_healthy(), "healthy after reconnects");
+    assert!(store2.is_healthy());
+}
+
+#[test]
 fn postgres_all_stores_back_the_abstraction() {
     // The whole point: a PostgresBackend implements EventStore + CursorStore +
     // SnapshotStore, so AppState can run a company entirely on Postgres.
