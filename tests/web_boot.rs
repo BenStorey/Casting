@@ -142,5 +142,12 @@ fn policy_endpoint_records_and_folds_an_owner_policy_change() {
         &proj,
     )
     .expect_err("under-claiming a class the owner escalated to Ask must be rejected");
-    assert!(matches!(err, PolicyError::DecisionPolicy(_)));
+    assert!(matches!(
+        err,
+        PolicyError::AuthorityDowngrade {
+            class: DecisionClass::SecurityCritical,
+            required: OwnerInvolvement::Ask,
+            claimed: OwnerInvolvement::Notify,
+        }
+    ));
 }

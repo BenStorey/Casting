@@ -27,7 +27,13 @@ pub enum PolicyError {
     },
     /// The authority-downgrade guard fired: a decision was proposed with less
     /// owner involvement than its class's policy requires (from `policy.rs`).
-    DecisionPolicy(policy::PolicyError),
+    /// A producer may never under-claim owner involvement — it would silently
+    /// bypass the human.
+    AuthorityDowngrade {
+        class: crate::policy::DecisionClass,
+        required: crate::policy::OwnerInvolvement,
+        claimed: crate::policy::OwnerInvolvement,
+    },
     /// Making a decision (resolving it) on one that does not exist.
     DecisionNotFound(String),
     /// Making a decision on one not yet proposed / already decided.
@@ -100,7 +106,15 @@ impl std::fmt::Display for PolicyError {
                     "cannot act on task {task_id}: {actor} is not the assignee ({assignee})"
                 )
             }
-            PolicyError::DecisionPolicy(e) => write!(f, "{e}"),
+            PolicyError::AuthorityDowngrade {
+                class,
+                required,
+                claimed,
+            } => write!(
+                f,
+                "authority downgrade: decision class {class:?} requires {required:?} \
+                 owner involvement, but the producer claimed {claimed:?}"
+            ),
             PolicyError::DecisionNotFound(id) => {
                 write!(f, "cannot resolve decision {id}: no such decision")
             }
@@ -354,7 +368,6 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
                 return Err(PolicyError::DecisionAlreadyOpen(existing.subject.clone()));
             }
             policy::check_proposal(*class, *involvement, &state.policy)
-                .map_err(PolicyError::DecisionPolicy)
         }
         // Resolving a decision is the universal decider step; the decision must
         // exist and still be open. The decider (`who`) is whatever the policy

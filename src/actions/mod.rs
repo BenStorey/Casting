@@ -24,7 +24,7 @@
 mod action;
 mod events;
 mod owner;
-mod policy;
+pub mod policy;
 
 pub use action::{is_valid_assignee, PmAction, TaskSpec, OWNER};
 pub use owner::{

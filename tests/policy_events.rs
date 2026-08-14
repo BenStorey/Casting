@@ -124,7 +124,14 @@ fn owner_override_to_ask_blocks_a_pm_claim_via_the_gate() {
         &proj,
     )
     .expect_err("claiming Pm for an Ask-configured class must be rejected");
-    assert!(matches!(err, PolicyError::DecisionPolicy(_)));
+    assert!(matches!(
+        err,
+        PolicyError::AuthorityDowngrade {
+            class: DecisionClass::TestingLibrary,
+            required: OwnerInvolvement::Ask,
+            claimed: OwnerInvolvement::Pm,
+        }
+    ));
 }
 
 #[test]

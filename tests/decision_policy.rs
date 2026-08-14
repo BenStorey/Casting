@@ -6,9 +6,9 @@
 //! run in front of an arbitrary producer — exactly the guarantee the LLM seam
 //! needs once a real provider is wired in.
 
+use casting::actions::PolicyError;
 use casting::policy::{
     builtin_involvement, check_proposal, Decider, DecisionClass, DecisionPolicy, OwnerInvolvement,
-    PolicyError,
 };
 
 #[test]

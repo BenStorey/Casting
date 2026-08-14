@@ -187,41 +187,11 @@ impl OwnerInvolvement {
     }
 }
 
-/// Why a proposal was rejected by the decision-authority gate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PolicyError {
-    /// The producer claimed *less* restrictive owner involvement than the
-    /// policy requires for the decision's class (e.g. claiming `Pm` where the
-    /// policy says `Ask`). This must never be allowed from an arbitrary
-    /// producer (today a script, tomorrow an LLM): it would silently bypass
-    /// the human.
-    AuthorityDowngrade {
-        class: DecisionClass,
-        required: OwnerInvolvement,
-        claimed: OwnerInvolvement,
-    },
-}
-
-impl std::fmt::Display for PolicyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PolicyError::AuthorityDowngrade {
-                class,
-                required,
-                claimed,
-            } => write!(
-                f,
-                "authority downgrade: decision class {class:?} requires {required:?} \
-                 owner involvement, but the producer claimed {claimed:?}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for PolicyError {}
-
-/// The seam-safety invariant: a producer may not claim *less* owner involvement
-/// than the policy requires for a decision's class.
+/// Check a proposed decision's involvement claim against the project's policy
+/// (the seam-safety / authority-downgrade guard).
+///
+/// A producer may not claim *less* owner involvement than the policy requires
+/// for a decision's class.
 ///
 /// Because `OwnerInvolvement` is ordered `Never < Pm < Notify < Ask`, "at least
 /// as restrictive" means `claimed >= required`. Anything a producer claims that
@@ -231,16 +201,20 @@ impl std::error::Error for PolicyError {}
 ///
 /// Pure and infallible on the store; trivially unit-testable and safe to run in
 /// front of an arbitrary untrusted producer (an LLM once wired in).
+///
+/// The rejection surfaces directly as
+/// [`crate::actions::policy::PolicyError::AuthorityDowngrade`] — the one merged
+/// gate-level error type for the whole policy layer.
 pub fn check_proposal(
     class: DecisionClass,
     claimed: OwnerInvolvement,
     policy: &DecisionPolicy,
-) -> Result<(), PolicyError> {
+) -> Result<(), crate::actions::policy::PolicyError> {
     let required = policy.resolve(class);
     if claimed >= required {
         Ok(())
     } else {
-        Err(PolicyError::AuthorityDowngrade {
+        Err(crate::actions::policy::PolicyError::AuthorityDowngrade {
             class,
             required,
             claimed,
