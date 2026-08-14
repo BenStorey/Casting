@@ -597,23 +597,55 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             }
         }
         for event in action.to_events(&state.project, &who, cause, &correlation) {
+            // Durable intent FIRST. The domain event is the truth of what was
+            // attempted; it must be in the log before we try to make it
+            // physical, so a crash between intent and effect still has an
+            // auditable record (and a re-drain can reconcile, not silently
+            // re-fire against an unrecorded effect).
+            state.append(event.clone())?;
+            projection.apply(&event);
+            authored += 1;
+
             // Event-driven workspace side effects (provision/commit) go through
             // the EXECUTOR seam — the same guarded path as any real side effect
             // (pause / budget / secret gates all apply), instead of inline hooks.
-            // The domain event is the durable intent; the WorkspaceRunner makes
-            // it physical. No workspace attached (tests) → intent recorded, no
-            // physical op.
+            // The WorkspaceRunner makes the already-appended intent physical. No
+            // workspace attached (tests) → intent recorded, no physical op.
             if let Some(activity) = crate::executor::workspace_activity_for(&event) {
                 if let Some(ws) = state.workspace.clone() {
                     let runner = crate::executor::WorkspaceRunner::new(ws);
                     if let Err(e) = crate::executor::run_side_effect(state, &runner, &activity) {
                         eprintln!("[pm] workspace side-effect failed: {e:#}");
+                        // Align the projection with physical reality: a
+                        // WorktreeProvisioned whose physical `git worktree`
+                        // never got created must not claim a desk (the fail-closed
+                        // StartTask gate reads this). Reuse the WorktreeRemoved
+                        // lifecycle close — it frees the port + removes the entry,
+                        // and it is the opposite intent of the failed provision.
+                        if event.event_type == crate::event::EventType::WorktreeProvisioned {
+                            if let Some(task_id) =
+                                event.data.get("task_id").and_then(|v| v.as_str())
+                            {
+                                let marker = crate::event::Event::new(
+                                    &state.project,
+                                    crate::event::Actor::System,
+                                    crate::event::EventType::WorktreeRemoved,
+                                    crate::event::Aggregate {
+                                        kind: "worktree".into(),
+                                        id: format!("worktree-{task_id}"),
+                                    },
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "cause": "provision-failed",
+                                    }),
+                                );
+                                let _ = state.append(marker.clone());
+                                projection.apply(&marker);
+                            }
+                        }
                     }
                 }
             }
-            state.append(event.clone())?;
-            projection.apply(&event);
-            authored += 1;
             // WRITE-TIME worktree teardown (2026-08-12, owner request): the
             // moment a task BECOMES Done (or its ChangeSet is merged), tear
             // down its worktree immediately — physical remove + WorktreeRemoved
