@@ -47,9 +47,10 @@ impl LlmOrchestrator {
         self
     }
 
-    /// The planning instruction block describing the output contract. Kept as
-    /// a standalone method so tests can assert the model is told the rules.
-    fn planning_instructions(&self) -> String {
+    /// The planning instruction block describing the output contract. Kept
+    /// public so tests can assert the prompt stays consistent with the real
+    /// `PmAction` serde shape (the "missing field" drift guard).
+    pub fn planning_instructions(&self) -> String {
         // Enumerate the valid action vocabulary the model may emit, WITH the
         // exact required fields — the model must emit valid typed commands or
         // the parse fails. The gate is the hard authority; this is the legible
@@ -102,7 +103,10 @@ impl LlmOrchestrator {
         )
     }
 
-    fn parse_actions(&self, content: &str) -> Result<Vec<PmAction>> {
+    /// Parse the model's reply content (the text JSON) into `PmAction`s.
+    /// Public so tests can drive parse robustness directly (bare array, fences,
+    /// envelope, malformed) without a live server.
+    pub fn parse_actions(&self, content: &str) -> Result<Vec<PmAction>> {
         // Defensive: strip any stray markdown fences / surrounding prose.
         let trimmed = content.trim();
         let content = trimmed
