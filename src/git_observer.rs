@@ -65,6 +65,15 @@ pub fn observe<S: EventStore>(
 
     let mut emitted = 0u32;
 
+    // Honor the write-time integrity rail. The observer previously appended
+    // directly to the store, bypassing `integrity::check_append` — the ONE
+    // writer outside `AppState::append` doing so (reconciler + watchdog both
+    // go through `state.append`). Build a projection and run check_append
+    // before each append so no writer can bypass preconditions. Observer event
+    // types have no preconditions today, so this never rejects — it
+    // future-proofs the rail against a new observer-emittable event that gains one.
+    let mut proj = crate::projection::Projection::build(store, project)?;
+
     // --- Discover branches ---
     let branches = list_branches(ws)?;
     for branch in &branches {
@@ -93,6 +102,8 @@ pub fn observe<S: EventStore>(
                     "task_id": derive_task_id(&branch.name),
                 }),
             );
+            crate::integrity::check_append(&proj, &ev)?;
+            proj.apply(&ev);
             store.append(ev)?;
             emitted += 1;
         }
@@ -117,6 +128,8 @@ pub fn observe<S: EventStore>(
                     "task_id": derive_task_id(&branch.name),
                 }),
             );
+            crate::integrity::check_append(&proj, &ev)?;
+            proj.apply(&ev);
             store.append(ev)?;
             emitted += 1;
 
@@ -140,6 +153,8 @@ pub fn observe<S: EventStore>(
                         "to_branch": branch.name,
                     }),
                 );
+                crate::integrity::check_append(&proj, &ev)?;
+                proj.apply(&ev);
                 store.append(ev)?;
                 emitted += 1;
             }
