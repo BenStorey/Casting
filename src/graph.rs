@@ -193,6 +193,36 @@ pub static TABLE: &[Transition] = &[
     },
 ];
 
+/// Map a raw `TaskStatus` onto the `TaskState` axis the transition `TABLE` uses
+/// to gate the BOARD position. Board-slot faithful: `InReview` maps to
+/// `InReview` regardless of whether a rejected-review verdict is attached
+/// (that nuance is a separate read-side classification, `task_state`). This is
+/// deliberately NOT `task_state`, so the gate's legality check can never drift
+/// from the written contract.
+fn board_from(status: TaskStatus) -> TaskState {
+    match status {
+        TaskStatus::Backlog => TaskState::Queued,
+        TaskStatus::Working => TaskState::Working,
+        TaskStatus::Blocked => TaskState::AwaitingHuman,
+        TaskStatus::InReview => TaskState::InReview,
+        TaskStatus::Done => TaskState::Done,
+    }
+}
+
+/// Whether the transition `TABLE` declares `action` (the snake_case `PmAction`
+/// id, e.g. `"start"`, `"request_review"`, `"review_task"`) a legal exit from a
+/// task whose board status is `status`.
+///
+/// This is the gate-facing legality query, driven by the SAME written table
+/// that feeds the PM prompt. The policy gate calls THIS instead of hand-writing
+/// status matches, so task-transition legality lives in exactly one place and
+/// the gate can never disagree with the graph / dashboard.
+pub fn valid_from_status(status: TaskStatus, action: &str) -> bool {
+    TABLE
+        .iter()
+        .any(|t| t.from == board_from(status) && t.action == action)
+}
+
 /// The currently-available transitions from `state` for `task`.
 pub fn transitions_for(
     state: TaskState,

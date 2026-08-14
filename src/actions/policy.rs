@@ -304,12 +304,15 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             }
             Ok(())
         }
-        // Ruling on a review: the task must be currently InReview.
+        // Ruling on a review: the task must currently be InReview. Status
+        // legality lives in the graph's transition TABLE (the single source of
+        // truth) — the gate consults `valid_from_status` rather than hand-writing
+        // a status match, so it can never drift from the graph / PM prompt.
         PmAction::ReviewTask { task_id, .. } => {
             let Some(task) = state.tasks.iter().find(|t| t.id == *task_id) else {
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
             };
-            if task.status != crate::projection::TaskStatus::InReview {
+            if !crate::graph::valid_from_status(task.status, "review_task") {
                 return Err(PolicyError::TaskNotInReview(task_id.clone()));
             }
             Ok(())
