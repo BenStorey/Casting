@@ -53,6 +53,12 @@ pub struct OperatingModel {
     /// orchestrator planning passes — the "what failed / what did the model
     /// do" surface for testing the LLM seam.
     pub diagnostics: DiagnosticsView,
+    /// Owner engagement — is the owner engaging or muting? (metric for the
+    /// "am I being escalated to death / is the owner AWOL?" meta-signal.)
+    pub engagement: OwnerEngagementView,
+    /// Code diff quality over time — language-agnostic churn from git, so a
+    /// tester can see if the codebase is trending toward "LLM soup".
+    pub diff_quality: DiffQualityView,
 }
 
 /// A consultant's isolated workspace, as surfaced in the operating picture.
@@ -125,6 +131,62 @@ pub struct DiagnosticsView {
     pub orchestration_count: usize,
     /// Most recent orchestrator passes, newest first (bounded).
     pub recent_orchestration: Vec<crate::projection::OrchestrationRun>,
+}
+
+/// Owner engagement — "is the owner engaging, or muting?" (a week-1 metric,
+/// from the meta-pattern: measure owner response rate). Purely derived from the
+/// decision log. The signal: a growing `awaiting_owner` backlog with a falling
+/// `response_rate` is escalation fatigue / owner abandonment — the PM is asking
+/// things the owner isn't answering.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct OwnerEngagementView {
+    /// Open decisions that still REQUIRE the owner (involvement Ask, not yet
+    /// decided or superseded). Work is blocked on each of these.
+    pub awaiting_owner: usize,
+    /// Decisions the owner has ruled on (decided_by == owner).
+    pub owner_decided: usize,
+    /// Decisions handled autonomously (decided by the PM/agent, not the owner).
+    pub delegated_decided: usize,
+    /// `owner_decided / (owner_decided + awaiting_owner)`. 1.0 = fully caught
+    /// up; falls toward 0 as unanswered escalations pile up.
+    pub response_rate: f64,
+}
+
+/// Code diff quality over time — "is the code getting worse?" (a week-1 metric,
+/// from the meta-pattern: code diff quality). Language-agnostic churn captured
+/// from git `--numstat` at observe time, so no formatter/linter assumption. The
+/// signals: average churn per commit (rising = soup accretion / whole-section
+/// rewrites) and the count of "large rewrite" commits.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DiffQualityView {
+    /// Commits with recorded churn stats.
+    pub commit_count: usize,
+    pub total_additions: u64,
+    pub total_deletions: u64,
+    pub total_files: u64,
+    /// Mean lines changed (add + del) per commit.
+    pub avg_churn_per_commit: f64,
+    /// Mean files touched per commit.
+    pub avg_files_per_commit: f64,
+    /// Commits that changed more than `large_rewrite_threshold` lines net —
+    /// the "chef rewrote the whole dish" smell.
+    pub large_rewrites: usize,
+    /// Lines-changed threshold that counts a commit as a "large rewrite".
+    pub large_rewrite_threshold: u64,
+    /// Recent commits with per-commit churn, newest-first (bounded).
+    pub recent: Vec<CommitChurnView>,
+}
+
+/// Per-commit churn, as surfaced in the diff-quality view.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CommitChurnView {
+    pub sha: String,
+    pub branch: String,
+    pub task_id: Option<String>,
+    pub message: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: u64,
 }
 
 /// Governance posture (directives + decision policy + open decisions).
@@ -350,6 +412,11 @@ impl crate::projection::Projection {
 
         let drift_signals = same_subject_drift(self);
 
+        // Owner engagement: escalation-fatigue signal from the decision log.
+        let engagement = owner_engagement(self);
+        // Code diff quality: language-agnostic churn from the observed commits.
+        let diff_quality = diff_quality(self);
+
         OperatingModel {
             project_id: self.project_id.clone(),
             objective: plan.objective.clone(),
@@ -458,7 +525,91 @@ impl crate::projection::Projection {
                 orchestration_count: self.orchestration.len(),
                 recent_orchestration: self.orchestration.iter().rev().take(20).cloned().collect(),
             },
+            engagement,
+            diff_quality,
         }
+    }
+}
+
+/// Derive the owner-engagement view from the decision log. See
+/// [`OwnerEngagementView`] for semantics.
+fn owner_engagement(proj: &crate::projection::Projection) -> OwnerEngagementView {
+    use crate::policy::OwnerInvolvement;
+    use crate::types::DecisionStatus;
+    let mut awaiting = 0usize;
+    let mut owner_decided = 0usize;
+    let mut delegated = 0usize;
+    for d in &proj.decisions {
+        match d.decided_by.as_deref() {
+            Some("owner") => owner_decided += 1,
+            Some(_) => delegated += 1,
+            None => {}
+        }
+        if d.involvement == OwnerInvolvement::Ask && d.status == DecisionStatus::Proposed {
+            awaiting += 1;
+        }
+    }
+    let denom = owner_decided + awaiting;
+    OwnerEngagementView {
+        awaiting_owner: awaiting,
+        owner_decided,
+        delegated_decided: delegated,
+        response_rate: if denom > 0 {
+            owner_decided as f64 / denom as f64
+        } else {
+            1.0
+        },
+    }
+}
+
+/// Threshold (lines added + deleted) above which a commit counts as a "large
+/// rewrite" — the soup-accretion smell a tester wants flagged.
+const LARGE_REWRITE_THRESHOLD: u64 = 500;
+
+/// Derive the code diff-quality view from the observed commits' churn. See
+/// [`DiffQualityView`] for semantics.
+fn diff_quality(proj: &crate::projection::Projection) -> DiffQualityView {
+    let commits = &proj.commits;
+    let total_additions: u64 = commits.iter().map(|c| c.additions).sum();
+    let total_deletions: u64 = commits.iter().map(|c| c.deletions).sum();
+    let total_files: u64 = commits.iter().map(|c| c.files).sum();
+    let n = commits.len();
+    let total_churn = total_additions + total_deletions;
+    let large_rewrites = commits
+        .iter()
+        .filter(|c| c.additions + c.deletions > LARGE_REWRITE_THRESHOLD)
+        .count();
+    DiffQualityView {
+        commit_count: n,
+        total_additions,
+        total_deletions,
+        total_files,
+        avg_churn_per_commit: if n > 0 {
+            total_churn as f64 / n as f64
+        } else {
+            0.0
+        },
+        avg_files_per_commit: if n > 0 {
+            total_files as f64 / n as f64
+        } else {
+            0.0
+        },
+        large_rewrites,
+        large_rewrite_threshold: LARGE_REWRITE_THRESHOLD,
+        recent: commits
+            .iter()
+            .rev()
+            .take(20)
+            .map(|c| CommitChurnView {
+                sha: c.sha.clone(),
+                branch: c.branch.clone(),
+                task_id: c.task_id.clone(),
+                message: c.message.clone(),
+                additions: c.additions,
+                deletions: c.deletions,
+                files: c.files,
+            })
+            .collect(),
     }
 }
 

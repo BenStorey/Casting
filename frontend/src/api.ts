@@ -418,6 +418,43 @@ export interface OperatingModel {
   guards: GuardsView;
   /** Diagnostics audit trail: refused actions + orchestrator runs. */
   diagnostics: DiagnosticsView;
+  /** Owner engagement: is the owner answering escalations or muting? */
+  engagement: OwnerEngagementView;
+  /** Code diff quality over time: language-agnostic git churn. */
+  diff_quality: DiffQualityView;
+}
+
+export interface OwnerEngagementView {
+  /** Open decisions still requiring the owner (blocked on them). */
+  awaiting_owner: number;
+  /** Decisions the owner has ruled on. */
+  owner_decided: number;
+  /** Decisions handled autonomously by the PM/agent. */
+  delegated_decided: number;
+  /** 1.0 = caught up; falling toward 0 = owner muting. */
+  response_rate: number;
+}
+
+export interface CommitChurnView {
+  sha: string;
+  branch: string;
+  task_id: string | null;
+  message: string;
+  additions: number;
+  deletions: number;
+  files: number;
+}
+
+export interface DiffQualityView {
+  commit_count: number;
+  total_additions: number;
+  total_deletions: number;
+  total_files: number;
+  avg_churn_per_commit: number;
+  avg_files_per_commit: number;
+  large_rewrites: number;
+  large_rewrite_threshold: number;
+  recent: CommitChurnView[];
 }
 
 export function fetchModel(): Promise<OperatingModel> {

@@ -201,7 +201,7 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
   const routing = useCastStore((s) => s.routing);
   if (!model) return null;
   const { governance, knowledge, context, requests, spend, worktrees, drift_signals } = model;
-  const { guards, diagnostics } = model;
+  const { guards, diagnostics, engagement, diff_quality } = model;
 
   return (
     <div className="grid gap-4">
@@ -405,6 +405,73 @@ export default function Overview({ model }: { model: OperatingModel | null }) {
                   <div key={agent} className="flex justify-between text-xs">
                     <span className="text-muted-foreground">{agent}</span>
                     <span>${usd.toFixed(4)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
+
+        <Section
+          title={`Owner engagement · ${(engagement.response_rate * 100).toFixed(0)}%`}
+          description="Is the owner answering escalations or muting? 1.0 = caught up."
+        >
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Awaiting owner (blocked)</span>
+              <span>{engagement.awaiting_owner}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Owner decided</span>
+              <span>{engagement.owner_decided}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Handled autonomously</span>
+              <span>{engagement.delegated_decided}</span>
+            </div>
+          </div>
+          {engagement.awaiting_owner > 0 && engagement.response_rate < 0.5 && (
+            <p className="text-destructive mt-2 text-xs">
+              Escalation backlog growing — the owner may be muting.
+            </p>
+          )}
+        </Section>
+
+        <Section
+          title={`Code diff quality · ${diff_quality.commit_count} commits`}
+          description="Language-agnostic git churn — is the code trending toward soup?"
+        >
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Lines added / deleted</span>
+              <span>
+                +{diff_quality.total_additions} / −{diff_quality.total_deletions}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Avg churn per commit</span>
+              <span>{diff_quality.avg_churn_per_commit.toFixed(0)} lines</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Avg files per commit</span>
+              <span>{diff_quality.avg_files_per_commit.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Large rewrites (&gt;{diff_quality.large_rewrite_threshold} lines)</span>
+              <span className={diff_quality.large_rewrites > 0 ? "text-destructive" : undefined}>
+                {diff_quality.large_rewrites}
+              </span>
+            </div>
+            {diff_quality.recent.length > 0 && (
+              <div className="border-t pt-2">
+                {diff_quality.recent.map((c) => (
+                  <div key={c.sha} className="flex justify-between text-xs">
+                    <span className="text-muted-foreground truncate">
+                      {c.message} · {c.sha.slice(0, 7)}
+                    </span>
+                    <span>
+                      +{c.additions}/−{c.deletions} · {c.files}f
+                    </span>
                   </div>
                 ))}
               </div>

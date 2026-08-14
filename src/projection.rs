@@ -711,6 +711,17 @@ impl Projection {
                     message: string_field(e, "message").unwrap_or_default(),
                     author: string_field(e, "author").unwrap_or_default(),
                     task_id: task_id.clone(),
+                    additions: e
+                        .data
+                        .get("additions")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    deletions: e
+                        .data
+                        .get("deletions")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    files: e.data.get("files").and_then(|v| v.as_u64()).unwrap_or(0),
                 });
                 // Append the commit to its ChangeSet if one exists for this
                 // task (auto-derived from the branch). This keeps the

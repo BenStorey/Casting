@@ -126,6 +126,9 @@ pub fn observe<S: EventStore>(
                     "message": commit.message,
                     "author": commit.author,
                     "task_id": derive_task_id(&branch.name),
+                    "additions": commit.additions,
+                    "deletions": commit.deletions,
+                    "files": commit.files,
                 }),
             );
             crate::integrity::check_append(&proj, &ev)?;
@@ -206,6 +209,10 @@ struct CommitInfo {
     is_merge: bool,
     /// Parent commit shas (for merge detection / from_branch).
     parents: Option<Vec<String>>,
+    /// Diff churn (git --numstat): lines added / deleted / files touched.
+    additions: u64,
+    deletions: u64,
+    files: u64,
 }
 
 /// List all branches in the repo.
@@ -281,16 +288,65 @@ fn list_new_commits<S: EventStore>(
                 Vec::new()
             };
             let is_merge = parents.len() > 1;
+            let (additions, deletions, files) = commit_numstat(ws, &sha);
             Some(CommitInfo {
                 sha,
                 message,
                 author,
                 is_merge,
                 parents: Some(parents),
+                additions,
+                deletions,
+                files,
             })
         })
         .collect();
     Ok(commits)
+}
+
+/// Per-commit diff churn via `git show <sha> --numstat` -> (additions,
+/// deletions, files). Used to answer "is the code getting worse?" without any
+/// language assumption — no formatter/linter, just raw insert/delete counts.
+/// Merge commits report nothing by default (combined diff) so they return
+/// zeros; binary files appear as `-` and count as a file with no lines.
+fn commit_numstat(ws: &Workspace, sha: &str) -> (u64, u64, u64) {
+    let out = ws
+        .git_command()
+        .arg("show")
+        .arg(sha)
+        .arg("--numstat")
+        .arg("--format=")
+        .output();
+    let Ok(out) = out else {
+        return (0, 0, 0);
+    };
+    if !out.status.success() {
+        return (0, 0, 0);
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut add = 0u64;
+    let mut del = 0u64;
+    let mut files = 0u64;
+    for line in text.lines() {
+        let mut it = line.splitn(3, '\t');
+        let (Some(a), Some(d)) = (it.next(), it.next()) else {
+            continue;
+        };
+        // Binary files show `-\t-` — count the file, no lines.
+        if (a == "-" || a == "0") && (d == "-" || d == "0") {
+            if a == "-" {
+                files += 1;
+            }
+            continue;
+        }
+        let (Ok(a), Ok(d)) = (a.trim().parse::<u64>(), d.trim().parse::<u64>()) else {
+            continue;
+        };
+        add += a;
+        del += d;
+        files += 1;
+    }
+    (add, del, files)
 }
 
 /// Resolve which branch name a commit sha belongs to (if any local branch

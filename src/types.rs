@@ -407,6 +407,15 @@ pub struct Commit {
     pub author: String,
     /// The task this commit is associated with, if known.
     pub task_id: Option<String>,
+    /// Lines added in this commit (git --numstat). 0 when unknown/untracked.
+    #[serde(default)]
+    pub additions: u64,
+    /// Lines deleted in this commit. 0 when unknown/untracked.
+    #[serde(default)]
+    pub deletions: u64,
+    /// Files touched in this commit. 0 when unknown/untracked.
+    #[serde(default)]
+    pub files: u64,
 }
 
 /// A completed merge (semantic Git event, ADDENDUM §23).

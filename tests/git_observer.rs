@@ -125,6 +125,25 @@ fn observer_emits_commit_observed_for_new_commits() {
 }
 
 #[test]
+fn observer_records_commit_churn() {
+    let (retain, ws, store, cursors) = ws_with_repo();
+    let _ = retain;
+
+    commit(&ws, "one line");
+    commit(&ws, "second");
+
+    git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
+
+    let proj = Projection::build(&store, "proj").unwrap();
+    // Every commit added its own 1-line file, so each should report churn.
+    assert!(!proj.commits.is_empty());
+    for c in &proj.commits {
+        assert!(c.files >= 1, "commit {} should touch >=1 file", c.sha);
+        assert!(c.additions >= 1, "commit {} should add >=1 line", c.sha);
+    }
+}
+
+#[test]
 fn observer_is_idempotent_on_replay() {
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
