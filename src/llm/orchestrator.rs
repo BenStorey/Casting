@@ -221,7 +221,11 @@ impl Orchestrator for LlmOrchestrator {
                 .as_ref()
                 .map(|d| d.cached_tokens)
                 .unwrap_or(0),
-            cache_creation_input_tokens: 0,
+            cache_creation_input_tokens: u
+                .prompt_tokens_details
+                .as_ref()
+                .map(|d| d.cache_creation_tokens)
+                .unwrap_or(0),
             latency_ms,
             input_price_per_mtok: Some(input_price),
             output_price_per_mtok: Some(output_price),

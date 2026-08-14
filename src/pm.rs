@@ -311,20 +311,41 @@ impl AppState {
 /// since its cursor, lets the scripted policy respond, then advances the cursor.
 /// On each drain it also runs the git observer so new branches/commits become
 /// semantic events before the PM reasons (Git slice increment 2).
+///
+/// WAKE ≠ ACT (docs/PM_INVOCATION_TRIGGERS.md, tiers in `crate::wake`): the
+/// expensive ACT path (observe + drain + respond + reconciler) only runs when a
+/// Tier-0/1 interrupt arrives OR the quiet window elapses. A lone Tier-2
+/// (batch) event defers — the cursor keeps accumulating, and a later interrupt
+/// or the poll timeout flushes it. This bounds LLM spend on progress churn.
 pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
     let mut rx = state.subscribe();
     loop {
-        // Wake on any broadcast (cheap); a 500ms timeout is a safety poll so we
-        // still catch events if broadcast lagged. Never per-event reasoning.
-        let _ = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
-        // Observe the repo first — new commits become events the PM can react to.
-        crate::git_observer::observe_once(&state, &ws).await;
-        if let Err(e) = drain(&state).await {
-            eprintln!("[pm] drain error: {e:#}");
-        }
-        // Drift reconciliation: every N events, run every registered pass.
-        if let Err(e) = crate::reconciler::run_if_due(&state) {
-            eprintln!("[pm] reconciler error: {e:#}");
+        // Wake on a broadcast (cheap); the 500ms timeout IS the quiet window.
+        // Never per-event reasoning — a burst coalesces into one drain.
+        let wake = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+        // Decide whether to ACT: a non-batch (interrupt) event, or the quiet
+        // window elapsed (a timeout in the receiver, or a lagged broadcast that
+        // dropped events → flush the accumulated batch). A lone batch event
+        // with no quiet window defers.
+        let act = match wake {
+            Ok(Ok(ev)) => {
+                let tier = crate::wake::tier_of(ev.event_type);
+                tier != crate::wake::WakeTier::Batch
+            }
+            // Timeout (nothing arrived in the window) or lagged-broadcast → the
+            // quiet window elapsed; flush accumulated batch events.
+            _ => true,
+        };
+        if act {
+            // Observe the repo first — new commits become events the PM can react to.
+            crate::git_observer::observe_once(&state, &ws).await;
+            if let Err(e) = drain(&state).await {
+                eprintln!("[pm] drain error: {e:#}");
+            }
+            // Drift reconciliation: every N events, run every registered pass.
+            if let Err(e) = crate::reconciler::run_if_due(&state) {
+                eprintln!("[pm] reconciler error: {e:#}");
+            }
         }
     }
 }

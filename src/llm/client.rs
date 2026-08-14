@@ -45,8 +45,16 @@ pub struct Usage {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PromptTokensDetails {
+    /// Input tokens READ FROM the provider's prompt cache (a cache "hit").
     #[serde(default)]
     pub cached_tokens: u64,
+    /// Input tokens WRITTEN to the provider's prompt cache (a "creation", NOT a
+    /// hit — ~10x the read cost). Some OpenAI-compatible providers report this
+    /// (e.g. via `prompt_tokens_details.cache_creation` or a similar field);
+    /// most don't today, so it usually parses as 0 — but we thread it rather
+    /// than hardcoding, so a reporting provider's write cost isn't dropped.
+    #[serde(default, alias = "cache_creation", alias = "cache_creation_tokens")]
+    pub cache_creation_tokens: u64,
 }
 
 /// The result of one chat/completions call: the model's text + usage.

@@ -43,6 +43,7 @@ pub mod sqlite_store;
 pub mod store;
 pub mod triage;
 pub mod types;
+pub mod wake;
 pub mod watchdog;
 pub mod web;
 pub mod workspace;

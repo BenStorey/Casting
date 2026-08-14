@@ -757,3 +757,78 @@ async fn metering_reports_nonzero_usd_with_real_prices() {
     assert_eq!(cost.data["input_price_per_mtok"], 1.0);
     assert_eq!(cost.data["output_price_per_mtok"], 3.0);
 }
+
+// === #2 Cache-write accounting ===
+
+#[tokio::test]
+async fn metering_threads_cache_write_tokens_from_provider() {
+    // A provider that DOES report cache writes: the creation count must flow
+    // into CostIncurred (not be silently dropped as hardcoded 0), and the
+    // derived cache_hit_ratio must reflect reads/(reads+writes+fresh).
+    use axum::routing::post;
+    use axum::{Json, Router};
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move || async move {
+            Json(json!({
+                "choices": [{"message": {"content": r#"{"actions":[{"action":"create_task","id":"cc","title":"X","kind":"feature"}]}"#}}],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 10,
+                    "prompt_tokens_details": {"cached_tokens": 100, "cache_creation": 200}
+                }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let mut cfg = base_cfg();
+    cfg.base_url = format!("http://{addr}/v1");
+    let orch = LlmOrchestrator::new(cfg, "PM".into());
+    let st = state_with_pm_and_cast()
+        .with_orchestrator(Arc::new(orch))
+        .with_step_delay(std::time::Duration::ZERO);
+    st.append(Event::new(
+        "proj-anti",
+        Actor::Owner,
+        EventType::MessageSent,
+        Aggregate {
+            kind: "message".into(),
+            id: "m1".into(),
+        },
+        json!({ "body": "go" }),
+    ))
+    .unwrap();
+    casting::pm::drive_pm(&st).await.unwrap();
+
+    let cost = st
+        .store
+        .read_since("proj-anti", 0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.event_type == EventType::CostIncurred)
+        .expect("a CostIncurred event");
+    assert_eq!(
+        cost.data["cache_read_input_tokens"], 100,
+        "cache reads threaded"
+    );
+    assert_eq!(
+        cost.data["cache_creation_input_tokens"], 200,
+        "cache WRITES threaded (not hardcoded 0)"
+    );
+
+    // The derived operating picture's cache_hit_ratio accounts for writes:
+    // reads / (fresh prompt + reads + writes) = 100 / (1000 + 100 + 200).
+    let model = st.projection().unwrap().operating_model();
+    let spend = &model.spend;
+    let expected_ratio = 100.0 / (1000.0 + 100.0 + 200.0);
+    assert!(
+        (spend.cache_hit_ratio - expected_ratio).abs() < 1e-9,
+        "ratio accounts for writes: {} vs {}",
+        spend.cache_hit_ratio,
+        expected_ratio
+    );
+    assert_eq!(spend.cache_creation_input_tokens, 200);
+}
