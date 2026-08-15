@@ -177,9 +177,9 @@ impl crate::projection::Projection {
         // isolated workspace (path + branch + build target + port) to work in.
         let worktree = my_tasks
             .last()
-            .and_then(|task_id| self.worktrees.iter().find(|w| &w.task_id == task_id))
+            .and_then(|task_id| self.worktrees.iter().find(|w| w.task_id.as_deref() == Some(task_id)))
             .map(|w| WorktreeInfo {
-                task_id: w.task_id.clone(),
+                task_id: w.task_id.clone().unwrap_or_default(),
                 branch: w.branch.clone(),
                 path: w.path.clone(),
                 cargo_target_dir: w.cargo_target_dir.clone(),

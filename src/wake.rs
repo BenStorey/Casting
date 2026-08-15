@@ -49,6 +49,8 @@ pub fn tier_of(et: EventType) -> WakeTier {
         | MergeConflictDetected
         | WorktreeProvisioned
         | WorktreeRemoved
+        | WorktreeBound
+        | WorktreeReleased
         | RiskRaised
         | RiskUpdated
         | ActivityScheduled

@@ -148,6 +148,14 @@ pub enum EventType {
     /// and the physical tree via the reconciler. The WorktreeProvisioned event
     /// remains as history — this is the lifecycle close.
     WorktreeRemoved,
+    /// A task is bound to one of a consultant's persistent worktree slots.
+    /// The platform routes task assignment automatically to a free worktree.
+    /// Carries: { consultant, slot, task_id, branch }.
+    WorktreeBound,
+    /// A task is released from a worktree slot (done/merged). The worktree is
+    /// reset to main but NOT destroyed — target/ stays warm for the next task.
+    /// Carries: { consultant, slot, task_id }.
+    WorktreeReleased,
 
     // --- External advisory context (owner, 2026-08-10) ---
     /// Advisor content (text and/or image/diagram references) brought INTO the

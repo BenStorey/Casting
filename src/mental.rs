@@ -67,7 +67,7 @@ pub struct OperatingModel {
 /// A consultant's isolated workspace, as surfaced in the operating picture.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorktreeView {
-    pub task_id: String,
+    pub task_id: Option<String>,
     pub branch: String,
     pub path: String,
     pub cargo_target_dir: String,

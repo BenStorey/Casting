@@ -285,7 +285,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             let assignee = task.assignee.as_deref().unwrap_or("system");
             let needs_worktree = assignee != OWNER && who != "system";
-            if needs_worktree && !state.worktrees.iter().any(|w| w.task_id == *task_id) {
+            if needs_worktree && !state.worktrees.iter().any(|w| w.task_id == Some(task_id.clone())) {
                 return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
             }
             // Hard-dependency ordering (Blocker Test): a task cannot START
@@ -305,7 +305,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // isolated worktree (isolation is structural, never optional).
         PmAction::CommitToChangeSet { task_id, .. } => {
             check_assignee(task_id, who, state)?;
-            if !state.worktrees.iter().any(|w| w.task_id == *task_id) {
+            if !state.worktrees.iter().any(|w| w.task_id == Some(task_id.clone())) {
                 return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
             }
             Ok(())
@@ -329,7 +329,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
                 return Err(PolicyError::AgentNotHired(assignee.to_string()));
             }
             // One worktree per task (fail-closed id uniqueness).
-            if state.worktrees.iter().any(|w| w.task_id == *task_id) {
+            if state.worktrees.iter().any(|w| w.task_id == Some(task_id.clone())) {
                 return Err(PolicyError::WorktreeAlreadyProvisioned(task_id.clone()));
             }
             Ok(())

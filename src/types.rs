@@ -505,13 +505,17 @@ pub struct ChangeSet {
 /// provisions it, the agent just works here.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Worktree {
-    /// The task this workspace serves.
-    pub task_id: String,
-    /// The worktree's own branch (casting/task-<id>-<slug>).
+    /// The consultant this worktree belongs to (e.g. "lead-programmer").
+    pub consultant: String,
+    /// Which slot (0..max_concurrent-1) within the consultant's pool.
+    pub slot: usize,
+    /// The task bound to this worktree (None when free).
+    pub task_id: Option<String>,
+    /// The worktree's current branch ("main" when free, "casting/task-<id>" when bound).
     pub branch: String,
     /// Filesystem path to the worktree (under <repo>/.casting/worktrees/).
     pub path: String,
-    /// Private CARGO_TARGET_DIR so concurrent builds don't stomp each other.
+    /// Private build target dir so concurrent builds don't stomp each other.
     pub cargo_target_dir: String,
     /// Distinct API port so concurrent dev servers can run in parallel.
     pub port: u16,

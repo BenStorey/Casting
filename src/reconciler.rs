@@ -312,12 +312,16 @@ pub fn prune_worktrees(state: &AppState) -> Result<u32> {
         .map(|c| c.task_id.clone())
         .collect();
 
-    // A worktree is prunable if its task is Done OR its ChangeSet is Merged.
+    // A worktree is prunable if it has a bound task that is Done OR its ChangeSet is Merged.
     let prunable: Vec<String> = projection
         .worktrees
         .iter()
-        .filter(|w| done_tasks.contains(&w.task_id) || merged_changesets.contains(&w.task_id))
-        .map(|w| w.task_id.clone())
+        .filter(|w| {
+            w.task_id
+                .as_ref()
+                .is_some_and(|tid| done_tasks.contains(tid) || merged_changesets.contains(tid))
+        })
+        .map(|w| w.task_id.clone().unwrap_or_default())
         .collect();
 
     for task_id in prunable {

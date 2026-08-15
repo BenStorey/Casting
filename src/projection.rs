@@ -681,30 +681,88 @@ impl Projection {
                 }
             }
             EventType::WorktreeProvisioned => {
-                // The platform provisioned an isolated workspace for a task.
-                // Record it, and auto-create/refresh the Open ChangeSet with
-                // the EXACT branch mapping (no derive_task_id guessing — the
-                // platform knows the association because it created it).
-                let task_id = string_field(e, "task_id").unwrap_or_default();
+                // The platform provisioned an isolated workspace for a consultant.
+                // In the NEW persistent model, each consultant gets N worktree
+                // slots at setup (consultant + slot + port, no task_id yet).
+                // The OLD per-task model carries task_id — we handle both.
+                let consultant = string_field(e, "consultant").unwrap_or_default();
+                let slot = e.data.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let task_id = string_field(e, "task_id");
                 let branch = string_field(e, "branch").unwrap_or_default();
                 let path = string_field(e, "path").unwrap_or_default();
                 let cargo_target_dir = string_field(e, "cargo_target_dir").unwrap_or_default();
                 let port = e.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                if !task_id.is_empty() {
-                    let wt = Worktree {
-                        task_id: task_id.clone(),
-                        branch: branch.clone(),
-                        path,
-                        cargo_target_dir,
-                        port,
-                    };
-                    if let Some(existing) = self.worktrees.iter_mut().find(|w| w.task_id == task_id)
-                    {
-                        *existing = wt; // refresh (idempotent re-provision)
-                    } else {
-                        self.worktrees.push(wt);
+                // Build the unique key for dedup: consultant+slot or task_id.
+                let key = if !consultant.is_empty() {
+                    format!("{consultant}+{slot}")
+                } else if let Some(tid) = &task_id {
+                    tid.clone()
+                } else {
+                    return; // no key — skip.
+                };
+                let wt = Worktree {
+                    consultant: consultant.clone(),
+                    slot,
+                    task_id: task_id.clone(),
+                    branch: branch.clone(),
+                    path,
+                    cargo_target_dir,
+                    port,
+                };
+                // Upsert by key (idempotent re-provision).
+                let existing_pos = if !consultant.is_empty() {
+                    self.worktrees
+                        .iter()
+                        .position(|w| w.consultant == consultant && w.slot == slot)
+                } else {
+                    self.worktrees.iter().position(|w| w.task_id == task_id)
+                };
+                if let Some(pos) = existing_pos {
+                    self.worktrees[pos] = wt;
+                } else {
+                    self.worktrees.push(wt);
+                }
+                // Auto-create an Open ChangeSet for the task if one is bound.
+                // (Only in the old per-task model where task_id is known at provision.)
+                if let Some(ref tid) = task_id {
+                    let cs_id = format!("changeset-{tid}");
+                    if !self.changesets.iter().any(|c| c.id == cs_id) {
+                        self.changesets.push(ChangeSet {
+                            id: cs_id,
+                            task_id: tid.clone(),
+                            branch,
+                            commits: Vec::new(),
+                            agent: None,
+                            status: ChangeSetStatus::Open,
+                        });
                     }
-                    // Auto-create an Open ChangeSet for the task if none yet.
+                }
+            }
+            EventType::WorktreeRemoved => {
+                // Lifecycle close: dropping the Worktree from the projection
+                // (OLD per-task model). In the NEW persistent model, worktrees
+                // are not removed — they are released via WorktreeReleased.
+                let task_id = string_field(e, "task_id").unwrap_or_default();
+                if !task_id.is_empty() {
+                    self.worktrees.retain(|w| w.task_id.as_deref() != Some(&task_id));
+                }
+            }
+            EventType::WorktreeBound => {
+                // A task is bound to a persistent worktree slot.
+                let consultant = string_field(e, "consultant").unwrap_or_default();
+                let slot = e.data.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let task_id = string_field(e, "task_id").unwrap_or_default();
+                let branch = string_field(e, "branch").unwrap_or_default();
+                if !consultant.is_empty() && !task_id.is_empty() {
+                    if let Some(wt) = self
+                        .worktrees
+                        .iter_mut()
+                        .find(|w| w.consultant == consultant && w.slot == slot)
+                    {
+                        wt.task_id = Some(task_id.clone());
+                        wt.branch = branch.clone();
+                    }
+                    // Auto-create an Open ChangeSet for the bound task.
                     let cs_id = format!("changeset-{task_id}");
                     if !self.changesets.iter().any(|c| c.id == cs_id) {
                         self.changesets.push(ChangeSet {
@@ -718,13 +776,20 @@ impl Projection {
                     }
                 }
             }
-            EventType::WorktreeRemoved => {
-                // Lifecycle close: dropping the Worktree from the projection
-                // frees its port for the allocator (the reconciliation prune
-                // emitted this). The WorktreeProvisioned event stays as history.
+            EventType::WorktreeReleased => {
+                // A task is released from a persistent worktree slot (done/merged).
+                let consultant = string_field(e, "consultant").unwrap_or_default();
+                let slot = e.data.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                 let task_id = string_field(e, "task_id").unwrap_or_default();
-                if !task_id.is_empty() {
-                    self.worktrees.retain(|w| w.task_id != task_id);
+                if !consultant.is_empty() {
+                    if let Some(wt) = self
+                        .worktrees
+                        .iter_mut()
+                        .find(|w| w.consultant == consultant && w.slot == slot)
+                    {
+                        wt.task_id = None;
+                        wt.branch = "main".into();
+                    }
                 }
             }
             EventType::CommitObserved => {
