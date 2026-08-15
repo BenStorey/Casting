@@ -88,6 +88,7 @@ pub enum PmAction {
         assignee: String,
         slug: String,
         cargo_target_dir: String,
+        slot: usize,
         port: u16,
     },
     StartTask {

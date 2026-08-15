@@ -90,19 +90,39 @@ fn plan_worktree_provision(
         .find(|p| !used_in_projection.contains(p) && !claimed_in_plan.contains(p))
         .unwrap_or(crate::port::DEFAULT_WORKTREE_BASE_PORT);
     claimed_in_plan.insert(port);
+
+    // Select the first free slot for this assignee (a slot is free when its
+    // worktree is not bound to an active task). Defaults to 0 if the assignee
+    // has no provisioned worktrees yet (the first provision creates slot 0).
+    let assignee_slots: Vec<usize> = projection
+        .worktrees
+        .iter()
+        .filter(|w| w.consultant == assignee)
+        .map(|w| w.slot)
+        .collect();
+    let max_concurrent = state
+        .consultants
+        .by_id(assignee)
+        .map(|c| c.max_concurrent)
+        .unwrap_or(1);
+    let slot = (0..max_concurrent)
+        .find(|s| !assignee_slots.contains(s))
+        .unwrap_or(0);
+
     let cargo_target_dir = match &state.workspace {
         Some(ws) => ws
-            .worktree_path(task_id)
+            .consultant_worktree_path(assignee, slot)
             .join("target")
             .to_string_lossy()
             .into_owned(),
-        None => format!(".casting/worktrees/{task_id}/target"),
+        None => format!(".casting/worktrees/{assignee}-{slot}/target"),
     };
     PmAction::ProvisionWorktree {
         task_id: task_id.to_string(),
         assignee: assignee.to_string(),
         slug: slug.to_string(),
         cargo_target_dir,
+        slot,
         port,
     }
 }

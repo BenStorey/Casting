@@ -133,6 +133,7 @@ impl PmAction {
                 assignee,
                 slug,
                 cargo_target_dir,
+                slot,
                 port,
             } => {
                 // The worktree ROOT is the parent of the cargo target dir (the
@@ -161,6 +162,7 @@ impl PmAction {
                     json!({
                         "task_id": task_id,
                         "consultant": assignee,
+                        "slot": slot,
                         "branch": branch,
                         "path": path,
                         "cargo_target_dir": cargo_target_dir,

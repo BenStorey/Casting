@@ -47,6 +47,7 @@ pub enum ActivityKind {
         task_id: String,
         assignee: String,
         slug: String,
+        slot: usize,
         port: u16,
     },
     /// Commit work into a task's worktree (event-driven side effect).
@@ -118,10 +119,10 @@ impl ActivityRunner for WorkspaceRunner {
                 task_id,
                 assignee,
                 slug,
+                slot,
                 port,
             } => {
-                // Use persistent worktree keyed by assignee+slot 0 for now
-                self.ws.provision_persistent_worktree(assignee, 0, task_id, *port)?;
+                self.ws.provision_persistent_worktree(assignee, *slot, task_id, *port)?;
                 Ok(ActivityResult::default())
             }
             ActivityKind::CommitWorktree { task_id, message } => {
@@ -311,6 +312,7 @@ pub fn workspace_activity_for(event: &Event) -> Option<Activity> {
                 .unwrap_or("unknown")
                 .to_string();
             let port = event.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+            let slot = event.data.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             Some(Activity {
                 id: format!("worktree-{task_id}"),
                 target_id: task_id.clone(),
@@ -318,6 +320,7 @@ pub fn workspace_activity_for(event: &Event) -> Option<Activity> {
                     task_id,
                     assignee,
                     slug: String::new(),
+                    slot,
                     port,
                 },
             })

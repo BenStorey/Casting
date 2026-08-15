@@ -312,23 +312,27 @@ pub fn prune_worktrees(state: &AppState) -> Result<u32> {
         .map(|c| c.task_id.clone())
         .collect();
 
-    // A worktree is prunable if it has a bound task that is Done OR its ChangeSet is Merged.
-    let prunable: Vec<String> = projection
+    // A worktree slot is releasable if its bound task is Done OR its ChangeSet is Merged.
+    let releasable: Vec<(String, usize, String)> = projection
         .worktrees
         .iter()
-        .filter(|w| {
-            w.task_id
-                .as_ref()
-                .is_some_and(|tid| done_tasks.contains(tid) || merged_changesets.contains(tid))
+        .filter_map(|w| {
+            w.task_id.as_ref().and_then(|tid| {
+                if done_tasks.contains(tid) || merged_changesets.contains(tid) {
+                    Some((w.consultant.clone(), w.slot, tid.clone()))
+                } else {
+                    None
+                }
+            })
         })
-        .map(|w| w.task_id.clone().unwrap_or_default())
         .collect();
 
-    for task_id in prunable {
-        // Physical teardown first (idempotent; missing tree is fine).
-        let _ = ws.remove_worktree(&task_id);
-        // Record the lifecycle close in the event log so the projection drops
-        // the Worktree (freeing its port). Advisory-at-write: no precondition.
+    for (consultant, slot, task_id) in releasable {
+        // Persistent worktrees are NOT destroyed — reset to main, keeping the
+        // build target warm for the next task. (Idempotent; missing tree ok.)
+        let _ = ws.reset_worktree(&consultant, slot);
+        // Record `WorktreeReleased`: the projection unbinds the slot (task_id →
+        // None, branch → main) but keeps the worktree record.
         let latest = state.store.latest_sequence(&state.project)?;
         let cause = state
             .store
@@ -338,12 +342,16 @@ pub fn prune_worktrees(state: &AppState) -> Result<u32> {
         let base_cause = Event::new(
             &state.project,
             Actor::System,
-            EventType::WorktreeRemoved,
+            EventType::WorktreeReleased,
             Aggregate {
                 kind: "worktree".into(),
-                id: format!("wt-{task_id}"),
+                id: format!("wt-{consultant}-{slot}"),
             },
-            serde_json::json!({ "task_id": task_id }),
+            serde_json::json!({
+                "consultant": consultant,
+                "slot": slot,
+                "task_id": task_id,
+            }),
         );
         state.append(match cause {
             Some(c) => {
