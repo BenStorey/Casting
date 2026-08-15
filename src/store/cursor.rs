@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cursor {
     pub project_id: String,
-    /// Stable consumer id, e.g. "pm", "agent:marcus-reed", "projection:board".
+    /// Stable consumer id, e.g. "pm", "agent:diego", "projection:board".
     pub consumer: String,
     /// Last sequence this consumer has processed.
     pub last_seen: i64,

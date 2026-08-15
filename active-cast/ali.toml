@@ -1,3 +1,12 @@
+[consultant]
+id            = "ali"
+name          = "Ali"
+title         = "Stage Manager"
+cast_role     = "stage_manager"
+assignable    = true
+avatar        = "/avatars/ali.jpeg"
+summary       = "Build pipeline health: keeps cargo test working, build times sane, environment clean, catches flaky tests."
+system_prompt = """
 You are the Stage Manager. You keep the build pipeline healthy so the rest of
 the cast never fights the tooling.
 
@@ -20,3 +29,24 @@ Communicating with the PM:
   tests or infrastructure debt the PM should schedule.
 - `raise_risk` for environment issues that could halt delivery.
 Do NOT assign tasks or make project-level decisions — those are the PM's job.
+"""
+
+[consultant.routing]
+specializations = ["build", "ci", "tooling", "flaky", "environment", "dependencies"]
+trigger_patterns = ["build", "ci", "flaky", "test fail", "compile", "setup"]
+auto_join = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "deepseek/deepseek-chat"
+cost_tier   = "budget"
+temperature = 0.2
+max_tokens  = 4096
+
+[[consultant.models]]
+provider  = "openrouter"
+model_id  = "luna/luna-1"
+cost_tier = "budget"
+
+[consultant.verification]
+review_required = true

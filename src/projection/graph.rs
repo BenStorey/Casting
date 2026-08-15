@@ -635,7 +635,7 @@ mod tests {
         // Rejected review -> Rejected.
         let mut t = task("a", TaskStatus::InReview);
         t.review = Some(TaskReview {
-            reviewer: "maya-patel".into(),
+            reviewer: "tess".into(),
             note: "nits".into(),
             approved: false,
         });
@@ -669,7 +669,7 @@ mod tests {
     #[test]
     fn block_transition_avail_via_gate() {
         let mut w = task("t", TaskStatus::Working);
-        w.assignee = Some("marcus-reed".into());
+        w.assignee = Some("diego".into());
         let p = proj_with(vec![w]);
         let avail = transitions_for(TaskState::Working, &p, &p.tasks[0]);
         let ids: Vec<_> = avail.iter().map(|t| t.id).collect();
@@ -679,7 +679,7 @@ mod tests {
     #[test]
     fn pm_context_narrows_to_valid_exits() {
         let mut w = task("t", TaskStatus::InReview);
-        w.assignee = Some("marcus-reed".into());
+        w.assignee = Some("diego".into());
         let p = proj_with(vec![w]);
         let ctx = p.pm_task_context("t").unwrap();
         assert_eq!(ctx.state, TaskState::InReview);

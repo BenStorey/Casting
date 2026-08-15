@@ -22,8 +22,8 @@ use crate::pm::DecisionClass;
 
 /// Stable agent roster the simulated company uses (moved here with the plan
 /// builders; `PM_CONSUMER` remains the loop's cursor consumer in `pm.rs`).
-const AGENT_ENG: &str = "marcus-reed";
-const AGENT_QA: &str = "maya-patel";
+const AGENT_ENG: &str = "diego";
+const AGENT_QA: &str = "tess";
 
 /// Building an `OrchestrationRun` audit event (aggregate kind `"plan"`, shared
 /// `run-{seq}` correlation). Deduped plan-aggregate telemetry: kept as a tiny
@@ -193,7 +193,7 @@ pub(crate) fn plan_onboard(
             crate::pm::PM_CONSUMER.into(),
             PmAction::SendMessage {
                 to: "owner".into(),
-                body: format!("Understood — \u{201c}{title}\u{201d}. I've broken this into tasks and brought in Marcus (engineering) and Maya (QA). Stand by."),
+                body: format!("Understood — \u{201c}{title}\u{201d}. I've broken this into tasks and brought in Diego (engineering) and Tess (QA). Stand by."),
             },
         ),
         (
@@ -252,7 +252,7 @@ pub(crate) fn plan_onboard(
             PmAction::ReviewTask {
                 task_id: "task-core".into(),
                 approved: true,
-                note: Some("Core looks solid — marcus integrates and ships".into()),
+                note: Some("Core looks solid — diego integrates and ships".into()),
             },
         ),
         (

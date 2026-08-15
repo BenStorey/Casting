@@ -24,7 +24,7 @@ use anyhow::Result;
 /// agent/task and feeds the PM's budget concern.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CostMetering {
-    /// The agent whose call incurred this spend (e.g. "pm", "marcus-reed").
+    /// The agent whose call incurred this spend (e.g. "pm", "diego").
     pub agent_id: String,
     /// The task this call is attributed to, if any.
     pub task_id: Option<String>,

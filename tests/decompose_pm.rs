@@ -24,8 +24,8 @@ fn seed(state: &AppState) {
         .unwrap();
     for (id, role) in [
         ("pm", "Project Manager"),
-        ("marcus-reed", "Engineer"),
-        ("maya-patel", "QA"),
+        ("diego", "Lead Developer"),
+        ("tess", "Testing Engineer"),
     ] {
         state
             .append(casting::event::Event::new(

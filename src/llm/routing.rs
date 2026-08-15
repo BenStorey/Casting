@@ -75,7 +75,7 @@ impl ModelResolver {
     /// Resolve the model + persona for an actor.
     ///
     /// Lookup order:
-    /// 1. A consultant by agent id (e.g. "marcus-reed"). If it declares a model
+    /// 1. A consultant by agent id (e.g. "diego"). If it declares a model
     ///    binding (provider/model_id/base_url), use it — API key falls back to
     ///    env, base_url defaults via the provider map.
     /// 2. Otherwise the env base config.

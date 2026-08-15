@@ -260,8 +260,8 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
         .unwrap();
     for (id, role) in [
         ("pm", "Project Manager"),
-        ("marcus-reed", "Engineer"),
-        ("maya-patel", "QA"),
+        ("diego", "Lead Developer"),
+        ("tess", "Testing Engineer"),
     ] {
         state
             .append(casting::event::Event::new(
@@ -355,8 +355,8 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
         .unwrap();
     for (id, role) in [
         ("pm", "Project Manager"),
-        ("marcus-reed", "Engineer"),
-        ("maya-patel", "QA"),
+        ("diego", "Lead Developer"),
+        ("tess", "Testing Engineer"),
     ] {
         state
             .append(casting::event::Event::new(
@@ -616,22 +616,22 @@ fn worktree_surfaces_in_context_and_operating_model() {
     let proj = casting::projection::Projection {
         project_id: "proj".into(),
         agents: vec![casting::projection::Agent {
-            id: "marcus-reed".into(),
-            role: "Engineer".into(),
+            id: "diego".into(),
+            role: "Lead Developer".into(),
         }],
         tasks: vec![casting::projection::Task {
             id: "task-381".into(),
             title: "auth".into(),
             kind: "feature".into(),
             status: casting::projection::TaskStatus::Backlog,
-            assignee: Some("marcus-reed".into()),
+            assignee: Some("diego".into()),
             merge_authority: Default::default(),
             priority: casting::pm::plan::Priority::default(),
             review: None,
             parent_id: None,
         }],
         worktrees: vec![casting::projection::Worktree {
-            consultant: "marcus-reed".into(),
+            consultant: "diego".into(),
             slot: 0,
             task_id: Some("task-381".into()),
             branch: "casting/task-381".into(),
@@ -647,7 +647,7 @@ fn worktree_surfaces_in_context_and_operating_model() {
     };
 
     // Agent context carries the desk.
-    let ctx = proj.context_for("marcus-reed");
+    let ctx = proj.context_for("diego");
     assert!(ctx.my_tasks.contains(&"task-381".to_string()));
     let wt: WorktreeInfo = ctx.worktree.expect("consultant's worktree in context");
     assert_eq!(wt.task_id, "task-381");

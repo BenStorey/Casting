@@ -505,7 +505,7 @@ pub struct ChangeSet {
 /// provisions it, the agent just works here.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Worktree {
-    /// The consultant this worktree belongs to (e.g. "lead-programmer").
+    /// The consultant this worktree belongs to (e.g. "diego").
     pub consultant: String,
     /// Which slot (0..max_concurrent-1) within the consultant's pool.
     pub slot: usize,

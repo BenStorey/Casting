@@ -38,15 +38,12 @@ fn registry_with_model(
     prompt: &str,
 ) -> casting::consultants::ConsultantRegistry {
     // Build a registry from the embedded defaults overlaid with a custom
-    // consultant package that declares a model binding (the test's input).
+    // consultant package that carries inline system_prompt (no file).
+    let tml = consultant_toml.replace("{INLINE_PROMPT}", prompt);
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("prompts")).unwrap();
-    std::fs::write(dir.path().join("custom.toml"), consultant_toml).unwrap();
-    std::fs::write(dir.path().join("prompts/custom.md"), prompt).unwrap();
+    std::fs::write(dir.path().join("custom.toml"), &tml).unwrap();
     let mut reg = casting::consultants::ConsultantRegistry::from_embedded().unwrap();
     reg.overlay_dir(dir.path()).unwrap();
-    // Keep the tempdir alive for the duration of the returned registry (the
-    // prompts are read at load time into memory, so dropping is fine).
     drop(dir);
     reg
 }
@@ -59,8 +56,8 @@ fn resolver_uses_consultant_binding_with_key_fallback() {
 [consultant]
 id = "custom"
 name = "Custom"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [consultant.model]
 provider = "openrouter"
@@ -93,8 +90,8 @@ fn resolver_consultant_local_litellm_override() {
 [consultant]
 id = "local-guy"
 name = "Local"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [consultant.model]
 provider = "litellm"
@@ -116,8 +113,8 @@ fn resolver_model_chain_uses_first_as_priority_and_orders_fallbacks() {
 [consultant]
 id = "chained"
 name = "Chained"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [[consultant.models]]
 provider = "openrouter"
@@ -193,8 +190,8 @@ async fn orchestrator_routes_per_actor_model() {
 [consultant]
 id = "marcus-reed"
 name = "Marcus"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [consultant.model]
 provider = "stub"
@@ -408,8 +405,8 @@ async fn orchestrator_passes_consultant_temperature_and_max_tokens() {
 [consultant]
 id = "temp-guy"
 name = "Temp"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [consultant.model]
 provider = "stub"
@@ -451,8 +448,8 @@ fn resolver_round_trips_routing_surface_fields() {
 [consultant]
 id = "marcus-reed"
 name = "Marcus"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [consultant.model]
 provider = "openrouter"
@@ -729,8 +726,8 @@ fn resolver_carries_tier_prices() {
 [consultant]
 id = "prem-guy"
 name = "Prem"
-role = "engineer"
-system_prompt = "prompts/custom.md"
+cast_role = "lead_developer"
+system_prompt = "{INLINE_PROMPT}"
 
 [consultant.model]
 provider = "openrouter"

@@ -39,9 +39,9 @@ fn projection_derives_current_state_from_events() {
             EventType::AgentHired,
             casting::event::Aggregate {
                 kind: "agent".into(),
-                id: "marcus-reed".into(),
+                id: "diego".into(),
             },
-            serde_json::json!({"role": "Principal Engineer"}),
+            serde_json::json!({"role": "Lead Developer"}),
         ))
         .unwrap();
     state
@@ -51,9 +51,9 @@ fn projection_derives_current_state_from_events() {
             EventType::AgentHired,
             casting::event::Aggregate {
                 kind: "agent".into(),
-                id: "may-patel".into(),
+                id: "tess".into(),
             },
-            serde_json::json!({"role": "QA"}),
+            serde_json::json!({"role": "Testing Engineer"}),
         ))
         .unwrap();
     let task_created = state
@@ -78,7 +78,7 @@ fn projection_derives_current_state_from_events() {
                 kind: "task".into(),
                 id: "task-1".into(),
             },
-            serde_json::json!({"assignee": "marcus-reed"}),
+            serde_json::json!({"assignee": "diego"}),
         ))
         .unwrap();
     state
@@ -111,7 +111,7 @@ fn projection_derives_current_state_from_events() {
     assert_eq!(proj.agents.len(), 2);
     let task = proj.tasks.iter().find(|t| t.id == "task-1").unwrap();
     assert_eq!(task.status, TaskStatus::Working);
-    assert_eq!(task.assignee.as_deref(), Some("marcus-reed"));
+    assert_eq!(task.assignee.as_deref(), Some("diego"));
     let dec = proj
         .decisions
         .iter()
@@ -140,12 +140,12 @@ async fn simulated_pm_onboards_company_from_owner_message() {
     );
     assert_eq!(proj.requirements[0].title, "Build me a todo app");
     assert!(
-        proj.agents.iter().any(|a| a.id == "lead-programmer"),
-        "Lead Programmer hired"
+        proj.agents.iter().any(|a| a.id == "diego"),
+        "Lead Developer hired"
     );
     assert!(
-        proj.agents.iter().any(|a| a.id == "test-engineer"),
-        "Test Engineer hired"
+        proj.agents.iter().any(|a| a.id == "tess"),
+        "Testing Engineer hired"
     );
     assert!(!proj.tasks.is_empty(), "tasks created");
     // The onboarding raises a decision for the owner.

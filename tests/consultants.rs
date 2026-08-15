@@ -12,8 +12,8 @@ fn embedded_defaults_cover_all_assignable_catalog_roles() {
 
     // Every assignable catalog role is bound to a consultant package.
     for role in [
-        "lead-programmer",
-        "test-engineer",
+        "lead-developer",
+        "testing-engineer",
         "systems-architect",
         "stage-manager",
         "critic",
@@ -51,11 +51,11 @@ fn default_cast_is_the_seven_introduced_consultants() {
     for id in [
         "pm",
         "advisor",
-        "lead-programmer",
-        "test-engineer",
-        "systems-architect",
-        "stage-manager",
-        "critic",
+        "diego",
+        "tess",
+        "nina",
+        "ali",
+        "julien",
     ] {
         assert!(
             default.contains(&id.to_string()),
@@ -91,7 +91,7 @@ fn routing_hints_rank_the_right_specialist_first() {
         .into_iter()
         .map(|c| c.id.to_string())
         .collect();
-    assert_eq!(testing.first().map(String::as_str), Some("test-engineer"));
+    assert_eq!(testing.first().map(String::as_str), Some("tess"));
 
     // An adversarial security/scale review surfaces The Critic.
     let review: Vec<String> = reg
@@ -101,10 +101,10 @@ fn routing_hints_rank_the_right_specialist_first() {
         .into_iter()
         .map(|c| c.id.to_string())
         .collect();
-    assert_eq!(review.first().map(String::as_str), Some("critic"));
+    assert_eq!(review.first().map(String::as_str), Some("julien"));
 
     // hint_matches is a lightweight containment check on the hints.
-    let architect = reg.by_id("systems-architect").unwrap();
+    let architect = reg.by_id("nina").unwrap();
     assert!(architect.hint_matches("how should we structure the data layer for scale"));
     assert!(!architect.hint_matches("tweak the button color"));
 }
@@ -114,14 +114,14 @@ fn unknown_role_package_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("wizard.toml"),
-        "[consultant]\nid = \"wiz-1\"\nname = \"Wiz\"\nrole = \"wizard\"\n",
+        "[consultant]\nid = \"wiz-1\"\nname = \"Wiz\"\ncast_role = \"wizard\"\n",
     )
     .unwrap();
 
     let mut reg = ConsultantRegistry::from_embedded().unwrap();
     let err = reg
         .overlay_dir(dir.path())
-        .expect_err("unknown role must be rejected");
+        .expect_err("unknown cast_role must be rejected");
     let msg = format!("{err:#}");
     assert!(msg.contains("wizard"), "error mentions the role: {msg}");
 }
@@ -131,7 +131,7 @@ fn missing_system_prompt_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("ghost.toml"),
-        "[consultant]\nid = \"ghost-1\"\nname = \"Ghost\"\nrole = \"engineer\"\nsystem_prompt = \"prompts/nope.md\"\n",
+        "[consultant]\nid = \"ghost-1\"\nname = \"Ghost\"\ncast_role = \"stage_manager\"\nsystem_prompt = \"prompts/nope.md\"\n",
     )
     .unwrap();
 
@@ -148,7 +148,7 @@ fn out_of_range_temperature_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("hot.toml"),
-        "[consultant]\nid = \"hot-1\"\nname = \"Hot\"\nrole = \"engineer\"\n\n[consultant.model]\ntemperature = 3.5\n",
+        "[consultant]\nid = \"hot-1\"\nname = \"Hot\"\ncast_role = \"stage_manager\"\n\n[consultant.model]\ntemperature = 3.5\n",
     )
     .unwrap();
 
@@ -163,20 +163,16 @@ fn out_of_range_temperature_is_rejected() {
 #[test]
 fn overlay_replaces_a_default_by_id_and_adds_a_new_specialist() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("prompts")).unwrap();
-    // Override Marcus by reusing his id (new name, same role).
+    // Override Diego by reusing his id (new name, same cast_role, inline prompt).
     std::fs::write(
-        dir.path().join("marcus.toml"),
-        "[consultant]\nid = \"marcus-reed\"\nname = \"Marcus Reed Jr\"\nrole = \"engineer\"\nsystem_prompt = \"prompts/marcus.md\"\n\n[consultant.routing]\nauto_join = true\n",
+        dir.path().join("diego.toml"),
+        "[consultant]\nid = \"diego\"\nname = \"Diego Developer\"\ncast_role = \"lead_developer\"\nsystem_prompt = \"override prompt\"\n\n[consultant.routing]\nauto_join = true\n",
     )
     .unwrap();
-    std::fs::write(dir.path().join("prompts/marcus.md"), "override prompt").unwrap();
-    // Add a brand-new specialist beyond the catalog (needs a NEW role? No — a
-    // consultant must bind to a catalog role, so we add a second QA to show an
-    // extra consultant in a role).
+    // Add a brand-new specialist beyond the default 7 (needs a CastRole too).
     std::fs::write(
         dir.path().join("extra.toml"),
-        "[consultant]\nid = \"extra-1\"\nname = \"Extra\"\nrole = \"qa\"\n",
+        "[consultant]\nid = \"extra-1\"\nname = \"Extra\"\ncast_role = \"stage_manager\"\n",
     )
     .unwrap();
 
@@ -184,107 +180,12 @@ fn overlay_replaces_a_default_by_id_and_adds_a_new_specialist() {
     let n = reg.overlay_dir(dir.path()).unwrap();
     assert_eq!(n, 2, "two user packages loaded");
 
-    // Marcus's identity is overridden.
-    let marcus = reg.by_id("marcus-reed").unwrap();
-    assert_eq!(marcus.name, "Marcus Reed Jr");
-    assert_eq!(marcus.system_prompt.as_deref(), Some("override prompt"));
+    // Diego's identity is overridden.
+    let diego = reg.by_id("diego").unwrap();
+    assert_eq!(diego.name, "Diego Developer");
+    assert_eq!(diego.system_prompt.as_deref(), Some("override prompt"));
     // The extra consultant joined the registry.
     assert!(reg.by_id("extra-1").is_some());
-    // The roster grew past the embedded four.
-    assert!(reg.count() >= 5);
-}
-
-#[test]
-fn new_role_package_defines_and_exposes_a_role() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("compliance.toml"),
-        "[consultant]\nid = \"compliance-1\"\nname = \"Priya Compliance\"\n\n[consultant.new_role]\nid = \"compliance\"\ntitle = \"Compliance Consultant\"\nscope = \"legal\"\n",
-    )
-    .unwrap();
-
-    let mut reg = ConsultantRegistry::from_embedded().unwrap();
-    assert_eq!(reg.overlay_dir(dir.path()).unwrap(), 1);
-
-    // The new role is first-class in the dynamic role set.
-    let role = reg
-        .resolve_role("compliance")
-        .expect("package-defined role resolves");
-    assert_eq!(role.title, "Compliance Consultant");
-    assert_eq!(role.scope, "legal");
-    // It appears alongside the catalog roles, which stay intact.
-    let ids: Vec<String> = reg.known_roles().into_iter().map(|r| r.id).collect();
-    assert!(ids.contains(&"engineer".to_string()));
-    assert!(ids.contains(&"compliance".to_string()));
-
-    // The consultant is bound to its own role (not a catalog one).
-    let c = reg.by_id("compliance-1").unwrap();
-    assert_eq!(c.role, "compliance");
-    assert_eq!(c.role_title, "Compliance Consultant");
-    assert_eq!(c.scope, "legal");
-}
-
-#[test]
-fn owner_can_hire_into_a_package_defined_role() {
-    use casting::pm::AppState;
-    use casting::projection::Projection;
-    use casting::store::SqliteCursorStore;
-    use casting::store::SqliteEventStore;
-    use futures::FutureExt;
-    use std::sync::Arc;
-    use tower::ServiceExt;
-
-    // A registry carrying a brand-new role, not in the hardcoded catalog.
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("compliance.toml"),
-        "[consultant]\nid = \"compliance-1\"\nname = \"Priya Compliance\"\n\n[consultant.new_role]\nid = \"compliance\"\ntitle = \"Compliance Consultant\"\nscope = \"legal\"\n",
-    )
-    .unwrap();
-    let mut reg = ConsultantRegistry::from_embedded().unwrap();
-    reg.overlay_dir(dir.path()).unwrap();
-
-    let store = SqliteEventStore::in_memory().unwrap();
-    let cursors = SqliteCursorStore::in_memory().unwrap();
-    let state = AppState::new(store, cursors, "proj-newrole").with_consultants(Arc::new(reg));
-    state
-        .append(casting::event::Event::new(
-            "proj-newrole",
-            casting::event::Actor::System,
-            casting::event::EventType::ProjectCreated,
-            casting::event::Aggregate {
-                kind: "project".into(),
-                id: "proj-newrole".into(),
-            },
-            serde_json::json!({}),
-        ))
-        .unwrap();
-
-    // Owner hires a compliance consultant through the real route.
-    let app = casting::web::router(state.clone());
-    let req = axum::http::Request::builder()
-        .method("POST")
-        .uri("/api/hire")
-        .header("content-type", "application/json")
-        .body(axum::body::Body::from(
-            serde_json::json!({ "role_id": "compliance" }).to_string(),
-        ))
-        .unwrap();
-    let resp = app
-        .oneshot(req)
-        .now_or_never()
-        .expect("dispatch should not block")
-        .expect("infallible");
-    assert_eq!(resp.status(), 200, "owner may hire a package-defined role");
-
-    let proj = Projection::build(&state.store, "proj-newrole").unwrap();
-    let hired = proj
-        .agents
-        .iter()
-        .find(|a| a.role == "Compliance Consultant");
-    assert!(
-        hired.is_some(),
-        "the new-role agent is hired: {:?}",
-        proj.agents
-    );
+    // The roster grew past the embedded seven.
+    assert!(reg.count() >= 8);
 }

@@ -900,7 +900,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
     // PM + engineer hired.
     for (id, role) in [
         ("pm", "Project Manager"),
-        ("marcus-reed", "Principal Engineer"),
+        ("diego", "Lead Developer"),
     ] {
         store.append(Event::new(
             project,
@@ -933,7 +933,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
             kind: "task".into(),
             id: "task-1".into(),
         },
-        serde_json::json!({"assignee": "marcus-reed"}),
+        serde_json::json!({"assignee": "diego"}),
     ))?;
 
     println!(

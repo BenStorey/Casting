@@ -28,10 +28,12 @@
 //! - `review_required` maps onto the existing InReview gate (a task does not
 //!   reach Done on faith).
 
+use crate::consultants::cast_role::CastRole;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod cast_role;
 pub mod loader;
 
 /// The consultant's model tier. Drives how D2 meters a call (the `cost_tier`
@@ -124,13 +126,16 @@ pub struct ConsultantConfig {
     pub id: String,
     /// Human display name.
     pub name: String,
-    /// Display title (defaults to the catalog role's title).
+    /// Display title (defaults to the role's title).
     pub title: String,
-    /// The catalog role id this binds to (the capability atom).
+    /// The CastRole this consultant fills (the source of truth for role
+    /// identity, title, scope, and assignability).
+    pub cast_role: CastRole,
+    /// The catalog role id this binds to (derived from `cast_role`).
     pub role: String,
-    /// The catalog role's display title.
+    /// The role's display title (derived from `cast_role`).
     pub role_title: String,
-    /// The catalog role's governance scope.
+    /// The role's governance scope (derived from `cast_role`).
     pub scope: String,
     /// Persona avatar path (served by the embedded SPA, `/avatars/*.svg`).
     pub avatar: Option<String>,
@@ -225,6 +230,28 @@ impl ConsultantRegistry {
     /// The consultant bound to a catalog role id (the first one registered).
     pub fn for_role(&self, role_id: &str) -> Option<&ConsultantConfig> {
         self.by_role.get(role_id).map(|c| c.as_ref())
+    }
+
+    /// Look up a consultant by its `CastRole` enum. This is the preferred
+    /// lookup — code should reference roles, not individual names.
+    pub fn for_cast_role(&self, role: CastRole) -> Option<&ConsultantConfig> {
+        self.by_role.get(role.role_id()).map(|c| c.as_ref())
+    }
+
+    /// Ensure all 7 CastRole variants have exactly one bound consultant.
+    /// Call after loading to fail early on startup.
+    pub fn validate_all_roles_present(&self) -> Result<(), Vec<String>> {
+        let mut missing = Vec::new();
+        for role in cast_role::ALL_CAST_ROLES {
+            if !self.by_role.contains_key(role.role_id()) {
+                missing.push(format!("missing consultant for role: {}", role.role_id()));
+            }
+        }
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(missing)
+        }
     }
 
     /// The default cast: consultants with `auto_join = true` (hired by default).

@@ -20,7 +20,7 @@ use uuid::Uuid;
 pub enum Actor {
     /// The human owner.
     Owner,
-    /// An agent, identified by its stable id (e.g. "marcus-reed", "pm").
+    /// An agent, identified by its stable id (e.g. "diego", "pm").
     Agent { id: String },
     /// The system itself (e.g. background watchers, persistence).
     System,

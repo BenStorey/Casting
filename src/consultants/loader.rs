@@ -1,26 +1,28 @@
 //! Loaders for consultant packages: the **embedded curated defaults** (shipped
-//! with the binary from the `cast/` directory) plus **filesystem overlays** from
-//! `<project>/.casting/consultants/` (user-dropped or id-replacing packages).
+//! with the binary from the `active-cast/` directory) plus **filesystem overlays**
+//! from `<project>/.casting/consultants/` (user-dropped or id-replacing packages).
 //!
-//! Validation is strict and fail-closed: a package that references an unknown
-//! role, has an empty id/name, names a missing system prompt, or sets an out-of
-//! -range temperature is rejected loudly (a broken package must be visible, not
-//! silently dropped).
+//! Every consultant TOML file is self-contained — the `system_prompt` field
+//! carries the prompt text inline (not a file path). This keeps each consultant
+//! fully self-contained and makes it easy to swap different consultants into
+//! the same role later.
+//!
+//! Validation is strict and fail-closed: a package with an unknown cast_role,
+//! an empty id/name, or an out-of-range temperature is rejected loudly.
 
+use super::cast_role::CastRole;
 use super::{
-    ConsultantConfig, ConsultantRegistry, ModelConfig, NewRole, RoutingConfig, VerificationConfig,
+    ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig, VerificationConfig,
 };
-use crate::workspace::role_by_id;
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
 
-/// The curated default consultant packages, embedded in the binary. The folder
-/// always exists (it's tracked in git), so no build.rs placeholder is needed.
+/// The curated default consultant packages, embedded in the binary.
 #[derive(RustEmbed)]
-#[folder = "cast/"]
+#[folder = "active-cast/"]
 pub struct ConsultantAssets;
 
 /// The `[consultant]` file wrapper.
@@ -36,15 +38,13 @@ struct RawConsultant {
     name: String,
     #[serde(default)]
     title: Option<String>,
-    /// Catalog role id this binds to. Optional: a package may define its own
-    /// role via `[consultant.new_role]` instead of binding to the catalog.
-    #[serde(default)]
-    role: String,
+    /// Which CastRole this consultant fills (one of the 7 known roles).
+    cast_role: String,
     #[serde(default)]
     avatar: Option<String>,
     #[serde(default)]
     summary: Option<String>,
-    /// Relative path to the system prompt inside the package.
+    /// Inline system prompt text. Self-contained — no file path resolution.
     #[serde(default)]
     system_prompt: Option<String>,
     #[serde(default)]
@@ -61,10 +61,6 @@ struct RawConsultant {
     model: Option<ModelConfig>,
     #[serde(default)]
     verification: VerificationConfig,
-    /// An OPTIONAL self-defined role. When present, this consultant OWNS a new
-    /// capability (role id/title/scope) instead of binding to a catalog role.
-    #[serde(default)]
-    new_role: Option<NewRole>,
     /// Whether this consultant can be assigned implementation work. Marks a
     /// SPECIAL role (PM, Advisor) as `false`. Defaults to true.
     #[serde(default = "default_assignable")]
@@ -84,9 +80,9 @@ fn default_max_concurrent() -> usize {
 }
 
 impl ConsultantRegistry {
-    /// Load the curated default set embedded in the binary (the `cast/`
-    /// directory of TOML + prompt packages). Fails loudly if a default package
-    /// is malformed — our shipped defaults should always be valid.
+    /// Load the curated default set embedded in the binary (the `active-cast/`
+    /// directory of self-contained TOML packages). Validates that all 7
+    /// CastRole variants are present. Fails loudly if a package is malformed.
     pub fn from_embedded() -> Result<Self> {
         let mut names: Vec<String> = ConsultantAssets::iter()
             .map(|p| p.to_string())
@@ -101,15 +97,19 @@ impl ConsultantRegistry {
                 std::str::from_utf8(&file.data).context("consultant package not valid UTF-8")?;
             let wrapped: ConsultantFile =
                 toml::from_str(text).with_context(|| format!("parse {name}"))?;
-            let resolve_prompt = |p: &str| {
-                ConsultantAssets::get(p).map(|f| String::from_utf8_lossy(&f.data).into_owned())
-            };
             configs.push(
-                from_raw(wrapped.consultant, &resolve_prompt)
-                    .with_context(|| format!("validate {name}"))?,
+                from_raw(wrapped.consultant).with_context(|| format!("validate {name}"))?,
             );
         }
-        build_defaults(configs)
+        let reg = build_defaults(configs)?;
+        // Validate all 7 roles are present.
+        reg.validate_all_roles_present().map_err(|missing| {
+            anyhow::anyhow!(
+                "active-cast/ missing consultants for roles: {}",
+                missing.join(", ")
+            )
+        })?;
+        Ok(reg)
     }
 
     /// Overlay user-supplied consultant packages from `dir` (the collocated
@@ -137,9 +137,7 @@ impl ConsultantRegistry {
                 .with_context(|| format!("read {}", path.display()))?;
             let wrapped: ConsultantFile =
                 toml::from_str(&text).with_context(|| format!("parse {name}"))?;
-            let base = dir.to_path_buf();
-            let resolve_prompt = move |p: &str| std::fs::read_to_string(base.join(p)).ok();
-            let cfg = from_raw(wrapped.consultant, &resolve_prompt)
+            let cfg = from_raw(wrapped.consultant)
                 .with_context(|| format!("validate {name}"))?;
             overlay_insert(self, cfg);
             loaded += 1;
@@ -179,12 +177,9 @@ fn insert(reg: &mut ConsultantRegistry, cfg: ConsultantConfig) {
     reg.by_role.entry(role).or_insert(Arc::new(cfg));
 }
 
-/// Validate + normalize a raw package into a `ConsultantConfig`. `resolve_prompt`
-/// loads the system prompt file given its package-relative path.
-fn from_raw(
-    raw: RawConsultant,
-    resolve_prompt: &dyn Fn(&str) -> Option<String>,
-) -> Result<ConsultantConfig> {
+/// Validate + normalize a raw package into a `ConsultantConfig`. The
+/// `system_prompt` is inline text (no file path resolution).
+fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
     let id = raw.id.trim().to_string();
     if id.is_empty() {
         bail!("consultant id may not be empty");
@@ -193,35 +188,18 @@ fn from_raw(
         bail!("consultant '{id}' has an empty name");
     }
 
-    // The effective role: an inline `new_role` marks this consultant as the
-    // owner of a brand-new capability; otherwise it binds to a catalog role.
-    let (role_id, role_title, scope) = match raw.new_role {
-        Some(nr) => {
-            let rid = nr.id.trim().to_string();
-            if rid.is_empty() {
-                bail!("consultant '{id}' new_role needs a non-empty id");
-            }
-            let title = if nr.title.trim().is_empty() {
-                rid.clone()
-            } else {
-                nr.title
-            };
-            (rid, title, nr.scope)
-        }
-        None => {
-            if raw.role.trim().is_empty() {
-                bail!("consultant '{id}' must bind to a `role` or define a `new_role`");
-            }
-            let role = role_by_id(&raw.role).with_context(|| {
-                format!("consultant '{id}' references unknown role '{}'", raw.role)
-            })?;
-            (
-                role.id.to_string(),
-                role.title.to_string(),
-                role.scope.to_string(),
-            )
-        }
-    };
+    // Resolve the cast_role to a CastRole variant — this is the source of
+    // truth for role_id, title, scope, and assignability.
+    let cast_role = CastRole::from_str(&raw.cast_role).with_context(|| {
+        format!(
+            "consultant '{id}' has unknown cast_role '{}'; expected one of: project_manager, advisor, lead_developer, testing_engineer, systems_architect, stage_manager, critic",
+            raw.cast_role
+        )
+    })?;
+
+    let role_id = cast_role.role_id().to_string();
+    let role_title = cast_role.title().to_string();
+    let scope = cast_role.scope().to_string();
 
     // Normalize the model chain: the canonical `models` list wins; a legacy
     // lone `model` is wrapped as a one-element chain. Every entry's temp
@@ -240,25 +218,20 @@ fn from_raw(
         }
     }
 
-    let (system_prompt_file, system_prompt) = match &raw.system_prompt {
-        None => (None, None),
-        Some(p) => {
-            let text = resolve_prompt(p)
-                .with_context(|| format!("consultant '{id}' system_prompt '{p}' not found"))?;
-            (Some(p.clone()), Some(text))
-        }
-    };
+    // system_prompt is inline text — use it directly.
+    let system_prompt = raw.system_prompt.filter(|s| !s.is_empty());
 
     Ok(ConsultantConfig {
         id,
         name: raw.name,
         title: raw.title.unwrap_or_else(|| role_title.clone()),
+        cast_role,
         role: role_id,
         role_title,
         scope,
         avatar: raw.avatar,
         summary: raw.summary,
-        system_prompt_file,
+        system_prompt_file: None,
         system_prompt,
         routing: raw.routing,
         models,

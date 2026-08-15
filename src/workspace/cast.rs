@@ -53,13 +53,13 @@ pub const ROLE_CATALOG: &[Role] = &[
     // PM, Advisor — are NOT catalog roles: they are fixed co-ordinator /
     // adviser actors, never hireable agents.
     Role {
-        id: "lead-programmer",
-        title: "Lead Programmer",
+        id: "lead-developer",
+        title: "Lead Developer",
         scope: "engineering",
     },
     Role {
-        id: "test-engineer",
-        title: "Test Engineer",
+        id: "testing-engineer",
+        title: "Testing Engineer",
         scope: "qa",
     },
     Role {
@@ -105,23 +105,23 @@ pub struct CastMember {
 /// the assignable cast by hiring more agents.
 pub const DEFAULT_CAST: &[CastMember] = &[
     CastMember {
-        agent_id: "lead-programmer",
-        role_id: "lead-programmer",
+        agent_id: "diego",
+        role_id: "lead-developer",
     },
     CastMember {
-        agent_id: "test-engineer",
-        role_id: "test-engineer",
+        agent_id: "tess",
+        role_id: "testing-engineer",
     },
     CastMember {
-        agent_id: "systems-architect",
+        agent_id: "nina",
         role_id: "systems-architect",
     },
     CastMember {
-        agent_id: "stage-manager",
+        agent_id: "ali",
         role_id: "stage-manager",
     },
     CastMember {
-        agent_id: "critic",
+        agent_id: "julien",
         role_id: "critic",
     },
 ];

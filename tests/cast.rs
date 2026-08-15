@@ -10,8 +10,8 @@ fn catalog_has_sane_roles_with_scopes() {
     assert!(ids.contains(&"qa"));
     // The assignable default-cast roles (the "Default Cast" roster).
     for rid in [
-        "lead-programmer",
-        "test-engineer",
+        "lead-developer",
+        "testing-engineer",
         "systems-architect",
         "stage-manager",
         "critic",
@@ -56,11 +56,11 @@ fn default_cast_members_have_catalog_roles() {
     assert_eq!(DEFAULT_CAST.len(), 5);
     let ids: Vec<&str> = DEFAULT_CAST.iter().map(|m| m.agent_id).collect();
     for expect in [
-        "lead-programmer",
-        "test-engineer",
-        "systems-architect",
-        "stage-manager",
-        "critic",
+        "diego",
+        "tess",
+        "nina",
+        "ali",
+        "julien",
     ] {
         assert!(ids.contains(&expect), "default cast must include {expect}");
     }

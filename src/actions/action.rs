@@ -8,7 +8,7 @@ use serde_json::Value;
 /// The pseudo-assignee representing the HUMAN OWNER (the boss). When a task is
 /// assigned to `"owner"`, the human — possibly working through their own
 /// harness — executes and delivers it, rather than a hired agent. Distinct from
-/// any agent id (roles are "engineer"/"qa"...; agents are "marcus-reed"...).
+/// any agent id (roles are "lead-developer"/"testing-engineer"...; agents are "diego"...).
 pub const OWNER: &str = "owner";
 
 /// The reserved, NON-assignable special-role actors: the PM (co-ordinator) and

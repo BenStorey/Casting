@@ -29,11 +29,11 @@ fn setup_creates_company_and_default_cast() {
     // Default cast => PM + 5 assignable consultants (2026-08-14 roster).
     for id in &[
         "pm",
-        "lead-programmer",
-        "test-engineer",
-        "systems-architect",
-        "stage-manager",
-        "critic",
+        "diego",
+        "tess",
+        "nina",
+        "ali",
+        "julien",
     ] {
         assert!(
             proj.agents.iter().any(|a| a.id == *id),
@@ -203,11 +203,11 @@ async fn setup_then_onboard_does_not_double_hire() {
     // Exactly one of each default agent — no duplicates from onboarding.
     for expected in [
         "pm",
-        "lead-programmer",
-        "test-engineer",
-        "systems-architect",
-        "stage-manager",
-        "critic",
+        "diego",
+        "tess",
+        "nina",
+        "ali",
+        "julien",
     ] {
         let count = proj.agents.iter().filter(|a| a.id == expected).count();
         assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
@@ -253,8 +253,8 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
     assert!(ids.contains(&"engineer-1"), "engineer in the custom cast");
     assert!(ids.contains(&"devops-1"), "devops in the custom cast");
     assert!(
-        !ids.contains(&"lead-programmer"),
-        "default Lead Programmer must NOT be topped up: {ids:?}"
+        !ids.contains(&"diego"),
+        "default Lead Developer must NOT be topped up: {ids:?}"
     );
     assert!(!ids.contains(&"critic"), "no other defaults added: {ids:?}");
 }
