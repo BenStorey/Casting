@@ -78,6 +78,11 @@ pub struct Projection {
     /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
     /// per-class autonomy configuration is durable history, not a default.
     pub policy: crate::policy::DecisionPolicy,
+    /// Archived terminal entities — compact summaries replacing old closed
+    /// state in the active projection. Filled from `EntityArchived` events.
+    /// Agents omit entities whose id is in this set from their context.
+    #[serde(default)]
+    pub archived: Vec<crate::types::ArchivedRecord>,
     /// The derived Project Plan (objective + ranked priorities + open
     /// decisions). Recomputed at build() from the folded projection — this is
     /// current state, never stored authoritative (SEMANTIC_EVENTS.md).
@@ -831,6 +836,30 @@ impl Projection {
                 // in the event log but doesn't add a persistent entity to the
                 // projection (the PM reacts to it, it doesn't become a board
                 // item). It WILL wake the PM (Tier-1 trigger).
+            }
+            EventType::EntityArchived => {
+                // An archived entity is added to the compact history and
+                // excluded from the active lists. The full event log survives
+                // for provenance queries.
+                if let (Some(kind), Some(id)) =
+                    (string_field(e, "entity_kind"), string_field(e, "entity_id"))
+                {
+                    // Remove from active lists
+                    self.tasks.retain(|t| t.id != id);
+                    self.decisions.retain(|d| d.id != id);
+                    self.observations.retain(|o| o.id != id);
+                    self.opinions.retain(|o| o.id != id);
+                    self.risks.retain(|r| r.id != id);
+                    // Add archival record
+                    self.archived.push(crate::types::ArchivedRecord {
+                        entity_kind: kind,
+                        entity_id: id,
+                        summary: string_field(e, "summary").unwrap_or_default(),
+                        result: string_field(e, "result").unwrap_or_default(),
+                        archived_at: e.timestamp.to_string(),
+                        archived_by: string_field(e, "archived_by").unwrap_or_else(|| "system".into()),
+                    });
+                }
             }
         }
     }

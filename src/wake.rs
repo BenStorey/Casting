@@ -65,6 +65,7 @@ pub fn tier_of(et: EventType) -> WakeTier {
         | TaskCompleted
         | TaskPriorityChanged
         | MergeAuthorityChanged
+        | EntityArchived
         | TaskDecomposed
         | AssumptionRecorded
         | ConstraintRecorded

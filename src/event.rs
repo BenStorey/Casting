@@ -217,6 +217,11 @@ pub enum EventType {
     /// READ-ONLY over the repo; language-agnostic; never writes into the user
     /// project. Folds to `proj.repo_metrics` (a per-merge trend).
     RepoMetricsCaptured,
+    /// A terminal entity (done task, superseded decision/opinion, resolved
+    /// risk) was archived — replaced by a compact summary in the active
+    /// projection. Saves agent context tokens by excluding old, closed state.
+    /// Carries: { entity_kind, entity_id, summary, result }.
+    EntityArchived,
 }
 
 /// The entity primarily affected by an event.

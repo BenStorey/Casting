@@ -72,9 +72,27 @@ impl ReconcilePass for StaleWorktreePass {
     }
 }
 
+/// Archive terminal entities (done tasks, superseded decisions/opinions,
+/// resolved risks) — remove them from the active projection and replace
+/// with a compact summary. Saves agent context tokens.
+pub struct ArchivePass;
+
+impl ReconcilePass for ArchivePass {
+    fn name(&self) -> &'static str {
+        "archive-terminal"
+    }
+    fn run(&self, state: &AppState) -> Result<u32> {
+        archive_terminals(state)
+    }
+}
+
 /// Return the reconciler's registered passes (the defaults unless overridden).
 pub fn default_passes() -> Vec<Arc<dyn ReconcilePass>> {
-    vec![Arc::new(OpinionDriftPass), Arc::new(StaleWorktreePass)]
+    vec![
+        Arc::new(OpinionDriftPass),
+        Arc::new(StaleWorktreePass),
+        Arc::new(ArchivePass),
+    ]
 }
 
 /// Whether the reconciler is due: if at least `interval` events have landed
@@ -172,6 +190,94 @@ fn opinion_drift(state: &AppState) -> Result<u32> {
         }
     }
     Ok(authored)
+}
+
+/// Archive terminal entities: done tasks, superseded decisions/opinions,
+/// resolved risks, and inactive observations. Fires an `EntityArchived` event
+/// for each so the projection folds them out of the active lists and into the
+/// compact history. Reduces agent context bloat. The event log retains the
+/// full history for provenance. Returns how many were archived.
+pub fn archive_terminals(state: &AppState) -> Result<u32> {
+    use crate::event::{Actor, Aggregate, Event, EventType};
+    use crate::projection::{DecisionStatus, OpinionStatus, RiskStatus, TaskStatus};
+
+    let projection = state.projection()?;
+    let mut archived_count = 0u32;
+
+    // Done tasks.
+    for task in projection.tasks.iter().filter(|t| t.status == TaskStatus::Done) {
+        let reviewed = task
+            .review
+            .as_ref()
+            .map(|r| {
+                if r.approved {
+                    format!(" (approved by {})", r.reviewer)
+                } else {
+                    String::new()
+                }
+            })
+            .unwrap_or_default();
+        let summary = format!("task \"{}\" ({}) — done{reviewed}", task.title, task.kind);
+        archived_count += emit_archive(state, "task", &task.id, &summary, "done")?;
+    }
+
+    // Superseded decisions.
+    for d in projection
+        .decisions
+        .iter()
+        .filter(|d| d.status == DecisionStatus::Superseded)
+    {
+        let summary = format!("decision \"{}\" — superseded", d.subject);
+        archived_count += emit_archive(state, "decision", &d.id, &summary, "superseded")?;
+    }
+
+    // Superseded opinions.
+    for o in projection
+        .opinions
+        .iter()
+        .filter(|o| o.status == OpinionStatus::Superseded)
+    {
+        let summary = format!("opinion \"{}\" — superseded", o.subject);
+        archived_count += emit_archive(state, "opinion", &o.id, &summary, "superseded")?;
+    }
+
+    // Resolved risks.
+    for r in projection.risks.iter().filter(|r| r.status == RiskStatus::Resolved) {
+        let summary = format!("risk \"{}\" — resolved", r.subject);
+        archived_count += emit_archive(state, "risk", &r.id, &summary, "resolved")?;
+    }
+
+    Ok(archived_count)
+}
+
+/// Append a single `EntityArchived` event for one terminal entity.
+fn emit_archive(
+    state: &AppState,
+    kind: &str,
+    id: &str,
+    summary: &str,
+    result: &str,
+) -> Result<u32> {
+    use crate::event::{Actor, Aggregate, Event, EventType};
+    // The aggregate id is the archived "record" (distinct from the entity itself).
+    let ev = Event::new(
+        &state.project,
+        Actor::System,
+        EventType::EntityArchived,
+        Aggregate {
+            kind: "archive".into(),
+            id: format!("arch-{kind}-{id}"),
+        },
+        serde_json::json!({
+            "entity_kind": kind,
+            "entity_id": id,
+            "summary": summary,
+            "result": result,
+            "archived_by": "reconciler",
+        }),
+    );
+    state.append(ev)?;
+    Ok(1)
 }
 
 /// Prune isolated worktrees whose task is no longer active (Done, or whose

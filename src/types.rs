@@ -199,6 +199,21 @@ impl Default for OpinionStatus {
     }
 }
 
+/// A compact archival record replacing a terminal entity that was removed from
+/// the active projection. Agents see `archived` instead of the full entity.
+/// The event log retains the full history for provenance queries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArchivedRecord {
+    pub entity_kind: String,
+    pub entity_id: String,
+    /// Human-readable one-liner summarizing what happened.
+    pub summary: String,
+    /// Structured outcome (e.g. "done", "superseded_by:decision-42", "resolved").
+    pub result: String,
+    pub archived_at: String,
+    pub archived_by: String,
+}
+
 /// A recorded project OPINION — a subjective judgment / rationale / preference
 /// (e.g. "Postgres is a good default for our event log"). Subjective: a later
 /// opinion supersedes it (history preserved) rather than editing it in place.

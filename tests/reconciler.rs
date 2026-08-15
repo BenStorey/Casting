@@ -102,13 +102,26 @@ fn reconciler_supersedes_false_duplicates_and_advances_cursor() {
     let edited = reconciler::run_passes(&st).unwrap();
     // Op-a2 (same subject) supersedes op-a1; op-b untouched. (The stale-worktree
     // pass is a no-op without a workspace, so only opinion drift contributes.)
-    assert_eq!(edited, 1);
+    assert_eq!(edited, 2);
 
     let proj = Projection::build(&st.store, &st.project).unwrap();
-    let by_id = |id: &str| proj.opinions.iter().find(|o| o.id == id).unwrap();
-    assert_eq!(by_id("op-a1").status, OpinionStatus::Superseded);
-    assert_eq!(by_id("op-a2").status, OpinionStatus::Active);
-    assert_eq!(by_id("op-b").status, OpinionStatus::Active);
+    // op-a1 was superseded by op-a2 → archived out of active opinions.
+    assert!(
+        !proj.opinions.iter().any(|o| o.id == "op-a1"),
+        "superseded op-a1 must be archived (removed from active)"
+    );
+    assert!(
+        proj.archived.iter().any(|a| a.entity_id == "op-a1"),
+        "op-a1 must have an archive record"
+    );
+    assert_eq!(
+        proj.opinions.iter().find(|o| o.id == "op-a2").unwrap().status,
+        OpinionStatus::Active
+    );
+    assert_eq!(
+        proj.opinions.iter().find(|o| o.id == "op-b").unwrap().status,
+        OpinionStatus::Active
+    );
 
     // The reconciler cursor advanced to the head, so it's no longer immediately
     // due until the next window elapses.
@@ -129,7 +142,7 @@ fn reconcile_is_idempotent() {
     append_opinion(&st, "op-a1", "databases");
     append_opinion(&st, "op-a2", "databases");
 
-    assert_eq!(reconciler::run_passes(&st).unwrap(), 1);
+    assert_eq!(reconciler::run_passes(&st).unwrap(), 2);
     // Second pass: no new drift (op-a1 already superseded) -> no events.
     assert_eq!(reconciler::run_passes(&st).unwrap(), 0);
     let proj = Projection::build(&st.store, &st.project).unwrap();
@@ -150,12 +163,17 @@ fn run_if_due_only_fires_after_interval() {
     // (2 supersedions), leaving only op-3 Active.
     append_opinion(&st, "op-3", "db");
     let edited = reconciler::run_if_due(&st).unwrap();
-    assert_eq!(edited, 2);
+    assert_eq!(edited, 4);
     let proj = Projection::build(&st.store, &st.project).unwrap();
-    let by_id = |id: &str| proj.opinions.iter().find(|o| o.id == id).unwrap();
-    assert_eq!(by_id("op-1").status, OpinionStatus::Superseded);
-    assert_eq!(by_id("op-2").status, OpinionStatus::Superseded);
-    assert_eq!(by_id("op-3").status, OpinionStatus::Active);
+    // op-1 and op-2 were superseded and archived (removed from active opinions).
+    assert!(!proj.opinions.iter().any(|o| o.id == "op-1"), "op-1 archived");
+    assert!(!proj.opinions.iter().any(|o| o.id == "op-2"), "op-2 archived");
+    assert!(proj.archived.iter().any(|a| a.entity_id == "op-1"), "op-1 archive record");
+    assert!(proj.archived.iter().any(|a| a.entity_id == "op-2"), "op-2 archive record");
+    assert_eq!(
+        proj.opinions.iter().find(|o| o.id == "op-3").unwrap().status,
+        OpinionStatus::Active
+    );
 }
 
 /// The reconciler framework is PLUGGABLE (2026-08-12): registering a custom pass
@@ -198,7 +216,7 @@ fn passes_are_pluggable_and_custom_pass_runs() {
     let edited = reconciler::run_if_due(&st).unwrap();
     // The counting pass appended exactly one marker; opinion drift collapsed
     // 3 same-subject opinions (op-a->op-b, op-b->op-c = 2 supersedions).
-    assert_eq!(edited, 1 + 2, "custom pass ran plus opinion drift");
+    assert_eq!(edited, 1 + 2 + 2, "custom pass + opinion drift + archive pass");
 
     // The marker event is present in the log — this is what proves the custom
     // pass ran (only it appends ObservationCreated/"marker-1").
