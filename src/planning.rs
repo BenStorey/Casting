@@ -75,6 +75,7 @@ pub(crate) fn plan_rejected_event(
 fn plan_worktree_provision(
     state: &AppState,
     task_id: &str,
+    assignee: &str,
     slug: &str,
     claimed_in_plan: &mut std::collections::HashSet<u16>,
 ) -> PmAction {
@@ -99,6 +100,7 @@ fn plan_worktree_provision(
     };
     PmAction::ProvisionWorktree {
         task_id: task_id.to_string(),
+        assignee: assignee.to_string(),
         slug: slug.to_string(),
         cargo_target_dir,
         port,
@@ -420,14 +422,34 @@ pub(crate) fn plan_onboard(
     let mut i = 0;
     while i < plan.len() {
         if let (_, PmAction::StartTask { task_id }) = &plan[i] {
-            let assigned_to_consultant = plan.iter().any(|(_, a)| {
-                matches!(a, PmAction::AssignTask { task_id: tid, assignee, .. }
-                    if tid == task_id && assignee != OWNER)
+            // Find the assignee from the matching AssignTask action.
+            let assignee = plan.iter().find_map(|(_, a)| {
+                if let PmAction::AssignTask {
+                    task_id: tid,
+                    assignee,
+                    ..
+                } = a
+                {
+                    if tid == task_id && assignee != OWNER {
+                        Some(assignee.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             });
+            let assigned_to_consultant = assignee.is_some();
             if assigned_to_consultant {
                 let prov = (
                     crate::pm::PM_CONSUMER.into(),
-                    plan_worktree_provision(state, task_id, "", &mut claimed_ports),
+                    plan_worktree_provision(
+                        state,
+                        task_id,
+                        assignee.as_deref().unwrap_or("unknown"),
+                        "",
+                        &mut claimed_ports,
+                    ),
                 );
                 plan.insert(i, prov);
                 i += 1; // skip the just-inserted provision

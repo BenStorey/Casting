@@ -130,6 +130,7 @@ impl PmAction {
             )],
             PmAction::ProvisionWorktree {
                 task_id,
+                assignee,
                 slug,
                 cargo_target_dir,
                 port,
@@ -159,6 +160,7 @@ impl PmAction {
                     EventType::WorktreeProvisioned,
                     json!({
                         "task_id": task_id,
+                        "consultant": assignee,
                         "branch": branch,
                         "path": path,
                         "cargo_target_dir": cargo_target_dir,

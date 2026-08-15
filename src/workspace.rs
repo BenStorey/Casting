@@ -161,6 +161,11 @@ impl Workspace {
         self.worktrees_root().join(task_id)
     }
 
+    /// The persistent worktree directory for a consultant slot.
+    pub fn consultant_worktree_path(&self, consultant: &str, slot: usize) -> PathBuf {
+        self.worktrees_root().join(format!("{consultant}-{slot}"))
+    }
+
     /// The repo's current HEAD (or `None` if it is not yet a git repo or has no
     /// commits yet). Uses the pinned runner, so exercizes the boundary on the
     /// correct repo only.
@@ -304,6 +309,113 @@ impl Workspace {
             cargo_target_dir: path.join("target"),
             port,
         })
+    }
+
+    /// Provision a PERSISTENT worktree for a consultant slot (reused across
+    /// tasks to keep the build target warm). If the worktree already exists
+    /// from a previous task, it is reset to main and a fresh branch for the
+    /// new task is created. Otherwise, a new git worktree is added.
+    pub fn provision_persistent_worktree(
+        &self,
+        consultant: &str,
+        slot: usize,
+        task_id: &str,
+        port: u16,
+    ) -> Result<ProvisionedWorktree> {
+        let path = self.consultant_worktree_path(consultant, slot);
+        let branch = self.task_branch(task_id, "");
+
+        if path.exists()
+            && self
+                .git_command_for(&path)
+                .arg("rev-parse")
+                .arg("HEAD")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        {
+            // Worktree exists from a previous task — reset to main and create
+            // a fresh branch. (If the branch already exists because the PM
+            // hasn't merged yet, checkout with -B to reset it.)
+            let _ = self
+                .git_command_for(&path)
+                .args(["checkout", "main"])
+                .output();
+            let _ = self
+                .git_command_for(&path)
+                .args(["reset", "--hard", "origin/main"])
+                .output();
+            let _ = self
+                .git_command_for(&path)
+                .args(["clean", "-fd"])
+                .output();
+            // Delete existing task branch if present, then create fresh.
+            self.git_command_for(&path)
+                .args(["branch", "-D", &branch])
+                .output()
+                .ok();
+            let out = self
+                .git_command_for(&path)
+                .args(["checkout", "-b", &branch])
+                .output()?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                bail!("git checkout -b failed in persistent worktree: {stderr}");
+            }
+            return Ok(ProvisionedWorktree {
+                task_id: task_id.to_string(),
+                branch,
+                path: path.clone(),
+                cargo_target_dir: path.join("target"),
+                port,
+            });
+        }
+
+        // First-time provisioning: git worktree add.
+        std::fs::create_dir_all(self.worktrees_root())
+            .with_context(|| format!("create {}", self.worktrees_root().display()))?;
+        let out = self
+            .git_command()
+            .args(["worktree", "add", &path.to_string_lossy(), "-b", &branch])
+            .output()
+            .with_context(|| format!("git worktree add persistent {branch}"))?;
+        if !out.status.success() {
+            bail!(
+                "git worktree add persistent failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+
+        Ok(ProvisionedWorktree {
+            task_id: task_id.to_string(),
+            branch,
+            path: path.clone(),
+            cargo_target_dir: path.join("target"),
+            port,
+        })
+    }
+
+    /// Reset a persistent worktree to main (keeping the target/ dir warm).
+    /// Called when a task is done/merged. Idempotent: a missing worktree
+    /// is fine.
+    pub fn reset_worktree(&self, consultant: &str, slot: usize) -> Result<()> {
+        let path = self.consultant_worktree_path(consultant, slot);
+        if !path.exists() {
+            return Ok(());
+        }
+        self.git_command_for(&path)
+            .args(["checkout", "main"])
+            .output()
+            .ok();
+        self.git_command_for(&path)
+            .args(["reset", "--hard", "origin/main"])
+            .output()
+            .ok();
+        self.git_command_for(&path)
+            .args(["clean", "-fd"])
+            .output()
+            .ok();
+        Ok(())
     }
 
     /// Remove a task's worktree (and prune the now-dangling worktree metadata).

@@ -69,10 +69,18 @@ struct RawConsultant {
     /// SPECIAL role (PM, Advisor) as `false`. Defaults to true.
     #[serde(default = "default_assignable")]
     assignable: bool,
+    /// How many tasks this consultant may work on simultaneously (persistent
+    /// worktree slots). Defaults to 1.
+    #[serde(default = "default_max_concurrent")]
+    max_concurrent: usize,
 }
 
 fn default_assignable() -> bool {
     true
+}
+
+fn default_max_concurrent() -> usize {
+    1
 }
 
 impl ConsultantRegistry {
@@ -255,6 +263,7 @@ fn from_raw(
         routing: raw.routing,
         models,
         assignable: raw.assignable,
+        max_concurrent: raw.max_concurrent.max(1),
         verification: raw.verification,
     })
 }

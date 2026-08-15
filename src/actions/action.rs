@@ -85,6 +85,7 @@ pub enum PmAction {
     /// never asked to "remember" to isolate. Produces WorktreeProvisioned.
     ProvisionWorktree {
         task_id: String,
+        assignee: String,
         slug: String,
         cargo_target_dir: String,
         port: u16,

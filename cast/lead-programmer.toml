@@ -11,6 +11,7 @@ name          = "Lead Programmer"
 title         = "Lead Programmer"
 role          = "lead-programmer"
 assignable    = true
+max_concurrent = 2
 avatar        = "/avatars/engineer.svg"
 summary       = "Default implementation work. Writes code, fixes bugs, implements features at high volume."
 system_prompt = "prompts/lead-programmer.md"

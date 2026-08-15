@@ -153,6 +153,9 @@ pub struct ConsultantConfig {
     /// the policy gate (`is_valid_assignee` + the reserved-special-actor
     /// guard). Defaults to true.
     pub assignable: bool,
+    /// How many tasks this consultant may work on simultaneously. The platform
+    /// gives them that many persistent worktrees (slots). Defaults to 1.
+    pub max_concurrent: usize,
     pub verification: VerificationConfig,
 }
 

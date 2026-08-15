@@ -45,6 +45,7 @@ pub enum ActivityKind {
     /// Provision a consultant's isolated worktree (event-driven side effect).
     ProvisionWorktree {
         task_id: String,
+        assignee: String,
         slug: String,
         port: u16,
     },
@@ -115,10 +116,12 @@ impl ActivityRunner for WorkspaceRunner {
         match &activity.kind {
             ActivityKind::ProvisionWorktree {
                 task_id,
+                assignee,
                 slug,
                 port,
             } => {
-                self.ws.provision_worktree(task_id, slug, *port)?;
+                // Use persistent worktree keyed by assignee+slot 0 for now
+                self.ws.provision_persistent_worktree(assignee, 0, task_id, *port)?;
                 Ok(ActivityResult::default())
             }
             ActivityKind::CommitWorktree { task_id, message } => {
@@ -301,12 +304,19 @@ pub fn workspace_activity_for(event: &Event) -> Option<Activity> {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
+            let assignee = event
+                .data
+                .get("consultant")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
             let port = event.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
             Some(Activity {
                 id: format!("worktree-{task_id}"),
                 target_id: task_id.clone(),
                 kind: ActivityKind::ProvisionWorktree {
                     task_id,
+                    assignee,
                     slug: String::new(),
                     port,
                 },
