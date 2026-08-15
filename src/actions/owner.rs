@@ -50,8 +50,8 @@ pub(crate) fn decision_made_event(
 /// owner-involvement required for a decision class).
 pub fn owner_policy_changed(
     project: &str,
-    class: crate::policy::DecisionClass,
-    involvement: crate::policy::OwnerInvolvement,
+    class: crate::pm::DecisionClass,
+    involvement: crate::pm::OwnerInvolvement,
 ) -> Event {
     Event::new(
         project,
@@ -74,10 +74,10 @@ pub fn owner_policy_changed(
 pub fn owner_directive_created(
     project: &str,
     id: &str,
-    kind: crate::directive::DirectiveKind,
+    kind: crate::runtime::directive::DirectiveKind,
     statement: &str,
     scope: Vec<String>,
-    strength: crate::directive::DirectiveStrength,
+    strength: crate::runtime::directive::DirectiveStrength,
 ) -> Event {
     Event::new(
         project,

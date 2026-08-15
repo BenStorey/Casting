@@ -10,7 +10,7 @@
 use super::{
     ConsultantConfig, ConsultantRegistry, ModelConfig, NewRole, RoutingConfig, VerificationConfig,
 };
-use crate::cast::role_by_id;
+use crate::workspace::role_by_id;
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
 use serde::Deserialize;

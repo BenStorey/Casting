@@ -3,12 +3,12 @@
 //! side effect — closing the architecture-review gap where inline worktree/git
 //! hooks bypassed the pause/budget/secret gates.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::executor::{run_side_effect, workspace_activity_for, Activity, ActivityKind};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::runtime::executor::{run_side_effect, workspace_activity_for, Activity, ActivityKind};
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn make_state() -> AppState {
@@ -35,10 +35,13 @@ fn make_state() -> AppState {
 #[derive(Default)]
 struct CountingRunner(AtomicUsize);
 
-impl casting::executor::ActivityRunner for CountingRunner {
-    fn run(&self, _activity: &Activity) -> anyhow::Result<casting::executor::ActivityResult> {
+impl casting::runtime::executor::ActivityRunner for CountingRunner {
+    fn run(
+        &self,
+        _activity: &Activity,
+    ) -> anyhow::Result<casting::runtime::executor::ActivityResult> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(casting::executor::ActivityResult::default())
+        Ok(casting::runtime::executor::ActivityResult::default())
     }
 }
 
@@ -204,5 +207,5 @@ fn halted_budget_folds() {
     halt_budget(&state);
     let p = Projection::build(&state.store, "proj-se").unwrap();
     assert!(p.budget.is_some());
-    assert!(casting::guard::llm_dispatch_allowed(&p).is_err());
+    assert!(casting::pm::guard::llm_dispatch_allowed(&p).is_err());
 }

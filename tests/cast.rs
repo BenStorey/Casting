@@ -1,7 +1,7 @@
 //! Tests for the cast — role catalog + default cast (+ TeamChange policy class
 //! integration). The cast is configuration/data, never authoritative state.
 
-use casting::cast::{role_by_id, role_by_title, DEFAULT_CAST, ROLE_CATALOG};
+use casting::workspace::cast::{role_by_id, role_by_title, DEFAULT_CAST, ROLE_CATALOG};
 
 #[test]
 fn catalog_has_sane_roles_with_scopes() {
@@ -70,10 +70,10 @@ fn default_cast_members_have_catalog_roles() {
 
 #[tokio::test]
 async fn owner_hire_adds_an_agent_of_a_catalog_role() {
-    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
-    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
@@ -127,10 +127,10 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
 #[tokio::test]
 async fn pm_propose_consultant_and_owner_approval_hire() {
     use casting::actions::validate;
-    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
-    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
@@ -167,7 +167,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
         id: "dc-1".into(),
         subject: "Add a DevOps consultant".into(),
         role_id: "devops".into(),
-        involvement: casting::policy::OwnerInvolvement::Pm,
+        involvement: casting::pm::policy::OwnerInvolvement::Pm,
     };
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     assert!(
@@ -180,7 +180,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
 
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     let dec = proj.decisions.iter().find(|d| d.id == "dc-1").unwrap();
-    assert_eq!(dec.class, casting::policy::DecisionClass::AddConsultant);
+    assert_eq!(dec.class, casting::pm::policy::DecisionClass::AddConsultant);
 
     // Owner approves; the hire is applied.
     state
@@ -215,10 +215,10 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
 #[tokio::test]
 async fn unknown_role_proposal_is_rejected() {
     use casting::actions::{validate, PmAction, PolicyError};
-    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
-    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
@@ -231,7 +231,7 @@ async fn unknown_role_proposal_is_rejected() {
             id: "dc-bad".into(),
             subject: "x".into(),
             role_id: "wizard".into(),
-            involvement: casting::policy::OwnerInvolvement::Pm,
+            involvement: casting::pm::policy::OwnerInvolvement::Pm,
         },
         "pm",
         &proj,
@@ -245,10 +245,10 @@ async fn unknown_role_proposal_is_rejected() {
 #[test]
 fn special_roles_cannot_be_assigned_tasks() {
     use casting::actions::{validate, PmAction, PolicyError};
-    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
-    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
     use casting::types::TaskStatus;
 
     let state = {
@@ -293,10 +293,10 @@ fn special_roles_cannot_be_assigned_tasks() {
 #[test]
 fn special_roles_cannot_be_hired_as_agents() {
     use casting::actions::{validate, PmAction, PolicyError};
-    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
-    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();

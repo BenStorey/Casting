@@ -1,7 +1,7 @@
 //! Tests for PM wake≠act tiering (docs/plans/2026-08-14_pm-wakeact-tiering.md).
 
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::wake::{highest_tier, should_act, tier_of, WakeTier};
+use casting::runtime::wake::{highest_tier, should_act, tier_of, WakeTier};
 
 fn ev(et: EventType) -> Event {
     Event::new(

@@ -85,7 +85,7 @@ impl SqliteSnapshotStore {
     }
 }
 
-impl crate::snapshot::SnapshotStore for SqliteSnapshotStore {
+impl crate::store::SnapshotStore for SqliteSnapshotStore {
     fn save(&self, project_id: &str, sequence: i64, projection: &Projection) -> Result<()> {
         let json = serde_json::to_string(projection)?;
         let conn = self.conn.lock().unwrap();

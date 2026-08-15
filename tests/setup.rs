@@ -1,10 +1,10 @@
 //! Tests for the setup engine (`cast init`) — onboarding as a shared,
 //! deterministic flow (owner decision 2026-08-10: CLI + UI share one engine).
 
-use casting::directive::{DirectiveKind, DirectiveStrength};
 use casting::projection::Projection;
-use casting::setup::{self, SetupPlan, SetupSpec, StartDirective};
+use casting::runtime::directive::{DirectiveKind, DirectiveStrength};
 use casting::store::EventStore;
+use casting::workspace::setup::{self, SetupPlan, SetupSpec, StartDirective};
 
 fn tmp_dir() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
@@ -27,7 +27,14 @@ fn setup_creates_company_and_default_cast() {
     let proj = Projection::build(&store, "project-demo").unwrap();
     assert!(!proj.agents.is_empty());
     // Default cast => PM + 5 assignable consultants (2026-08-14 roster).
-    for id in &["pm", "lead-programmer", "test-engineer", "systems-architect", "stage-manager", "critic"] {
+    for id in &[
+        "pm",
+        "lead-programmer",
+        "test-engineer",
+        "systems-architect",
+        "stage-manager",
+        "critic",
+    ] {
         assert!(
             proj.agents.iter().any(|a| a.id == *id),
             "default cast must include {id}"
@@ -171,10 +178,10 @@ async fn setup_then_onboard_does_not_double_hire() {
 
     // Boot an AppState over the setup state dir and drive the PM with the
     // owner's first message (which triggers plan_onboard).
-    use casting::cursor::SqliteCursorStore;
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
-    let store = casting::setup::open_store(tmp.path()).unwrap();
+    use casting::store::SqliteCursorStore;
+    let store = casting::workspace::setup::open_store(tmp.path()).unwrap();
     let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
     let state = AppState::new(store, cursors, "project-demo");
 
@@ -194,7 +201,14 @@ async fn setup_then_onboard_does_not_double_hire() {
 
     let proj = Projection::build(&state.store, "project-demo").unwrap();
     // Exactly one of each default agent — no duplicates from onboarding.
-    for expected in ["pm", "lead-programmer", "test-engineer", "systems-architect", "stage-manager", "critic"] {
+    for expected in [
+        "pm",
+        "lead-programmer",
+        "test-engineer",
+        "systems-architect",
+        "stage-manager",
+        "critic",
+    ] {
         let count = proj.agents.iter().filter(|a| a.id == expected).count();
         assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
     }
@@ -214,10 +228,10 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
     .unwrap();
     plan.apply(tmp.path()).unwrap();
 
-    use casting::cursor::SqliteCursorStore;
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
-    let store = casting::setup::open_store(tmp.path()).unwrap();
+    use casting::store::SqliteCursorStore;
+    let store = casting::workspace::setup::open_store(tmp.path()).unwrap();
     let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
     let state = AppState::new(store, cursors, "project-demo");
     state
@@ -242,8 +256,5 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
         !ids.contains(&"lead-programmer"),
         "default Lead Programmer must NOT be topped up: {ids:?}"
     );
-    assert!(
-        !ids.contains(&"critic"),
-        "no other defaults added: {ids:?}"
-    );
+    assert!(!ids.contains(&"critic"), "no other defaults added: {ids:?}");
 }

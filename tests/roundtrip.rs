@@ -15,13 +15,13 @@
 //!      `validate → to_events → apply` and assert the exact derived state.
 
 use casting::actions::{validate, PmAction};
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::plan::Priority;
+use casting::pm::plan::Priority;
 use casting::pm::AppState;
 use casting::projection::{DecisionStatus, OpinionStatus, Projection};
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 const P: &str = "proj-rt";
 

@@ -5,13 +5,13 @@
 //! read them back by sequence, and exercise a durable cursor.
 
 use anyhow::{Context, Result};
-use casting::cursor::CursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::git_observer as git;
 use casting::pm::{self, AppState};
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::CursorStore;
 use casting::store::EventStore;
+use casting::store::SqliteEventStore;
 use casting::web;
+use casting::workspace::git_observer as git;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ fn open_state(repo: &Path, db: Option<&str>) -> Result<AppState> {
         .map(str::to_string)
         .or_else(|| std::env::var("CAST_DB").ok())
         .unwrap_or_else(|| "sqlite".to_string());
-    let backend = casting::backend::from_selector(&selector, ws.casting_dir())?;
+    let backend = casting::store::from_selector(&selector, ws.casting_dir())?;
     let store = backend.events();
     let cursors = backend.cursors();
     let snapshots = backend.snapshots();
@@ -34,14 +34,16 @@ fn open_state(repo: &Path, db: Option<&str>) -> Result<AppState> {
     // store (gitignored, NEVER in the event log). The executor then refuses to
     // schedule/execute an activity that embeds a raw secret value. The runner
     // resolves `@secret:NAME@` at execution time, in memory.
-    state = state.with_secrets(casting::secrets::SecretStore::load(ws.casting_dir())?);
+    state = state.with_secrets(casting::workspace::secrets::SecretStore::load(
+        ws.casting_dir(),
+    )?);
     Ok(state)
 }
 
 fn setup_state(
     store: std::sync::Arc<dyn EventStore>,
     cursors: std::sync::Arc<dyn CursorStore>,
-    snapshots: Option<std::sync::Arc<dyn casting::snapshot::SnapshotStore>>,
+    snapshots: Option<std::sync::Arc<dyn casting::store::SnapshotStore>>,
 ) -> AppState {
     let mut state = AppState::new(store, cursors, PROJECT_ID).with_integrity();
     if let Some(snaps) = snapshots {
@@ -143,10 +145,20 @@ fn main() -> Result<()> {
             let log = parse_log(&args[2..])?;
             do_log(log)
         }
+        // `cast purge <project-dir> [--force]` — delete .casting/ state dir
+        // to reset the project to a clean slate. Equivalent to
+        // `rm -rf <project-dir>/.casting`. With --force, skip confirmation.
+        "purge" => {
+            let dir = args
+                .get(2)
+                .context("usage: cast purge <project-dir> [--force]")?;
+            let force = args.iter().any(|a| a == "--force");
+            do_purge(Path::new(dir), force)
+        }
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company\n\n\
-                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run <project-dir> [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the one project\n  cast smoke <dir>              append sample events and replay them\n  cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_OWNER_TOKEN owner auth token (or set via `cast init --owner-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
+                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run <project-dir> [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the one project\n  cast purge <project-dir> [--force]\n                                delete .casting/ state directory (reset to clean slate)\n  cast smoke <dir>              append sample events and replay them\n  cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_OWNER_TOKEN owner auth token (or set via `cast init --owner-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
@@ -466,36 +478,38 @@ fn do_init(mut args: InitArgs) -> Result<()> {
         }
     }
 
-    let spec = casting::setup::SetupSpec {
+    let spec = casting::workspace::setup::SetupSpec {
         name: args.name.clone().unwrap_or_else(|| "Casting demo".into()),
         roles: args.cast.clone(),
         owner_token: args.owner_token.clone(),
         directives: args
             .directives
             .into_iter()
-            .map(|(statement, scope)| casting::setup::StartDirective {
-                id: format!(
-                    "setup-{}",
-                    statement
-                        .to_lowercase()
-                        .replace(' ', "-")
-                        .chars()
-                        .take(20)
-                        .collect::<String>()
-                ),
-                kind: casting::directive::DirectiveKind::Policy,
-                statement,
-                scope: scope
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                strength: casting::directive::DirectiveStrength::Required,
-            })
+            .map(
+                |(statement, scope)| casting::workspace::setup::StartDirective {
+                    id: format!(
+                        "setup-{}",
+                        statement
+                            .to_lowercase()
+                            .replace(' ', "-")
+                            .chars()
+                            .take(20)
+                            .collect::<String>()
+                    ),
+                    kind: casting::runtime::directive::DirectiveKind::Policy,
+                    statement,
+                    scope: scope
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                    strength: casting::runtime::directive::DirectiveStrength::Required,
+                },
+            )
             .collect(),
     };
 
-    let plan = casting::setup::SetupPlan::build(spec)?;
+    let plan = casting::workspace::setup::SetupPlan::build(spec)?;
 
     // State lives collocated in <project>/.casting/ (gitignored).
     std::fs::create_dir_all(&args.dir).context("create project dir")?;
@@ -506,7 +520,7 @@ fn do_init(mut args: InitArgs) -> Result<()> {
 
     let written = plan.apply(&casting_dir)?;
     // Write a no-secrets config template to the repo root (like .env.example).
-    casting::setup::write_template(&args.dir, &plan.spec.name)?;
+    casting::workspace::setup::write_template(&args.dir, &plan.spec.name)?;
     println!(
         "   project ready at {} (run `cast run {}`)",
         args.dir.display(),
@@ -584,7 +598,7 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         let selector = db
             .or_else(|| std::env::var("CAST_DB").ok())
             .unwrap_or_else(|| "sqlite".to_string());
-        casting::backend::from_selector(&selector, ws.casting_dir())?
+        casting::store::from_selector(&selector, ws.casting_dir())?
     };
     let store = backend.events();
     let cursors = backend.cursors();
@@ -622,7 +636,7 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:
         // Bearer <token>.
-        let persisted_token = casting::setup::read_config(ws.casting_dir())
+        let persisted_token = casting::workspace::setup::read_config(ws.casting_dir())
             .and_then(|c| c.owner_token)
             .filter(|t| !t.is_empty());
         let token = persisted_token.or_else(|| std::env::var("CAST_OWNER_TOKEN").ok());
@@ -648,9 +662,9 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // The NoopRunner is the safe default until D2 (LLM) / git / shell
         // runners are wired — it can only do inline work and fails loudly on
         // external kinds rather than silently fake-completing them.
-        match casting::executor::redispatch_inflight(
+        match casting::runtime::executor::redispatch_inflight(
             &state,
-            &casting::executor::NoopRunner,
+            &casting::runtime::executor::NoopRunner,
             casting::event::Actor::System,
         ) {
             Ok(ids) if !ids.is_empty() => {
@@ -672,17 +686,17 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // env vars. Attaches the channel + spawns the cursor-driven run loop
         // exactly once (idempotent via AppState.telegram_started). Off by
         // default — no channel, no network (mirrors the LLM seam).
-        let telegram_cfg = casting::setup::read_config(ws.casting_dir())
+        let telegram_cfg = casting::workspace::setup::read_config(ws.casting_dir())
             .and_then(|c| match (c.telegram_token, c.telegram_chat_id) {
-                (Some(t), Some(cid)) => {
-                    Some(casting::telegram::TelegramConfig::from_pieces(t, cid))
-                }
+                (Some(t), Some(cid)) => Some(
+                    casting::runtime::telegram::TelegramConfig::from_pieces(t, cid),
+                ),
                 _ => None,
             })
-            .or_else(casting::telegram::TelegramConfig::from_env);
+            .or_else(casting::runtime::telegram::TelegramConfig::from_env);
         let state = match telegram_cfg {
             Some(cfg) => {
-                casting::telegram::start_loop(&state, cfg);
+                casting::runtime::telegram::start_loop(&state, cfg);
                 state
             }
             None => state,
@@ -691,12 +705,12 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // Liveness watchdog (2026-08-13): a wall-clock "dead man's switch" that
         // auto-pauses the cast on a stall (repeated errors / silent in-flight
         // work). Self-actuating; enabled via CAST_WATCHDOG=1 (+ tuning env).
-        if let Some(cfg) = casting::watchdog::WatchConfig::from_env() {
+        if let Some(cfg) = casting::runtime::watchdog::WatchConfig::from_env() {
             println!(
                 "🛡️ liveness watchdog enabled (poll {}s, stall {}h, retry>{}x)",
                 cfg.poll_secs, cfg.stall_hours, cfg.max_repeat_errors
             );
-            tokio::spawn(casting::watchdog::monitor(state.clone(), cfg));
+            tokio::spawn(casting::runtime::watchdog::monitor(state.clone(), cfg));
         }
 
         // Serve the workspace.
@@ -781,7 +795,7 @@ fn do_log(log: LogArgs) -> Result<()> {
             println!("== project: {project} ==");
         }
         if log.verify {
-            let problems = casting::replay::verify(&store, project)?;
+            let problems = casting::event::replay::verify(&store, project)?;
             if problems.is_empty() {
                 println!("{}: OK (event stream invariants hold)", project);
             } else {
@@ -791,7 +805,7 @@ fn do_log(log: LogArgs) -> Result<()> {
                 }
             }
         } else {
-            for line in casting::replay::dump(&store, project)? {
+            for line in casting::event::replay::dump(&store, project)? {
                 println!("{line}");
             }
         }
@@ -837,8 +851,8 @@ fn seed_project(state: &AppState) -> Result<()> {
     // developer exists before the model tries to assign. A custom cast chosen via
     // setup is a separate store (apply_to_store), so `seed_project` only fires on
     // a genuinely bare first open.
-    for m in casting::cast::DEFAULT_CAST {
-        let role = casting::cast::role_by_id(m.role_id)
+    for m in casting::workspace::cast::DEFAULT_CAST {
+        let role = casting::workspace::cast::role_by_id(m.role_id)
             .map(|r| r.title.to_string())
             .unwrap_or_else(|| m.role_id.to_string());
         state.append(Event::new(
@@ -860,7 +874,7 @@ fn seed_project(state: &AppState) -> Result<()> {
 fn do_smoke(dir: &Path) -> Result<()> {
     let paths = ProjectPaths::for_dir(dir)?;
     let store = SqliteEventStore::open(&paths.db)?;
-    let cursors = casting::cursor::SqliteCursorStore::open(&paths.cursors)?;
+    let cursors = casting::store::SqliteCursorStore::open(&paths.cursors)?;
 
     let project = "project-demo";
 
@@ -961,7 +975,40 @@ fn do_smoke(dir: &Path) -> Result<()> {
     let _task_created_seq = task_created.sequence;
     println!(
         "TaskCreated assigned sequence {} (monotonic ordering)",
-        task_created.sequence
+        _task_created_seq
+    );
+    Ok(())
+}
+
+/// `cast purge <project-dir>` — delete the `.casting/` state directory to reset
+/// a project to a clean slate. Asks for confirmation unless `--force` is passed.
+fn do_purge(dir: &Path, force: bool) -> Result<()> {
+    let state_dir = dir.join(".casting");
+    if !state_dir.exists() {
+        anyhow::bail!(
+            "no Casting state found at {} (try `cast init` first)",
+            dir.display()
+        );
+    }
+
+    if !force {
+        eprint!("Delete {}? [y/N] ", state_dir.display());
+        use std::io::Write;
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let answer = input.trim().to_lowercase();
+        if answer != "y" && answer != "yes" {
+            println!("aborted");
+            return Ok(());
+        }
+    }
+
+    std::fs::remove_dir_all(&state_dir)
+        .with_context(|| format!("remove {}", state_dir.display()))?;
+    println!(
+        "✓ purged {} — project is clean, ready for `cast init`",
+        dir.display()
     );
     Ok(())
 }

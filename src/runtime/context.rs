@@ -6,8 +6,8 @@
 //! no LLM — but this is exactly the seam the future orchestrator (D2) will read
 //! from. Derived, never authoritative: the event log stays the source of truth.
 
-use crate::directive;
-use crate::plan::{PlannedItem, Priority};
+use crate::pm::plan::{PlannedItem, Priority};
+use crate::runtime::directive;
 use serde::{Deserialize, Serialize};
 
 /// A context item with a computed relevance score (context-assembly scoring).
@@ -177,7 +177,11 @@ impl crate::projection::Projection {
         // isolated workspace (path + branch + build target + port) to work in.
         let worktree = my_tasks
             .last()
-            .and_then(|task_id| self.worktrees.iter().find(|w| w.task_id.as_deref() == Some(task_id)))
+            .and_then(|task_id| {
+                self.worktrees
+                    .iter()
+                    .find(|w| w.task_id.as_deref() == Some(task_id))
+            })
             .map(|w| WorktreeInfo {
                 task_id: w.task_id.clone().unwrap_or_default(),
                 branch: w.branch.clone(),
@@ -260,7 +264,7 @@ impl crate::projection::Projection {
                 .agents
                 .iter()
                 .find(|a| a.id == actor)
-                .and_then(|a| crate::cast::role_by_title(&a.role))
+                .and_then(|a| crate::workspace::role_by_title(&a.role))
                 .map(|r| r.scope);
             scopes.push(role_scope.unwrap_or("engineering"));
         }

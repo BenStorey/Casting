@@ -2,13 +2,13 @@
 //!
 //! Everything runs against a LOCAL stub Telegram HTTP server (127.0.0.1:0), so
 //! the whole seam is pinned down with no live bot, no network, CI-safe — the
-//! same pattern as tests/llm_e2e.rs. We drive `casting::telegram::drain`
+//! same pattern as tests/llm_e2e.rs. We drive `casting::runtime::telegram::drain`
 //! directly (one channel pass) against a real AppState.
 
-use casting::channel::{NoopChannel, OwnerChannel};
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
-use casting::telegram::{TelegramChannel, TelegramConfig};
+use casting::runtime::channel::{NoopChannel, OwnerChannel};
+use casting::runtime::telegram::{TelegramChannel, TelegramConfig};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -21,8 +21,8 @@ struct StubState {
 }
 
 fn make_state(project: &str) -> AppState {
-    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let store = casting::store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, project)
 }
 
@@ -119,7 +119,7 @@ async fn outbound_pushes_owner_bound_message() {
     let (state, channel, rx, stub) = boot(12345).await;
     owner_bound_msg(&state, "Please approve the database choice");
 
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
 
@@ -164,7 +164,7 @@ async fn outbound_skips_non_owner_and_owner_originated() {
         ))
         .unwrap();
 
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
 
@@ -182,7 +182,7 @@ async fn notify_queue_is_drained() {
     let (state, channel, rx, stub) = boot(12345).await;
     OwnerChannel::notify(&channel, "⚠️ budget warning").unwrap();
 
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
 
@@ -204,7 +204,7 @@ async fn inbound_appends_owner_message_event() {
         }));
     }
 
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
 
@@ -235,7 +235,7 @@ async fn inbound_ignores_stranger_chat() {
         }));
     }
 
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
 
@@ -256,12 +256,12 @@ async fn inbound_cursor_prevents_re_append() {
         }));
     }
 
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
     // Stub drains its queue on the first poll; simulate a later poll with
     // nothing new (real Telegram returns [] after we ack via offset).
-    casting::telegram::drain(state.clone(), &channel, &rx)
+    casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
         .unwrap();
 

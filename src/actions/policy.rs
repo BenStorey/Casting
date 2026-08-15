@@ -1,7 +1,7 @@
 //! The policy gate: validation of a proposed action against the projection, and
 //! the `PolicyError` rejection vocabulary.
 use super::action::{is_valid_assignee, PmAction, OWNER, SPECIAL_ACTORS};
-use crate::policy;
+use crate::pm::policy;
 use crate::projection::Projection;
 
 /// Reason a proposed action was rejected by the policy gate.
@@ -38,9 +38,9 @@ pub enum PolicyError {
     /// A producer may never under-claim owner involvement — it would silently
     /// bypass the human.
     AuthorityDowngrade {
-        class: crate::policy::DecisionClass,
-        required: crate::policy::OwnerInvolvement,
-        claimed: crate::policy::OwnerInvolvement,
+        class: crate::pm::DecisionClass,
+        required: crate::pm::OwnerInvolvement,
+        claimed: crate::pm::OwnerInvolvement,
     },
     /// Making a decision (resolving it) on one that does not exist.
     DecisionNotFound(String),
@@ -285,7 +285,12 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             let assignee = task.assignee.as_deref().unwrap_or("system");
             let needs_worktree = assignee != OWNER && who != "system";
-            if needs_worktree && !state.worktrees.iter().any(|w| w.task_id == Some(task_id.clone())) {
+            if needs_worktree
+                && !state
+                    .worktrees
+                    .iter()
+                    .any(|w| w.task_id == Some(task_id.clone()))
+            {
                 return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
             }
             // Hard-dependency ordering (Blocker Test): a task cannot START
@@ -305,7 +310,11 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // isolated worktree (isolation is structural, never optional).
         PmAction::CommitToChangeSet { task_id, .. } => {
             check_assignee(task_id, who, state)?;
-            if !state.worktrees.iter().any(|w| w.task_id == Some(task_id.clone())) {
+            if !state
+                .worktrees
+                .iter()
+                .any(|w| w.task_id == Some(task_id.clone()))
+            {
                 return Err(PolicyError::TaskHasNoWorktree(task_id.clone()));
             }
             Ok(())
@@ -329,7 +338,11 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
                 return Err(PolicyError::AgentNotHired(assignee.to_string()));
             }
             // One worktree per task (fail-closed id uniqueness).
-            if state.worktrees.iter().any(|w| w.task_id == Some(task_id.clone())) {
+            if state
+                .worktrees
+                .iter()
+                .any(|w| w.task_id == Some(task_id.clone()))
+            {
                 return Err(PolicyError::WorktreeAlreadyProvisioned(task_id.clone()));
             }
             Ok(())
@@ -377,7 +390,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             let Some(task) = state.tasks.iter().find(|t| t.id == *task_id) else {
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
             };
-            if !crate::graph::valid_from_status(task.status, "review_task") {
+            if !crate::projection::graph::valid_from_status(task.status, "review_task") {
                 return Err(PolicyError::TaskNotInReview(task_id.clone()));
             }
             Ok(())
@@ -473,7 +486,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             let Some(by) = state.directives.iter().find(|d| d.id == *by_directive_id) else {
                 return Err(PolicyError::DirectiveNotFound(by_directive_id.clone()));
             };
-            if by.status != crate::directive::DirectiveStatus::Active {
+            if by.status != crate::runtime::directive::DirectiveStatus::Active {
                 return Err(PolicyError::DirectiveNotFound(by_directive_id.clone()));
             }
             Ok(())
@@ -510,7 +523,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // change happens on owner approval (or PM auto-decision per policy).
         // The role must exist in the catalog so a bad role is rejected early.
         PmAction::ProposeConsultant { role_id, .. } => {
-            if crate::cast::role_by_id(role_id).is_none() {
+            if crate::workspace::role_by_id(role_id).is_none() {
                 return Err(PolicyError::UnknownRole(role_id.clone()));
             }
             Ok(())

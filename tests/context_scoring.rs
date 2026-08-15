@@ -2,10 +2,10 @@
 //! with a deterministic relevance score for the receiving actor — own-task and
 //! urgent/blocked items rank highest — so the PM/agent pays attention in order.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

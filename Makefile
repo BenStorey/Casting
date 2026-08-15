@@ -44,8 +44,9 @@ build: frontend
 	@echo "✓ built target/debug/cast (embedded real SPA)"
 
 # Rebuild the real SPA into frontend/dist (tsc + vite build).
+# Ensures node_modules exist first (idempotent — npm install is fast when cached).
 frontend:
-	cd frontend && npm run build
+	cd frontend && npm install && npm run build
 
 test:
 	cargo test
@@ -91,3 +92,11 @@ restart:
 
 clean:
 	cargo clean
+
+# Purge all Casting state from the demo workspace — equivalent to
+# `rm -rf $(REPO_DIR)/.casting`. Ask for confirmation.
+purge:
+	@test -d $(REPO_DIR)/.casting || { echo "no state to purge at $(REPO_DIR)"; exit 0; }; \
+	read -p "Delete $(REPO_DIR)/.casting? [y/N] " ans; \
+	[ "$$ans" = "y" ] || { echo "aborted"; exit 0; }; \
+	rm -rf $(REPO_DIR)/.casting && echo "✓ purged $(REPO_DIR) — ready for make run"

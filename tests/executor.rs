@@ -4,12 +4,12 @@
 //! the REAL SQLite backend, including a crash/restart (open a fresh AppState
 //! over the same on-disk store) to prove no work is lost or duplicated.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, EventType};
-use casting::executor::{self, Activity, ActivityKind, ActivityResult, ActivityRunner};
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::runtime::executor::{self, Activity, ActivityKind, ActivityResult, ActivityRunner};
 use casting::store::EventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -58,7 +58,7 @@ fn inline_activity(id: &str) -> Activity {
 }
 
 /// AppState over the given (already-constructed) store/cursors.
-fn state(store: Arc<dyn EventStore>, cursors: Arc<dyn casting::cursor::CursorStore>) -> AppState {
+fn state(store: Arc<dyn EventStore>, cursors: Arc<dyn casting::store::CursorStore>) -> AppState {
     AppState::new(store, cursors, "proj")
 }
 
@@ -87,7 +87,7 @@ impl RestartFixture {
 
     fn open(&self) -> AppState {
         let store: Arc<dyn EventStore> = Arc::new(SqliteEventStore::open(&self.db).unwrap());
-        let cursors: Arc<dyn casting::cursor::CursorStore> =
+        let cursors: Arc<dyn casting::store::CursorStore> =
             Arc::new(SqliteCursorStore::open(&self.cursors_db).unwrap());
         state(store, cursors)
     }

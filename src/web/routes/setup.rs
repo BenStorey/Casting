@@ -11,7 +11,7 @@ use serde::Deserialize;
 pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
     let proj = state.projection().unwrap_or_default();
     let has_cast = proj.agents.iter().any(|a| a.id != "pm");
-    let roles: Vec<serde_json::Value> = crate::cast::ROLE_CATALOG
+    let roles: Vec<serde_json::Value> = crate::workspace::ROLE_CATALOG
         .iter()
         .map(|r| {
             serde_json::json!({
@@ -52,7 +52,7 @@ pub(crate) async fn setup_handler(
     Json(input): Json<SetupIn>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let cast_roles: Vec<String> = if input.cast.is_empty() {
-        crate::cast::DEFAULT_CAST
+        crate::workspace::DEFAULT_CAST
             .iter()
             .map(|m| m.role_id.to_string())
             .collect()
@@ -60,7 +60,7 @@ pub(crate) async fn setup_handler(
         input.cast.clone()
     };
 
-    let hires = crate::setup::ensure_hires(&state, &cast_roles)
+    let hires = crate::workspace::setup::ensure_hires(&state, &cast_roles)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     // Persist the owner token + name so `cast run` picks up auth on restart.
@@ -72,19 +72,19 @@ pub(crate) async fn setup_handler(
         // still allowed (no prior token). Requires that a state dir has been
         // attached (as `cast run` does), so this mirrors exactly what will be
         // read back — there is no other persistence seam.
-        if let Some(existing) = crate::setup::read_config(dir)
+        if let Some(existing) = crate::workspace::setup::read_config(dir)
             .and_then(|cfg| cfg.owner_token)
             .filter(|t| !t.is_empty())
         {
             let replacing = owner_token.is_none_or(|incoming| incoming != existing);
-            if replacing && !crate::auth::authorized(&headers, &existing) {
+            if replacing && !crate::workspace::auth::authorized(&headers, &existing) {
                 return Err((
                     StatusCode::UNAUTHORIZED,
                     "refusing to replace owner token: current token required".into(),
                 ));
             }
         }
-        let _ = crate::setup::persist_config(dir, &input.name, owner_token);
+        let _ = crate::workspace::setup::persist_config(dir, &input.name, owner_token);
     }
 
     // Fire the owner's objective so onboarding produces the build plan.

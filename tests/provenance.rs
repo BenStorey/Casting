@@ -6,13 +6,13 @@
 //! → PM creates requirement + task → git branch + commit observed) and verify
 //! the provenance query functions can walk it in both directions.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType, Metadata};
-use casting::git_observer;
 use casting::projection::Projection;
-use casting::provenance;
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
+use casting::workspace::git_observer;
+use casting::workspace::provenance;
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo + an event store.
@@ -350,8 +350,11 @@ fn decision_audit_traces_to_owner_message_when_proposed_only() {
 
     let audit = provenance::for_decision(&store, "proj", "decision-1").unwrap();
     assert_eq!(audit.subject, "Database choice");
-    assert_eq!(audit.class, casting::policy::DecisionClass::Database);
-    assert_eq!(audit.involvement, casting::policy::OwnerInvolvement::Ask);
+    assert_eq!(audit.class, casting::pm::policy::DecisionClass::Database);
+    assert_eq!(
+        audit.involvement,
+        casting::pm::policy::OwnerInvolvement::Ask
+    );
     assert_eq!(audit.status, "proposed");
     assert_eq!(audit.proposed_by, "pm");
     assert_eq!(audit.decided_by, None);

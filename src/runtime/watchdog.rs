@@ -197,7 +197,7 @@ pub fn audit(state: &AppState, config: &WatchConfig, now: DateTime<Utc>) -> Resu
         return Ok(None);
     };
     let proj = state.projection()?;
-    if crate::guard::is_paused(&proj) {
+    if crate::pm::guard::is_paused(&proj) {
         // Already paused (owner or a previous watchdog fire) — leave it.
         return Ok(None);
     }

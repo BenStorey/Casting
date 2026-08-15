@@ -23,7 +23,10 @@ fn embedded_defaults_cover_all_assignable_catalog_roles() {
             .unwrap_or_else(|| panic!("no consultant bound to role {role}"));
         assert_eq!(c.role, role);
         assert!(!c.name.is_empty(), "role {role} consultant has a name");
-        assert!(!c.scope.is_empty(), "role {role} consultant carries a scope");
+        assert!(
+            !c.scope.is_empty(),
+            "role {role} consultant carries a scope"
+        );
         assert!(c.assignable, "role {role} must be assignable");
     }
 
@@ -92,7 +95,9 @@ fn routing_hints_rank_the_right_specialist_first() {
 
     // An adversarial security/scale review surfaces The Critic.
     let review: Vec<String> = reg
-        .specialists_for("review the payment endpoint for security at 10k requests and hostile input")
+        .specialists_for(
+            "review the payment endpoint for security at 10k requests and hostile input",
+        )
         .into_iter()
         .map(|c| c.id.to_string())
         .collect();
@@ -221,10 +226,10 @@ fn new_role_package_defines_and_exposes_a_role() {
 
 #[test]
 fn owner_can_hire_into_a_package_defined_role() {
-    use casting::cursor::SqliteCursorStore;
     use casting::pm::AppState;
     use casting::projection::Projection;
-    use casting::sqlite_store::SqliteEventStore;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
     use futures::FutureExt;
     use std::sync::Arc;
     use tower::ServiceExt;

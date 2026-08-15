@@ -5,12 +5,14 @@
 //! the model + context resolver; later tasks cover reducers and the gate.
 
 use casting::actions::PmAction;
-use casting::cursor::SqliteCursorStore;
-use casting::directive::{self, Directive, DirectiveKind, DirectiveStatus, DirectiveStrength};
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::runtime::directive::{
+    self, Directive, DirectiveKind, DirectiveStatus, DirectiveStrength,
+};
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
@@ -462,10 +464,13 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
     // It should appear as an open GovernanceChange decision (owner inbox).
     let proj = Projection::build(&state.store, "proj-dir").unwrap();
     let dec = proj.decisions.iter().find(|d| d.id == "dg-1").unwrap();
-    assert_eq!(dec.class, casting::policy::DecisionClass::GovernanceChange);
+    assert_eq!(
+        dec.class,
+        casting::pm::policy::DecisionClass::GovernanceChange
+    );
     assert_eq!(
         dec.involvement,
-        casting::policy::OwnerInvolvement::Ask,
+        casting::pm::policy::OwnerInvolvement::Ask,
         "governance change must route to the owner"
     );
 

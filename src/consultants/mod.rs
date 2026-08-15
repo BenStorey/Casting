@@ -270,7 +270,7 @@ impl ConsultantRegistry {
     /// consultant packages via `[consultant.new_role]`. This is the dynamic role
     /// set an owner can hire into (custom consultants carry their own roles).
     pub fn known_roles(&self) -> Vec<RoleInfo> {
-        let mut out: Vec<RoleInfo> = crate::cast::ROLE_CATALOG
+        let mut out: Vec<RoleInfo> = crate::workspace::ROLE_CATALOG
             .iter()
             .map(|r| RoleInfo {
                 id: r.id.to_string(),

@@ -118,11 +118,12 @@ impl ActivityRunner for WorkspaceRunner {
             ActivityKind::ProvisionWorktree {
                 task_id,
                 assignee,
-                slug,
+                slug: _,
                 slot,
                 port,
             } => {
-                self.ws.provision_persistent_worktree(assignee, *slot, task_id, *port)?;
+                self.ws
+                    .provision_persistent_worktree(assignee, *slot, task_id, *port)?;
                 Ok(ActivityResult::default())
             }
             ActivityKind::CommitWorktree { task_id, message } => {
@@ -165,7 +166,7 @@ fn is_terminated(state: &AppState, activity_id: &str) -> Result<bool> {
 /// rather than persisted to the append-only log (which can never be scrubbed).
 fn ensure_no_leaked_secrets(state: &AppState, activity: &Activity) -> Result<()> {
     if let Some(s) = &state.secrets {
-        crate::secrets::ensure_no_raw_secrets(s, activity)?;
+        crate::workspace::secrets::ensure_no_raw_secrets(s, activity)?;
     }
     Ok(())
 }
@@ -202,7 +203,7 @@ pub fn execute(
     // activity failed so it won't auto-re-dispatch while the guard still blocks.
     if !matches!(activity.kind, ActivityKind::Inline) {
         let proj = state.projection()?;
-        if let Err(reason) = crate::guard::llm_dispatch_allowed(&proj) {
+        if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(&proj) {
             let message = format!("guard blocked {}: {reason}", activity.id);
             state.append(build_event(
                 state,
@@ -260,7 +261,7 @@ fn guard_blocked(state: &AppState, activity: &Activity) -> Result<()> {
         return Ok(());
     }
     let proj = state.projection()?;
-    crate::guard::llm_dispatch_allowed(&proj)
+    crate::pm::guard::llm_dispatch_allowed(&proj)
         .map_err(|reason| anyhow!("guard blocked {}: {reason}", activity.id))
 }
 
@@ -269,7 +270,7 @@ fn guard_blocked(state: &AppState, activity: &Activity) -> Result<()> {
 /// attached.
 fn secret_preflight(state: &AppState, activity: &Activity) -> Result<()> {
     if let Some(s) = &state.secrets {
-        crate::secrets::ensure_no_raw_secrets(s, activity)?;
+        crate::workspace::secrets::ensure_no_raw_secrets(s, activity)?;
     }
     Ok(())
 }

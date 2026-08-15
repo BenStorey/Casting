@@ -22,11 +22,11 @@
 //! of blocking a caller forever, and `is_healthy()` exposes live-connection
 //! status.
 
-use crate::cursor::Cursor;
 use crate::event::{Actor, Aggregate, Event, Metadata};
 use crate::projection::Projection;
-use crate::snapshot::SnapshotStore;
+use crate::store::Cursor;
 use crate::store::EventStore;
+use crate::store::SnapshotStore;
 use anyhow::{anyhow, Result};
 use std::future::Future;
 use std::pin::Pin;
@@ -478,7 +478,7 @@ impl EventStore for PostgresBackend {
     }
 }
 
-impl crate::cursor::CursorStore for PostgresBackend {
+impl crate::store::CursorStore for PostgresBackend {
     fn get(&self, project_id: &str, consumer: &str) -> Result<Cursor> {
         let project_id = project_id.to_string();
         let consumer = consumer.to_string();

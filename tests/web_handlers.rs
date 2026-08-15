@@ -6,10 +6,10 @@
 //! paths. This is the HTTP layer's deep test — `web_boot.rs` only checks that
 //! routes are mounted and don't 5xx; here we inspect real payloads.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};

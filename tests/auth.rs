@@ -4,9 +4,9 @@
 //! configured auth is a no-op (backward compatible); when enabled, mutations
 //! require `Authorization: Bearer <token>`.
 
-use casting::cursor::SqliteCursorStore;
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -43,7 +43,7 @@ async fn post(app: &axum::Router, path: &str, body: &str, token: Option<&str>) -
 #[test]
 fn bearer_token_parses_and_constant_time_equality() {
     use axum::http::HeaderMap;
-    use casting::auth::{authorized, bearer_token};
+    use casting::workspace::auth::{authorized, bearer_token};
 
     let mut m = HeaderMap::new();
     m.insert(header::AUTHORIZATION, "Bearer sekret".parse().unwrap());

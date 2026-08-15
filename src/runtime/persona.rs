@@ -5,8 +5,8 @@
 //! and current tasks; it is never a separate source of truth. The event log +
 //! projection remain authoritative; this is a view.
 
-use crate::directive;
 use crate::projection::{Projection, TaskStatus};
+use crate::runtime::directive;
 use serde::Serialize;
 
 /// A friendly identity card for a hired agent, derived from their current work.

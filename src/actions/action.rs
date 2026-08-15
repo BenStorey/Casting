@@ -1,6 +1,6 @@
 //! The PM's structured action vocabulary — the typed unitary actions and the
 //! assignee model.
-use crate::policy::{DecisionClass, OwnerInvolvement};
+use crate::pm::{DecisionClass, OwnerInvolvement};
 use crate::projection::Projection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -127,7 +127,7 @@ pub enum PmAction {
     /// Change a task's priority (a plan mutation; reduces to TaskPriorityChanged).
     SetTaskPriority {
         task_id: String,
-        priority: crate::plan::Priority,
+        priority: crate::pm::plan::Priority,
     },
     /// Raise a first-class risk (semantic object, SEMANTIC_EVENTS §8).
     RaiseRisk {
@@ -207,10 +207,10 @@ pub enum PmAction {
     /// Create a governance directive (docs/INTENT.md). Owner/PM-authority only.
     CreateDirective {
         id: String,
-        kind: crate::directive::DirectiveKind,
+        kind: crate::runtime::directive::DirectiveKind,
         statement: String,
         scope: Vec<String>,
-        strength: crate::directive::DirectiveStrength,
+        strength: crate::runtime::directive::DirectiveStrength,
         supersedes: Option<String>,
     },
     /// Suspend a directive (stop it governing) — authority-gated.
@@ -237,10 +237,10 @@ pub enum PmAction {
     ProposeDirectiveChange {
         id: String,
         subject: String,
-        kind: crate::directive::DirectiveKind,
+        kind: crate::runtime::directive::DirectiveKind,
         statement: String,
         scope: Vec<String>,
-        strength: crate::directive::DirectiveStrength,
+        strength: crate::runtime::directive::DirectiveStrength,
         supersedes: Option<String>,
     },
     /// An agent raises a noticed observation (the feedback loop).

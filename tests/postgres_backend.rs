@@ -5,11 +5,11 @@
 //! (or a default localhost config). Skipped when Postgres is unreachable so the
 //! suite stays green on machines without it.
 
-use casting::cursor::CursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::postgres_store::PostgresBackend;
-use casting::snapshot::SnapshotStore;
+use casting::store::CursorStore;
 use casting::store::EventStore;
+use casting::store::PostgresBackend;
+use casting::store::SnapshotStore;
 
 fn pg_url() -> Option<String> {
     // Allow override; default to the dev/test Postgres (docker on :55432).

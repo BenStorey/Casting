@@ -80,7 +80,7 @@ pub struct Task {
     pub merge_authority: MergeAuthority,
     /// Current priority, reduced from `TaskPriorityChanged` events
     /// (defaults to Medium). Per docs/SEMANTIC_EVENTS.md this is derived state.
-    pub priority: crate::plan::Priority,
+    pub priority: crate::pm::plan::Priority,
     /// The review verdict (some once the task has passed through InReview).
     pub review: Option<TaskReview>,
     /// The id of the task this one was decomposed from (parallel-work parent).
@@ -124,8 +124,8 @@ pub struct Decision {
     pub options: serde_json::Value,
     pub recommendation: Option<String>,
     pub status: DecisionStatus,
-    pub class: crate::policy::DecisionClass,
-    pub involvement: crate::policy::OwnerInvolvement,
+    pub class: crate::pm::policy::DecisionClass,
+    pub involvement: crate::pm::policy::OwnerInvolvement,
     /// Who decided this (Owner or an agent) once `DecisionMade` is recorded.
     pub decided_by: Option<String>,
     /// The decision that superseded this one, if any (history preserved).

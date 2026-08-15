@@ -610,7 +610,7 @@ mod tests {
             status,
             assignee: None,
             merge_authority: crate::types::MergeAuthority::default(),
-            priority: crate::plan::Priority::default(),
+            priority: crate::pm::plan::Priority::default(),
             review: None,
             parent_id: None,
         }

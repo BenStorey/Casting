@@ -1,53 +1,18 @@
-//! Casting — headless core, slice one.
+//! Casting — the autonomous software company in a box.
 //!
-//! This is the smallest LLM-free foundation everything else bolts onto:
-//!
-//! - `event`: typed domain events (append-only history is the source of truth)
-//! - `store` + `sqlite_store`: append-only event persistence, read-by-sequence
-//! - `cursor`: durable per-consumer position in the event history
-//!
-//! See docs/ADDENDUM.md (PM control loop, Git/provenance) and
-//! docs/PM_INVOCATION_TRIGGERS.md (wake/act) for the surrounding design.
+//! Core slice: project lifecycle, typed domain events, event-sourced
+//! projections, persistence backends, PM control loop, agent runtime,
+//! git/provenance integration, web API, and LLM wiring seam.
 
 pub mod actions;
-pub mod auth;
-pub mod backend;
-pub mod cast;
-pub mod channel;
 pub mod consultants;
-pub mod context;
-pub mod cursor;
-pub mod directive;
-pub mod event;
-pub mod executor;
-pub mod git_observer;
-pub mod graph;
-pub mod guard;
-pub mod integrity;
 pub mod llm;
-pub mod mental;
-pub mod orchestrator;
-pub mod persona;
-pub mod plan;
-pub mod planning;
-pub mod pm;
-pub mod policy;
-pub mod port;
-pub mod postgres_store;
-pub mod projection;
-pub mod provenance;
-pub mod reconciler;
-pub mod replay;
-pub mod repo_metrics;
-pub mod secrets;
-pub mod setup;
-pub mod snapshot;
-pub mod sqlite_store;
-pub mod store;
-pub mod telegram;
-pub mod triage;
-pub mod types;
-pub mod wake;
-pub mod watchdog;
 pub mod web;
+
+pub mod event;
+pub mod pm;
+pub mod projection;
+pub mod runtime;
+pub mod store;
+pub mod types;
 pub mod workspace;

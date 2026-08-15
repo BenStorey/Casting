@@ -11,11 +11,11 @@
 //! Building the router is itself the assertion that the route table is valid;
 //! the `oneshot` requests verify the endpoints actually answer.
 
-use casting::cursor::SqliteCursorStore;
+use casting::pm::policy::{DecisionClass, OwnerInvolvement};
 use casting::pm::AppState;
-use casting::policy::{DecisionClass, OwnerInvolvement};
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};

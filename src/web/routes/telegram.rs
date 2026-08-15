@@ -36,7 +36,7 @@ pub(crate) async fn telegram_configure_handler(
     let pm_name = "Sarah Chen";
     let pm_desc = "Your Casting Project Manager. Tell me what to build and I'll run the company.";
 
-    let outcome = crate::telegram::configure(&token, pm_name, pm_desc, "")
+    let outcome = crate::runtime::telegram::configure(&token, pm_name, pm_desc, "")
         .await
         .map_err(|e| {
             (
@@ -50,11 +50,11 @@ pub(crate) async fn telegram_configure_handler(
     let started = match outcome.chat_id {
         Some(chat_id) => {
             if let Some(dir) = &state.state_dir {
-                let _ = crate::setup::persist_telegram_config(dir, &token, chat_id);
+                let _ = crate::workspace::setup::persist_telegram_config(dir, &token, chat_id);
             }
-            crate::telegram::replace_loop(
+            crate::runtime::telegram::replace_loop(
                 &state,
-                crate::telegram::TelegramConfig::from_pieces(&token, chat_id),
+                crate::runtime::telegram::TelegramConfig::from_pieces(&token, chat_id),
             )
         }
         None => false,
@@ -79,7 +79,7 @@ pub(crate) async fn telegram_status_handler(
         .telegram_started
         .load(std::sync::atomic::Ordering::SeqCst);
     let (chat_id, name, username) = match &state.state_dir {
-        Some(dir) => match crate::setup::read_config(dir) {
+        Some(dir) => match crate::workspace::setup::read_config(dir) {
             Some(cfg) => (cfg.telegram_chat_id, None::<String>, None::<String>),
             None => (None, None, None),
         },

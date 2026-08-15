@@ -4,12 +4,12 @@
 //! Routing + anti-thrash are deterministic unit tests. The advisor reply uses a
 //! local stub chat/completions server (no live key, CI-safe).
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::llm::{LlmOrchestrator, ModelResolver, ProviderConfig};
-use casting::orchestrator::Orchestrator as _;
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::runtime::orchestrator::Orchestrator as _;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -207,7 +207,7 @@ model_id = "cheap-model"
     let orch = LlmOrchestrator::new(base_cfg(), "PM".into()).with_resolver(resolver);
 
     // Plan for actor "marcus-reed" with a throwaway cause.
-    let ctx = casting::context::AgentContext {
+    let ctx = casting::runtime::context::AgentContext {
         actor: "marcus-reed".into(),
         ..Default::default()
     };
@@ -305,7 +305,7 @@ async fn advisor_reply_stays_isolated_from_pm_context() {
 
 #[test]
 fn advisor_context_summary_curates_high_level_state() {
-    use casting::context::AgentContext;
+    use casting::runtime::context::AgentContext;
     let ctx = AgentContext {
         actor: "advisor".into(),
         objective: Some("Ship the CLI".into()),
@@ -353,7 +353,7 @@ async fn advisor_reply_builds_grounding_into_system_prompt() {
     let mut cfg = base_cfg();
     cfg.base_url = format!("http://{addr}/v1");
     let resolver = ModelResolver::new(cfg, Default::default());
-    let ctx = casting::context::AgentContext {
+    let ctx = casting::runtime::context::AgentContext {
         objective: Some("Ship the CLI".into()),
         ..Default::default()
     };
@@ -422,7 +422,7 @@ max_tokens = 500
     let registry = registry_with_model(&pkg, "You are Temp.");
     let resolver = ModelResolver::new(cfg, registry);
     let orch = LlmOrchestrator::new(base_cfg(), "PM".into()).with_resolver(resolver);
-    let ctx = casting::context::AgentContext {
+    let ctx = casting::runtime::context::AgentContext {
         actor: "temp-guy".into(),
         ..Default::default()
     };
@@ -472,7 +472,10 @@ temperature = 0.2
 
     // The embedded PM package now binds pm to its own model (2026-08-14 cast).
     let pm = resolver.resolve("pm");
-    assert_ne!(pm.config.model, "default-model", "pm ships a consultant binding");
+    assert_ne!(
+        pm.config.model, "default-model",
+        "pm ships a consultant binding"
+    );
     assert_eq!(pm.config.model, "anthropic/claude-sonnet-5");
 }
 
@@ -515,8 +518,8 @@ fn propose_decision(subject: &str) -> casting::actions::PmAction {
         subject: subject.into(),
         options: json!({"A": "x"}),
         recommendation: "A".into(),
-        class: casting::policy::DecisionClass::InternalImplementation,
-        involvement: casting::policy::OwnerInvolvement::Pm,
+        class: casting::pm::policy::DecisionClass::InternalImplementation,
+        involvement: casting::pm::policy::OwnerInvolvement::Pm,
     }
 }
 
@@ -928,7 +931,7 @@ fn pm_context_carries_advisory_briefings() {
 
 #[test]
 fn advisor_grounding_includes_prior_briefings() {
-    use casting::context::AgentContext;
+    use casting::runtime::context::AgentContext;
     let ctx = AgentContext {
         actor: "advisor".into(),
         advisory_briefings: vec!["[advisory · advisor] Open-core: go open-core".into()],

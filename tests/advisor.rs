@@ -3,11 +3,11 @@
 //! design until an explicit handoff, which becomes an AdvisoryBriefing the PM
 //! reads (provenanced "advisor").
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

@@ -83,7 +83,7 @@ impl SqliteCursorStore {
     }
 }
 
-impl crate::cursor::CursorStore for SqliteCursorStore {
+impl crate::store::CursorStore for SqliteCursorStore {
     fn get(&self, project_id: &str, consumer: &str) -> Result<Cursor> {
         let conn = self.conn.lock().unwrap();
         let last_seen: Option<i64> = conn

@@ -3,11 +3,11 @@
 //! inform but never sets rules. Covers the event/projection path, the gate
 //! action, and the /api/brief endpoint.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::{BriefingStatus, Projection};
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

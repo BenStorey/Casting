@@ -15,7 +15,7 @@ pub(crate) async fn require_auth(
     next: Next,
 ) -> Response {
     if let Some(expected) = state.auth_token.clone() {
-        if !crate::auth::authorized(req.headers(), &expected) {
+        if !crate::workspace::auth::authorized(req.headers(), &expected) {
             return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
         }
     }
@@ -34,7 +34,9 @@ pub(crate) async fn login_handler(
     Json(input): Json<LoginIn>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.auth_token.as_deref() {
-        Some(expected) if crate::auth::authorized(&fake_headers_with(&input.token), expected) => {
+        Some(expected)
+            if crate::workspace::auth::authorized(&fake_headers_with(&input.token), expected) =>
+        {
             Ok(Json(serde_json::json!({ "ok": true })))
         }
         // If auth is disabled entirely, any token is accepted (nothing to guard).

@@ -1,7 +1,7 @@
 //! Mapping a validated action into the ordered domain events (with provenance).
 use super::action::PmAction;
 use crate::event::{Actor, Aggregate, Event, EventType, Metadata};
-use crate::policy::DecisionClass;
+use crate::pm::DecisionClass;
 use serde_json::{json, Value};
 
 impl PmAction {
@@ -372,9 +372,9 @@ impl PmAction {
                 labels,
                 url,
             } => {
-                // Deterministic triage — single source of truth in crate::triage
+                // Deterministic triage — single source of truth in crate::pm::triage
                 // (also used by Projection::triage_request, so they can't drift).
-                let (classification, severity) = crate::triage::classify(title, body, labels);
+                let (classification, severity) = crate::pm::triage::classify(title, body, labels);
                 vec![ev(
                     project,
                     actor,
@@ -545,8 +545,8 @@ impl PmAction {
                         },
                     }),
                     "recommendation": format!("Approve governance change: {subject}"),
-                    "class": crate::policy::DecisionClass::GovernanceChange,
-                    "involvement": crate::policy::OwnerInvolvement::Ask,
+                    "class": crate::pm::DecisionClass::GovernanceChange,
+                    "involvement": crate::pm::OwnerInvolvement::Ask,
                 }),
                 meta,
             )],

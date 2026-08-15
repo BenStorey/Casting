@@ -6,12 +6,12 @@
 //! hardcoded default — the owner's per-class autonomy configuration is part of
 //! the append-only event log and is *actually enforced* by the gate.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Event, EventType};
+use casting::pm::policy::{DecisionClass, OwnerInvolvement};
 use casting::pm::AppState;
-use casting::policy::{DecisionClass, OwnerInvolvement};
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

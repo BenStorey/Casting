@@ -1,10 +1,10 @@
 //! Integration tests for the headless core: event store + cursor.
 //! These exercise the real SQLite backend end-to-end.
 
-use casting::cursor::{CursorStore, SqliteCursorStore};
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteEventStore;
+use casting::store::{CursorStore, SqliteCursorStore};
 
 fn sample_event(project: &str, seq_data_extra: i64) -> Event {
     Event::new(

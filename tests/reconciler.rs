@@ -6,13 +6,13 @@
 //! same-subject opinion contradictions, and emits SupersedeOpinion through the
 //! gate.
 
-use casting::cursor::{CursorStore, SqliteCursorStore};
 use casting::event::{Actor, Aggregate, Event, EventType};
+use casting::pm::reconciler;
 use casting::pm::AppState;
 use casting::projection::{OpinionStatus, Projection};
-use casting::reconciler;
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteEventStore;
+use casting::store::{CursorStore, SqliteCursorStore};
 
 fn state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
@@ -115,11 +115,19 @@ fn reconciler_supersedes_false_duplicates_and_advances_cursor() {
         "op-a1 must have an archive record"
     );
     assert_eq!(
-        proj.opinions.iter().find(|o| o.id == "op-a2").unwrap().status,
+        proj.opinions
+            .iter()
+            .find(|o| o.id == "op-a2")
+            .unwrap()
+            .status,
         OpinionStatus::Active
     );
     assert_eq!(
-        proj.opinions.iter().find(|o| o.id == "op-b").unwrap().status,
+        proj.opinions
+            .iter()
+            .find(|o| o.id == "op-b")
+            .unwrap()
+            .status,
         OpinionStatus::Active
     );
 
@@ -166,12 +174,28 @@ fn run_if_due_only_fires_after_interval() {
     assert_eq!(edited, 4);
     let proj = Projection::build(&st.store, &st.project).unwrap();
     // op-1 and op-2 were superseded and archived (removed from active opinions).
-    assert!(!proj.opinions.iter().any(|o| o.id == "op-1"), "op-1 archived");
-    assert!(!proj.opinions.iter().any(|o| o.id == "op-2"), "op-2 archived");
-    assert!(proj.archived.iter().any(|a| a.entity_id == "op-1"), "op-1 archive record");
-    assert!(proj.archived.iter().any(|a| a.entity_id == "op-2"), "op-2 archive record");
+    assert!(
+        !proj.opinions.iter().any(|o| o.id == "op-1"),
+        "op-1 archived"
+    );
+    assert!(
+        !proj.opinions.iter().any(|o| o.id == "op-2"),
+        "op-2 archived"
+    );
+    assert!(
+        proj.archived.iter().any(|a| a.entity_id == "op-1"),
+        "op-1 archive record"
+    );
+    assert!(
+        proj.archived.iter().any(|a| a.entity_id == "op-2"),
+        "op-2 archive record"
+    );
     assert_eq!(
-        proj.opinions.iter().find(|o| o.id == "op-3").unwrap().status,
+        proj.opinions
+            .iter()
+            .find(|o| o.id == "op-3")
+            .unwrap()
+            .status,
         OpinionStatus::Active
     );
 }
@@ -216,7 +240,11 @@ fn passes_are_pluggable_and_custom_pass_runs() {
     let edited = reconciler::run_if_due(&st).unwrap();
     // The counting pass appended exactly one marker; opinion drift collapsed
     // 3 same-subject opinions (op-a->op-b, op-b->op-c = 2 supersedions).
-    assert_eq!(edited, 1 + 2 + 2, "custom pass + opinion drift + archive pass");
+    assert_eq!(
+        edited,
+        1 + 2 + 2,
+        "custom pass + opinion drift + archive pass"
+    );
 
     // The marker event is present in the log — this is what proves the custom
     // pass ran (only it appends ObservationCreated/"marker-1").

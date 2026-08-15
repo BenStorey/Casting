@@ -95,9 +95,8 @@ impl ModelResolver {
                 let primary = consultant.primary_model();
                 let temp = primary.and_then(|m| m.temperature);
                 let max = primary.and_then(|m| m.max_tokens);
-                let (in_price, out_price) = tier_prices(
-                    primary.map(|m| m.cost_tier).unwrap_or_default(),
-                );
+                let (in_price, out_price) =
+                    tier_prices(primary.map(|m| m.cost_tier).unwrap_or_default());
                 match primary.and_then(|m| model_from_consultant(m, &self.base)) {
                     Some(config) => ResolvedModel {
                         config,

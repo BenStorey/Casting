@@ -3,8 +3,8 @@
 //! Blocker-Test hard dependency (ordering), and starts only the READY children —
 //! the hard-blocked child stays queued until the gate sees its blocker complete.
 
-use casting::cursor::CursorStore as _;
 use casting::pm::AppState;
+use casting::store::CursorStore as _;
 use casting::store::EventStore as _;
 use std::time::Duration;
 
@@ -48,8 +48,8 @@ fn seed(state: &AppState) {
 
 #[tokio::test]
 async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
-    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let store = casting::store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     let state = AppState::new(store, cursors, "proj")
         .with_step_delay(Duration::ZERO)
         .with_decompose();
@@ -144,8 +144,8 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
 async fn default_onboard_without_decompose_stays_flat() {
     // Regression guard: with decompose off, the canonical flow is unchanged —
     // no feature children are fanned out.
-    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let store = casting::store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     let state = AppState::new(store, cursors, "proj").with_step_delay(Duration::ZERO);
     seed(&state);
 

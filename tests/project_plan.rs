@@ -5,12 +5,12 @@
 //! `ProjectPlan` are deterministic state. This is the first dogfooding artifact
 //! (our own roadmap would become this derived state, not `.md`).
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Event, EventType};
-use casting::plan::{PlannedItem, Priority, ProjectPlan};
+use casting::pm::plan::{PlannedItem, Priority, ProjectPlan};
 use casting::pm::AppState;
 use casting::projection::{Projection, TaskStatus};
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

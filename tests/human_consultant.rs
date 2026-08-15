@@ -2,11 +2,11 @@
 //! a task can be assigned to the OWNER (the human), who executes and delivers
 //! it (possibly working through their own harness). Distinct from hired agents.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::{Projection, TaskStatus};
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

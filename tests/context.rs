@@ -3,11 +3,11 @@
 //! Combines projection + plan + governance + risks + decisions into a targeted
 //! per-agent operating context, filtered by governance scope. Pure derivation.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

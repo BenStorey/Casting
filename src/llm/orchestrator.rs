@@ -1,13 +1,13 @@
-//! The real LLM orchestrator: implements [`crate::orchestrator::Orchestrator`]
+//! The real LLM orchestrator: implements [`crate::runtime::orchestrator::Orchestrator`]
 //! by calling an OpenAI-compatible chat/completions endpoint and parsing the
 //! model's reply back into validated `PmAction`s.
 
 use crate::actions::PmAction;
-use crate::context::AgentContext;
 use crate::event::Event;
 use crate::llm::client::{ChatMessage, ChatRequest, OpenAiClient};
 use crate::llm::config::ProviderConfig;
-use crate::orchestrator::{CostMetering, Orchestrator, PlanOutput};
+use crate::runtime::context::AgentContext;
+use crate::runtime::orchestrator::{CostMetering, Orchestrator, PlanOutput};
 use anyhow::Result;
 
 /// The real provider orchestrator.

@@ -2,11 +2,11 @@
 //! saved DIRECTLY from the tldraw editor as a durable, reloadable visual
 //! artifact — no export/re-upload. DiagramSaved event + projection + endpoint.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

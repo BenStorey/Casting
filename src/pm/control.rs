@@ -15,7 +15,7 @@
 
 use crate::actions::{self, PmAction};
 use crate::event::{Actor, Event, EventType};
-use crate::planning::{plan_acknowledge, plan_onboard, plan_owner_decision};
+use crate::pm::planning::{plan_acknowledge, plan_onboard, plan_owner_decision};
 use crate::projection::Projection;
 use crate::store::EventStore;
 use anyhow::Result;
@@ -42,20 +42,20 @@ pub type PlannedAction = (String, PmAction);
 #[derive(Clone)]
 pub struct AppState {
     pub store: Arc<dyn crate::store::EventStore>,
-    pub cursors: Arc<dyn crate::cursor::CursorStore>,
+    pub cursors: Arc<dyn crate::store::CursorStore>,
     pub project: String,
     /// Optional projection snapshot store (SEMANTIC_EVENTS §18). When present,
     /// projections are built from snapshot + tail (an optimization, never a
     /// source of truth); when None, the full log is folded. Optional so tests
     /// and simple runs need no snapshot store.
-    pub snapshots: Option<Arc<dyn crate::snapshot::SnapshotStore>>,
+    pub snapshots: Option<Arc<dyn crate::store::SnapshotStore>>,
     /// Pause inserted between appended events so the UI animates the company
     /// working. Zero in tests for speed. (brief §35)
     pub step_delay: Duration,
     /// Optional D2 orchestrator. When present, the PM routes new owner messages
     /// through it (instead of the scripted plan) — the LLM seam. **Off by
     /// default**: the real provider stays unplugged until the owner enables it.
-    pub orchestrator: Option<Arc<dyn crate::orchestrator::Orchestrator>>,
+    pub orchestrator: Option<Arc<dyn crate::runtime::orchestrator::Orchestrator>>,
     /// When true, `append` enforces write-time stream integrity (events can't
     /// be appended without their precondition). Opt-in so fixtures/tests that
     /// hand-append bare events keep working.
@@ -73,7 +73,7 @@ pub struct AppState {
     /// The reconciliation passes registered on the cursor-gated cadence
     /// (2026-08-12, pluggable). Defaults to opinion-drift + stale-worktree
     /// prune; add new pass TYPES here without touching the loop.
-    pub reconcile_passes: Vec<Arc<dyn crate::reconciler::ReconcilePass>>,
+    pub reconcile_passes: Vec<Arc<dyn crate::pm::reconciler::ReconcilePass>>,
     /// The workspace (set by `cast run`). Lets the PM physically provision
     /// worktrees (git worktree add) when a consultant is summoned. `None` in
     /// tests without a real repo.
@@ -87,7 +87,7 @@ pub struct AppState {
     /// The per-project secret store (2026-08-13). `None` when unset (local
     /// runs / tests). When present, the executor refuses to schedule/execute an
     /// activity that embeds a raw secret value (the no-secret-in-log invariant).
-    pub secrets: Option<Arc<crate::secrets::SecretStore>>,
+    pub secrets: Option<Arc<crate::workspace::secrets::SecretStore>>,
     /// The loaded consultant registry (2026-08-13): the curated embedded
     /// defaults overlaid by any user packages in `<project>/.casting/consultants/`.
     /// Answers "what consultants exist + what are they configured to do" for the
@@ -97,7 +97,7 @@ pub struct AppState {
     /// for owner messaging (Telegram reference adapter). `NoopChannel` by
     /// default — a pipe to nowhere, off until configured. Never authoritative;
     /// the event log / projection stay the only truth.
-    pub channel: Arc<dyn crate::channel::OwnerChannel>,
+    pub channel: Arc<dyn crate::runtime::channel::OwnerChannel>,
     /// Guards against double-spawning the Telegram run loop (2026-08-14): it
     /// can be started from boot env OR from the UI `POST /api/telegram/configure`,
     /// but must run exactly once. Set the first time a channel is attached.
@@ -113,7 +113,7 @@ impl AppState {
     pub fn new<S, C>(store: S, cursors: C, project: impl Into<String>) -> Self
     where
         S: crate::store::EventStore + 'static,
-        C: crate::cursor::CursorStore + 'static,
+        C: crate::store::CursorStore + 'static,
     {
         let (tx, _) = broadcast::channel(1024);
         AppState {
@@ -127,7 +127,7 @@ impl AppState {
             auth_token: None,
             state_dir: None,
             reconcile_interval: 25,
-            reconcile_passes: crate::reconciler::default_passes(),
+            reconcile_passes: crate::pm::reconciler::default_passes(),
             workspace: None,
             decompose: false,
             secrets: None,
@@ -137,7 +137,7 @@ impl AppState {
             consultants: Arc::new(
                 crate::consultants::ConsultantRegistry::from_embedded().unwrap_or_default(),
             ),
-            channel: Arc::new(crate::channel::NoopChannel),
+            channel: Arc::new(crate::runtime::channel::NoopChannel),
             telegram_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             telegram_handle: Arc::new(std::sync::Mutex::new(None)),
             events: Arc::new(tx),
@@ -153,7 +153,10 @@ impl AppState {
 
     /// Builder-style: add a reconciliation pass (2026-08-12). Reconciliation is
     /// pluggable — append new pass types without touching the loop.
-    pub fn with_reconcile_pass(mut self, pass: Arc<dyn crate::reconciler::ReconcilePass>) -> Self {
+    pub fn with_reconcile_pass(
+        mut self,
+        pass: Arc<dyn crate::pm::reconciler::ReconcilePass>,
+    ) -> Self {
         self.reconcile_passes.push(pass);
         self
     }
@@ -166,7 +169,7 @@ impl AppState {
     }
 
     /// Builder-style: enable projection snapshots for this AppState.
-    pub fn with_snapshots<T: crate::snapshot::SnapshotStore + 'static>(
+    pub fn with_snapshots<T: crate::store::SnapshotStore + 'static>(
         mut self,
         snapshots: T,
     ) -> Self {
@@ -176,7 +179,7 @@ impl AppState {
 
     /// Builder-style: attach the owner-facing external channel (Telegram
     /// reference adapter). `NoopChannel` by default.
-    pub fn with_channel(mut self, channel: Arc<dyn crate::channel::OwnerChannel>) -> Self {
+    pub fn with_channel(mut self, channel: Arc<dyn crate::runtime::channel::OwnerChannel>) -> Self {
         self.channel = channel;
         self
     }
@@ -184,7 +187,7 @@ impl AppState {
     /// Builder-style: enable the D2 orchestrator (the LLM seam). Off by default.
     pub fn with_orchestrator(
         mut self,
-        orchestrator: Arc<dyn crate::orchestrator::Orchestrator>,
+        orchestrator: Arc<dyn crate::runtime::orchestrator::Orchestrator>,
     ) -> Self {
         self.orchestrator = Some(orchestrator);
         self
@@ -206,7 +209,7 @@ impl AppState {
     /// Builder-style: attach the per-project secret store (2026-08-13). The
     /// executor then refuses to schedule/execute an activity that embeds a raw
     /// secret value (the no-secret-in-log invariant).
-    pub fn with_secrets(mut self, secrets: crate::secrets::SecretStore) -> Self {
+    pub fn with_secrets(mut self, secrets: crate::workspace::secrets::SecretStore) -> Self {
         self.secrets = Some(Arc::new(secrets));
         self
     }
@@ -293,7 +296,7 @@ impl AppState {
     pub fn projection(&self) -> anyhow::Result<Projection> {
         match &self.snapshots {
             Some(snaps) => {
-                let proj = crate::snapshot::build_from(&self.store, snaps, &self.project)?;
+                let proj = crate::store::build_from(&self.store, snaps, &self.project)?;
                 let seq = self.store.latest_sequence(&self.project)?;
                 let stale = snaps
                     .load(&self.project)
@@ -330,7 +333,7 @@ impl AppState {
     pub fn append(&self, event: Event) -> Result<Event> {
         if self.enforce_integrity {
             let proj = Projection::build(&self.store, &self.project)?;
-            crate::integrity::check_append(&proj, &event)?;
+            crate::event::integrity::check_append(&proj, &event)?;
         }
         let stored = self.store.append(event)?;
         // Ignore send errors: nobody listening just means no one cares yet.
@@ -344,7 +347,7 @@ impl AppState {
 /// On each drain it also runs the git observer so new branches/commits become
 /// semantic events before the PM reasons (Git slice increment 2).
 ///
-/// WAKE ≠ ACT (docs/PM_INVOCATION_TRIGGERS.md, tiers in `crate::wake`): the
+/// WAKE ≠ ACT (docs/PM_INVOCATION_TRIGGERS.md, tiers in `crate::runtime::wake`): the
 /// expensive ACT path (observe + drain + respond + reconciler) only runs when a
 /// Tier-0/1 interrupt arrives OR the quiet window elapses. A lone Tier-2
 /// (batch) event defers — the cursor keeps accumulating, and a later interrupt
@@ -361,8 +364,8 @@ pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
         // with no quiet window defers.
         let act = match wake {
             Ok(Ok(ev)) => {
-                let tier = crate::wake::tier_of(ev.event_type);
-                tier != crate::wake::WakeTier::Batch
+                let tier = crate::runtime::wake::tier_of(ev.event_type);
+                tier != crate::runtime::wake::WakeTier::Batch
             }
             // Timeout (nothing arrived in the window) or lagged-broadcast → the
             // quiet window elapsed; flush accumulated batch events.
@@ -370,12 +373,12 @@ pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
         };
         if act {
             // Observe the repo first — new commits become events the PM can react to.
-            crate::git_observer::observe_once(&state, &ws).await;
+            crate::workspace::git_observer::observe_once(&state, &ws).await;
             if let Err(e) = drain(&state).await {
                 eprintln!("[pm] drain error: {e:#}");
             }
             // Drift reconciliation: every N events, run every registered pass.
-            if let Err(e) = crate::reconciler::run_if_due(&state) {
+            if let Err(e) = crate::pm::reconciler::run_if_due(&state) {
                 eprintln!("[pm] reconciler error: {e:#}");
             }
         }
@@ -426,7 +429,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
         // scripted paths return actions only. Normalize to (actions, metering).
         let (planned, metering): (
             Vec<PlannedAction>,
-            Option<crate::orchestrator::CostMetering>,
+            Option<crate::runtime::orchestrator::CostMetering>,
         ) = if is_owner_message {
             // D2 seam: if an orchestrator is enabled, let IT drive the
             // response (the LLM, or the mock in tests). Otherwise use the
@@ -436,7 +439,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 // sits OUTSIDE the PM. If work is paused or the budget is
                 // exhausted, do NOT issue the provider call (no spend) and skip
                 // planning entirely.
-                if let Err(reason) = crate::guard::llm_dispatch_allowed(projection) {
+                if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(projection) {
                     eprintln!("[pm] guard blocked LLM dispatch: {reason}");
                     (Vec::new(), None)
                 } else {
@@ -454,19 +457,19 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                         Err(err) => {
                             eprintln!("[pm] orchestrator error: {err:#}");
                             planning_failed = true;
-                            let _ = state.append(crate::planning::orchestration_run_event(
+                            let _ = state.append(crate::pm::planning::orchestration_run_event(
                                 &state.project,
                                 &correlation,
                                 serde_json::json!({
                                     "trigger": format!("{:?}", e.event_type),
                                     "actor": "pm",
                                     "correlation": correlation.clone(),
-                                    "context_summary": crate::context::summary(&context),
+                                    "context_summary": crate::runtime::context::summary(&context),
                                     "error": format!("{err:#}"),
                                     "metered": false,
                                 }),
                             ));
-                            crate::orchestrator::PlanOutput::default()
+                            crate::runtime::orchestrator::PlanOutput::default()
                         }
                     };
                     // Audit the planning pass ONLY if it didn't already emit the
@@ -480,14 +483,14 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                             })
                             .collect::<Vec<_>>();
                         let m = out.metering.as_ref();
-                        let _ = state.append(crate::planning::orchestration_run_event(
+                        let _ = state.append(crate::pm::planning::orchestration_run_event(
                             &state.project,
                             &correlation,
                             serde_json::json!({
                                 "trigger": format!("{:?}", e.event_type),
                                 "actor": "pm",
                                 "correlation": correlation.clone(),
-                                "context_summary": crate::context::summary(&context),
+                                "context_summary": crate::runtime::context::summary(&context),
                                 "planned": planned_strs,
                                 "metered": m.is_some(),
                                 "metering_agent": m.map(|x| x.agent_id.clone()),
@@ -590,7 +593,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                 // (esp. the real LLM) is visible in the UI/stream, not just
                 // stderr. Serialized PmAction + reason => exactly what was
                 // attempted and why it was refused.
-                let _ = state.append(crate::planning::plan_rejected_event(
+                let _ = state.append(crate::pm::planning::plan_rejected_event(
                     &state.project,
                     &correlation,
                     serde_json::json!({
@@ -635,10 +638,12 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             // (pause / budget / secret gates all apply), instead of inline hooks.
             // The WorkspaceRunner makes the already-appended intent physical. No
             // workspace attached (tests) → intent recorded, no physical op.
-            if let Some(activity) = crate::executor::workspace_activity_for(&event) {
+            if let Some(activity) = crate::runtime::executor::workspace_activity_for(&event) {
                 if let Some(ws) = state.workspace.clone() {
-                    let runner = crate::executor::WorkspaceRunner::new(ws);
-                    if let Err(e) = crate::executor::run_side_effect(state, &runner, &activity) {
+                    let runner = crate::runtime::executor::WorkspaceRunner::new(ws);
+                    if let Err(e) =
+                        crate::runtime::executor::run_side_effect(state, &runner, &activity)
+                    {
                         eprintln!("[pm] workspace side-effect failed: {e:#}");
                         // Align the projection with physical reality: a
                         // WorktreeProvisioned whose physical `git worktree`
@@ -682,7 +687,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                     | crate::event::EventType::ChangeSetReady
                     | crate::event::EventType::MergeCompleted
             ) {
-                if let Err(e) = crate::reconciler::prune_worktrees(state) {
+                if let Err(e) = crate::pm::reconciler::prune_worktrees(state) {
                     eprintln!("[pm] write-time worktree prune failed: {e:#}");
                 }
             }

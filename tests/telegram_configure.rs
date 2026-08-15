@@ -4,8 +4,8 @@
 //! (getMe + setMyName/setMyDescription + getUpdates) and the merge-based
 //! config persistence — no live bot, no network, CI-safe.
 
-use casting::setup::{persist_telegram_config, read_config, RuntimeConfig};
-use casting::telegram;
+use casting::runtime::telegram;
+use casting::workspace::setup::{persist_telegram_config, read_config, RuntimeConfig};
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

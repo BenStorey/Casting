@@ -2,18 +2,10 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build",
+      "label": "Build (Rust only)",
       "type": "shell",
       "command": "cargo build",
       "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": ["$rustc"],
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
-    },
-    {
-      "label": "Build (release)",
-      "type": "shell",
-      "command": "cargo build --release",
-      "group": "build",
       "problemMatcher": ["$rustc"],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
@@ -22,14 +14,6 @@
       "type": "shell",
       "command": "cargo test",
       "group": { "kind": "test", "isDefault": true },
-      "problemMatcher": ["$rustc"],
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
-    },
-    {
-      "label": "Test (single) — prompt for test name",
-      "type": "shell",
-      "command": "cargo test ${input:testFilter}",
-      "group": "test",
       "problemMatcher": ["$rustc"],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
@@ -50,50 +34,44 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Run cast smoke test",
+      "label": "Start All",
+      "detail": "Build Rust + SPA, then launch cast run (:8080) and Vite HMR (:5173). Ctrl-C to stop both.",
       "type": "shell",
-      "command": "rm -rf .tmp-demo && ./target/debug/cast init .tmp-demo/demo-project && ./target/debug/cast smoke .tmp-demo/demo-project && ./target/debug/cast smoke .tmp-demo/demo-project",
-      "dependsOn": ["Build"],
+      "command": "make dev",
+      "group": { "kind": "build", "isDefault": false },
+      "problemMatcher": [],
+      "runOptions": { "instanceLimit": 1 },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Purge project",
+      "detail": "Delete .casting/ state from the demo workspace (~/casting-workspace/proj). Ask confirmation.",
+      "type": "shell",
+      "command": "make purge",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Build frontend (SPA)",
+      "label": "Purge + Start All",
+      "detail": "Reset project to clean slate, then build and launch everything.",
       "type": "shell",
-      "command": "cd frontend && npm run build",
-      "group": "build",
+      "command": "make purge && make dev",
       "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
-    },
-    {
-      "label": "Full gate (make)",
-      "type": "shell",
-      "command": "make",
-      "group": "build",
-      "problemMatcher": ["$rustc"],
+      "runOptions": { "instanceLimit": 1 },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
       "label": "Run workspace (make run)",
-      "description": "Builds the Rust binary AND embeds the real SPA (correct order), then serves the full Casting workspace (API + UI) from ONE binary at http://127.0.0.1:8080. Workspace lives outside the source tree (D5).",
+      "detail": "Build and run cast run only (API + embedded SPA on :8080, no HMR).",
       "type": "shell",
       "command": "make run",
       "problemMatcher": [],
       "runOptions": { "instanceLimit": 1 },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Dev: full stack (make dev)",
-      "description": "Builds, then starts cast run (:8080) AND Vite HMR (:5173, proxies /api) in one shell. Ctrl-C stops both. Open http://127.0.0.1:5173 for hot reload.",
-      "type": "shell",
-      "command": "make dev",
-      "problemMatcher": [],
-      "runOptions": { "instanceLimit": 1 },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
-    },
-    {
-      "label": "Dev: Frontend (Vite HMR)",
-      "description": "Starts the Vite dev server at http://127.0.0.1:5173 with hot reload, proxying /api to the Rust server on :8080. Start 'make run' (API) first, then open :5173.",
+      "label": "Dev: Frontend only (Vite HMR)",
+      "detail": "Start Vite dev server at :5173 (needs cast run on :8080 first).",
       "type": "shell",
       "command": "cd frontend && npm run dev",
       "problemMatcher": [],

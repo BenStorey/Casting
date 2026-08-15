@@ -7,7 +7,7 @@
 //! needs once a real provider is wired in.
 
 use casting::actions::PolicyError;
-use casting::policy::{
+use casting::pm::policy::{
     builtin_involvement, check_proposal, Decider, DecisionClass, DecisionPolicy, OwnerInvolvement,
 };
 

@@ -15,10 +15,10 @@
 //! Future first-run UI drives this SAME engine (no second copy of setup logic).
 
 use crate::actions;
-use crate::directive::{DirectiveKind, DirectiveStrength};
 use crate::event::{Actor, Aggregate, Event, EventType};
-use crate::sqlite_store::SqliteEventStore;
+use crate::runtime::directive::{DirectiveKind, DirectiveStrength};
 use crate::store::EventStore;
+use crate::store::SqliteEventStore;
 use anyhow::{Context, Result};
 
 /// What the owner wants for a fresh company.
@@ -85,7 +85,7 @@ pub fn open_store(dir: &std::path::Path) -> Result<SqliteEventStore> {
 /// using the default cast when `roles` is empty. Validates each role.
 pub fn resolve_hires(roles: &[String]) -> Result<Vec<(String, String)>> {
     let roles: Vec<String> = if roles.is_empty() {
-        crate::cast::DEFAULT_CAST
+        crate::workspace::DEFAULT_CAST
             .iter()
             .map(|m| m.role_id.to_string())
             .collect()
@@ -96,7 +96,7 @@ pub fn resolve_hires(roles: &[String]) -> Result<Vec<(String, String)>> {
     let mut hires = Vec::new();
     let mut seen = std::collections::HashMap::<String, usize>::new();
     for role_id in &roles {
-        let role = crate::cast::role_by_id(role_id)
+        let role = crate::workspace::role_by_id(role_id)
             .with_context(|| format!("unknown role in cast catalog: {role_id}"))?;
         // Canonical default-cast agent for that role if it's a default one,
         // else a per-role occurrence counter (role-1, role-2, ...).
@@ -160,7 +160,7 @@ pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&st
 /// The canonical agent id for a default-cast role, if any (so the wizard's
 /// "add security" numbers don't collide with Marcus/Maya).
 fn default_agent_for(role_id: &str) -> Option<String> {
-    crate::cast::DEFAULT_CAST
+    crate::workspace::DEFAULT_CAST
         .iter()
         .find(|m| m.role_id == role_id)
         .map(|m| m.agent_id.to_string())

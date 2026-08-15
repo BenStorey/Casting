@@ -17,12 +17,12 @@
 //! while the audit events are all still present.
 
 use casting::actions::PmAction;
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 use std::time::Duration;
 
 fn make_state() -> AppState {

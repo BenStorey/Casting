@@ -13,9 +13,9 @@
 //! `PmAction`s, and the existing gate + append path do the rest.
 
 use crate::actions::PmAction;
-use crate::context::AgentContext;
 use crate::event::Event;
 use crate::pm::PlannedAction;
+use crate::runtime::context::AgentContext;
 use anyhow::Result;
 
 /// Provider metering for one orchestrator call (HARNESS #6 — cost attribution
@@ -126,8 +126,8 @@ impl Orchestrator for MockOrchestrator {
                     subject: "Mock follow-up".to_string(),
                     options: serde_json::json!({ "A": "continue", "B": "pause" }),
                     recommendation: "A".into(),
-                    class: crate::policy::DecisionClass::InternalImplementation,
-                    involvement: crate::policy::OwnerInvolvement::Pm,
+                    class: crate::pm::DecisionClass::InternalImplementation,
+                    involvement: crate::pm::OwnerInvolvement::Pm,
                 },
             ));
         }

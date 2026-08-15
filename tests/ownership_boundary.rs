@@ -7,8 +7,8 @@
 //! All git-like tests use throwaway repos under tempdir; none ever touch the
 //! product repo at /home/ben/casting.
 
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteEventStore;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::Path;
 

@@ -198,14 +198,17 @@ fn opinion_drift(state: &AppState) -> Result<u32> {
 /// compact history. Reduces agent context bloat. The event log retains the
 /// full history for provenance. Returns how many were archived.
 pub fn archive_terminals(state: &AppState) -> Result<u32> {
-    use crate::event::{Actor, Aggregate, Event, EventType};
     use crate::projection::{DecisionStatus, OpinionStatus, RiskStatus, TaskStatus};
 
     let projection = state.projection()?;
     let mut archived_count = 0u32;
 
     // Done tasks.
-    for task in projection.tasks.iter().filter(|t| t.status == TaskStatus::Done) {
+    for task in projection
+        .tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Done)
+    {
         let reviewed = task
             .review
             .as_ref()
@@ -242,7 +245,11 @@ pub fn archive_terminals(state: &AppState) -> Result<u32> {
     }
 
     // Resolved risks.
-    for r in projection.risks.iter().filter(|r| r.status == RiskStatus::Resolved) {
+    for r in projection
+        .risks
+        .iter()
+        .filter(|r| r.status == RiskStatus::Resolved)
+    {
         let summary = format!("risk \"{}\" — resolved", r.subject);
         archived_count += emit_archive(state, "risk", &r.id, &summary, "resolved")?;
     }

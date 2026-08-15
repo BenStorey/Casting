@@ -63,7 +63,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
         Ok(p) => p,
         Err(_) => return,
     };
-    if let Err(reason) = crate::guard::llm_dispatch_allowed(&proj) {
+    if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(&proj) {
         eprintln!("[advisor] guard blocked LLM dispatch: {reason}");
         return;
     }

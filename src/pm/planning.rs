@@ -18,7 +18,7 @@
 use crate::actions::{PmAction, OWNER};
 use crate::event::{Actor, Event};
 use crate::pm::AppState;
-use crate::policy::DecisionClass;
+use crate::pm::DecisionClass;
 
 /// Stable agent roster the simulated company uses (moved here with the plan
 /// builders; `PM_CONSUMER` remains the loop's cursor consumer in `pm.rs`).
@@ -84,11 +84,11 @@ fn plan_worktree_provision(
         .unwrap_or_else(|_| crate::projection::Projection::default());
     let used_in_projection: std::collections::HashSet<u16> =
         projection.worktrees.iter().map(|w| w.port).collect();
-    let base = crate::port::worktree_base_port();
-    let span = crate::port::WORKTREE_PORT_POOL;
+    let base = crate::projection::port::worktree_base_port();
+    let span = crate::projection::port::WORKTREE_PORT_POOL;
     let port = (base..base.saturating_add(span))
         .find(|p| !used_in_projection.contains(p) && !claimed_in_plan.contains(p))
-        .unwrap_or(crate::port::DEFAULT_WORKTREE_BASE_PORT);
+        .unwrap_or(crate::projection::port::DEFAULT_WORKTREE_BASE_PORT);
     claimed_in_plan.insert(port);
 
     // Select the first free slot for this assignee (a slot is free when its
@@ -134,7 +134,7 @@ pub(crate) fn plan_onboard(
     state: &AppState,
     cause: &Event,
     body: &str,
-    policy: &crate::policy::DecisionPolicy,
+    policy: &crate::pm::DecisionPolicy,
 ) -> Vec<crate::pm::PlannedAction> {
     let title = if body.trim().is_empty() {
         "the product".to_string()
@@ -162,11 +162,11 @@ pub(crate) fn plan_onboard(
     let cast_hires: Vec<crate::pm::PlannedAction> = if has_existing_cast {
         Vec::new()
     } else {
-        crate::cast::DEFAULT_CAST
+        crate::workspace::DEFAULT_CAST
             .iter()
             .filter(|m| !already_hired.iter().any(|id| id == m.agent_id))
             .map(|m| {
-                let role = crate::cast::role_by_id(m.role_id).unwrap_or_else(|| {
+                let role = crate::workspace::role_by_id(m.role_id).unwrap_or_else(|| {
                     panic!("default cast role {} missing from catalog", m.role_id)
                 });
                 (
@@ -319,7 +319,7 @@ pub(crate) fn plan_onboard(
     // Auto-decide the testing-library decision ONLY when the policy routes it
     // to the agent. If the owner escalated it to Ask, leave it open in their
     // inbox (Proposed) with no follow-up until they rule.
-    if testing_lib_decider == crate::policy::Decider::Agent {
+    if testing_lib_decider == crate::pm::Decider::Agent {
         plan.push((
             crate::pm::PM_CONSUMER.into(),
             PmAction::MakeDecision {
@@ -346,7 +346,9 @@ pub(crate) fn plan_onboard(
     // parent is the join point; children are kicked in parallel. Default off to
     // keep the canonical demo flat + existing tests green (flip once proven).
     if state.decompose {
-        if let Some(dec) = crate::graph::should_decompose("task-feature", "feature", &title) {
+        if let Some(dec) =
+            crate::projection::graph::should_decompose("task-feature", "feature", &title)
+        {
             plan.push((
                 crate::pm::PM_CONSUMER.into(),
                 PmAction::CreateTask {
@@ -568,7 +570,7 @@ pub(crate) fn plan_owner_decision(
                 "system".into(),
                 PmAction::HireAgent {
                     agent_id: format!("{role_id}-1"),
-                    role: crate::cast::role_by_id(&role_id)
+                    role: crate::workspace::role_by_id(&role_id)
                         .map(|r| r.title.to_string())
                         .unwrap_or_else(|| role_id.clone()),
                 },
@@ -613,10 +615,10 @@ pub(crate) fn plan_owner_decision(
 /// apply, authored as the owner. Parsed from the DecisionProposed's `options`.
 struct ApprovedGovernanceChange {
     directive_id: String,
-    kind: crate::directive::DirectiveKind,
+    kind: crate::runtime::directive::DirectiveKind,
     statement: String,
     scope: Vec<String>,
-    strength: crate::directive::DirectiveStrength,
+    strength: crate::runtime::directive::DirectiveStrength,
     supersedes: Option<String>,
 }
 
@@ -628,13 +630,13 @@ impl ApprovedGovernanceChange {
         // entry point. Never rebuild directly from the store.
         let proj = state.projection().ok()?;
         let dec = proj.decisions.iter().find(|d| d.id == decision_id)?;
-        if dec.class != crate::policy::DecisionClass::GovernanceChange {
+        if dec.class != crate::pm::DecisionClass::GovernanceChange {
             return None;
         }
         let change = dec.options.get("governance_change")?;
-        let kind: crate::directive::DirectiveKind =
+        let kind: crate::runtime::directive::DirectiveKind =
             serde_json::from_value(change.get("kind")?.clone()).ok()?;
-        let strength: crate::directive::DirectiveStrength =
+        let strength: crate::runtime::directive::DirectiveStrength =
             serde_json::from_value(change.get("strength")?.clone()).ok()?;
         let scope: Vec<String> = serde_json::from_value(change.get("scope")?.clone()).ok()?;
         Some(ApprovedGovernanceChange {
@@ -665,7 +667,7 @@ fn approved_consultant_role(state: &AppState, decision_id: &str) -> Option<Strin
     // Single projection entry point (snapshot-aware).
     let proj = state.projection().ok()?;
     let dec = proj.decisions.iter().find(|d| d.id == decision_id)?;
-    if dec.class != crate::policy::DecisionClass::AddConsultant {
+    if dec.class != crate::pm::DecisionClass::AddConsultant {
         return None;
     }
     dec.options

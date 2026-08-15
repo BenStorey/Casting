@@ -3,11 +3,11 @@
 //! ALIVE but NOT MAKING PROGRESS and self-actuates a WorkPaused (the same
 //! resumable pause rail as /api/pause); it does NOT notify (deferred).
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
-use casting::watchdog::{self, SignalKind, WatchConfig, WatchModel};
+use casting::runtime::watchdog::{self, SignalKind, WatchConfig, WatchModel};
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 use chrono::{Duration, Utc};
 
 fn make_state() -> AppState {
@@ -135,9 +135,9 @@ fn audit_auto_pauses_on_retry_loop() {
     let proj = state.projection().unwrap();
     let p = proj.paused.clone().expect("paused");
     assert_eq!(p.by, "system");
-    assert!(casting::guard::is_paused(&proj));
+    assert!(casting::pm::guard::is_paused(&proj));
     // ... and the dispatch gate now blocks work.
-    assert!(casting::guard::llm_dispatch_allowed(&proj).is_err());
+    assert!(casting::pm::guard::llm_dispatch_allowed(&proj).is_err());
 }
 
 #[test]

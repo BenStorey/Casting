@@ -8,7 +8,7 @@
 //!   tuple + env resolution + the provider→base_url map.
 //! - `client`: [`OpenAiClient`] — a minimal chat/completions client returning
 //!   content + usage (OpenAI-compatible, so metering just works).
-//! - `orchestrator`: [`LlmOrchestrator`] — implements the [`crate::orchestrator::Orchestrator`]
+//! - `orchestrator`: [`LlmOrchestrator`] — implements the [`crate::runtime::orchestrator::Orchestrator`]
 //!   seam: prompt build → call → `PmAction` parse → `CostMetering`.
 
 pub mod advisor;

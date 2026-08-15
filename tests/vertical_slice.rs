@@ -2,12 +2,12 @@
 //! Exercises the real SQLite backend, the derived current-state projection, and
 //! the scripted PM control loop (owner message -> requirements/tasks/decisions).
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Event, EventType};
 use casting::pm::{AppState, PM_CONSUMER};
 use casting::projection::{DecisionStatus, Projection, TaskStatus};
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 use std::time::Duration;
 
 fn make_state() -> AppState {
@@ -143,7 +143,10 @@ async fn simulated_pm_onboards_company_from_owner_message() {
         proj.agents.iter().any(|a| a.id == "lead-programmer"),
         "Lead Programmer hired"
     );
-    assert!(proj.agents.iter().any(|a| a.id == "test-engineer"), "Test Engineer hired");
+    assert!(
+        proj.agents.iter().any(|a| a.id == "test-engineer"),
+        "Test Engineer hired"
+    );
     assert!(!proj.tasks.is_empty(), "tasks created");
     // The onboarding raises a decision for the owner.
     assert!(
@@ -226,8 +229,8 @@ async fn ask_class_decision_stays_in_owner_inbox_with_policy_typed() {
         .expect("Database decision exists");
     // Database is an Ask-class decision: typed as such, unresolved (Proposed).
     assert_eq!(db.status, DecisionStatus::Proposed);
-    assert_eq!(db.class, casting::policy::DecisionClass::Database);
-    assert_eq!(db.involvement, casting::policy::OwnerInvolvement::Ask);
+    assert_eq!(db.class, casting::pm::policy::DecisionClass::Database);
+    assert_eq!(db.involvement, casting::pm::policy::OwnerInvolvement::Ask);
     assert_eq!(db.decided_by, None);
 }
 
@@ -245,8 +248,8 @@ async fn pm_class_decision_is_delegated_via_universal_pair() {
         .iter()
         .find(|d| d.subject == "Automated-testing library")
         .expect("TestingLibrary decision exists");
-    assert_eq!(tl.class, casting::policy::DecisionClass::TestingLibrary);
-    assert_eq!(tl.involvement, casting::policy::OwnerInvolvement::Pm);
+    assert_eq!(tl.class, casting::pm::policy::DecisionClass::TestingLibrary);
+    assert_eq!(tl.involvement, casting::pm::policy::OwnerInvolvement::Pm);
     assert_eq!(tl.status, DecisionStatus::Approved);
     assert_eq!(tl.decided_by.as_deref(), Some("pm"));
 

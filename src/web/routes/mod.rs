@@ -34,8 +34,8 @@ use state::{events_handler, events_stream, health_handler, state_handler};
 use static_files::static_handler;
 use telegram::{telegram_configure_handler, telegram_status_handler};
 use views::{
-    consultants_handler, context_handler, full_context_handler, graph_handler, graph_task_context_handler, model_handler,
-    persona_handler, routing_handler,
+    consultants_handler, context_handler, full_context_handler, graph_handler,
+    graph_task_context_handler, model_handler, persona_handler, routing_handler,
 };
 
 /// Shared helper: append a single event to the store and return it as the JSON

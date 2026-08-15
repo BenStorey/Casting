@@ -34,8 +34,8 @@ pub(crate) async fn decision_handler(
 
 #[derive(Deserialize)]
 pub(crate) struct PolicyIn {
-    class: crate::policy::DecisionClass,
-    involvement: crate::policy::OwnerInvolvement,
+    class: crate::pm::DecisionClass,
+    involvement: crate::pm::OwnerInvolvement,
 }
 
 /// POST /api/policy — the owner sets the owner-involvement for a decision
@@ -52,16 +52,16 @@ pub(crate) async fn policy_handler(
 #[derive(Deserialize)]
 pub(crate) struct DirectiveIn {
     id: String,
-    kind: crate::directive::DirectiveKind,
+    kind: crate::runtime::directive::DirectiveKind,
     statement: String,
     #[serde(default)]
     scope: Vec<String>,
     #[serde(default = "default_strength")]
-    strength: crate::directive::DirectiveStrength,
+    strength: crate::runtime::directive::DirectiveStrength,
 }
 
-fn default_strength() -> crate::directive::DirectiveStrength {
-    crate::directive::DirectiveStrength::Required
+fn default_strength() -> crate::runtime::directive::DirectiveStrength {
+    crate::runtime::directive::DirectiveStrength::Required
 }
 
 /// POST /api/directive — the OWNER sets project governance (docs/INTENT.md).

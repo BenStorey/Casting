@@ -1,6 +1,6 @@
 //! Telegram owner channel (2026-08-14, docs/plans/2026-08-14_telegram-channel.md).
 //!
-//! The reference adapter for the [`crate::channel::OwnerChannel`] seam. Runs as
+//! The reference adapter for the [`crate::runtime::channel::OwnerChannel`] seam. Runs as
 //! an INDEPENDENT cursor-driven consumer (like the reconciler / watchdog — never
 //! welded into the PM), so the event log stays the only authority and the
 //! channel is a best-effort mirror:
@@ -21,10 +21,10 @@
 //! binds "who is the owner" so a stranger DMing the bot is never treated as the
 //! owner; also the sendMessage target), `CAST_TELEGRAM_POLL_SECS` (default 30).
 
-use crate::channel::OwnerChannel;
-use crate::cursor::CursorStore;
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::pm::AppState;
+use crate::runtime::channel::OwnerChannel;
+use crate::store::CursorStore;
 use anyhow::Result;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};

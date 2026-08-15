@@ -7,12 +7,12 @@
 //! executor fail-closed refuses to schedule/execute an activity that embeds a
 //! stored value verbatim.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, EventType};
-use casting::executor::{execute, Activity, ActivityKind, NoopRunner};
 use casting::pm::AppState;
-use casting::secrets::SecretStore;
-use casting::sqlite_store::SqliteEventStore;
+use casting::runtime::executor::{execute, Activity, ActivityKind, NoopRunner};
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
+use casting::workspace::secrets::SecretStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
@@ -66,7 +66,7 @@ fn schedule_rejects_activity_embedding_raw_secret() {
         "git push https://ghp_ABCDEF1234567890abcd@github.com/x",
     );
     assert!(
-        casting::executor::schedule(&state, Actor::System, &activity).is_err(),
+        casting::runtime::executor::schedule(&state, Actor::System, &activity).is_err(),
         "raw secret in an activity must be refused at schedule"
     );
 
@@ -101,7 +101,7 @@ fn schedule_allows_placeholder_and_persists_no_value() {
         "t-2-ok",
         "curl -H 'Authorization: Bearer @secret:openrouter_api_key@' example.com",
     );
-    assert!(casting::executor::schedule(&state, Actor::System, &activity).is_ok());
+    assert!(casting::runtime::executor::schedule(&state, Actor::System, &activity).is_ok());
 
     let events = state.store.read_since("proj-secrets", 0).unwrap();
     let scheduled = events
@@ -151,10 +151,12 @@ fn short_values_are_exempt_from_scan() {
     store.set("n", "abcdef").unwrap(); // len 6 < 8 -> exempt
     let state = make_state().with_secrets(store);
 
-    assert!(
-        casting::executor::schedule(&state, Actor::System, &shell("t-4-short", "echo abcdef"))
-            .is_ok()
-    );
+    assert!(casting::runtime::executor::schedule(
+        &state,
+        Actor::System,
+        &shell("t-4-short", "echo abcdef")
+    )
+    .is_ok());
 }
 
 #[test]

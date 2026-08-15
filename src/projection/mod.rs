@@ -46,9 +46,9 @@ pub struct Projection {
     /// Cost entries (HARNESS #6): provider metering so spend is attributable.
     pub spend: Vec<CostEntry>,
     /// The owner-set hard token budget (guard circuit breaker). None = unset.
-    pub budget: Option<crate::guard::Budget>,
+    pub budget: Option<crate::pm::guard::Budget>,
     /// A resumable pause in effect (owner- or watchdog-set). None = running.
-    pub paused: Option<crate::guard::PauseInfo>,
+    pub paused: Option<crate::pm::guard::PauseInfo>,
     /// External advisor briefings imported into the project (advisory, NOT
     /// authoritative — see `Briefing`).
     pub briefings: Vec<Briefing>,
@@ -58,7 +58,7 @@ pub struct Projection {
     /// Diagrams drawn + saved in the app (Excalidraw). See `Diagram`.
     pub diagrams: Vec<Diagram>,
     /// First-class governance objects (docs/INTENT.md).
-    pub directives: Vec<crate::directive::Directive>,
+    pub directives: Vec<crate::runtime::directive::Directive>,
     /// Branches in the artifact repo (semantic Git events).
     pub branches: Vec<Branch>,
     /// Commits observed on branches (semantic Git events).
@@ -77,7 +77,7 @@ pub struct Projection {
     /// The project's decision policy (delegated authority, brief §5),
     /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
     /// per-class autonomy configuration is durable history, not a default.
-    pub policy: crate::policy::DecisionPolicy,
+    pub policy: crate::pm::policy::DecisionPolicy,
     /// Archived terminal entities — compact summaries replacing old closed
     /// state in the active projection. Filled from `EntityArchived` events.
     /// Agents omit entities whose id is in this set from their context.
@@ -86,7 +86,7 @@ pub struct Projection {
     /// The derived Project Plan (objective + ranked priorities + open
     /// decisions). Recomputed at build() from the folded projection — this is
     /// current state, never stored authoritative (SEMANTIC_EVENTS.md).
-    pub plan: crate::plan::ProjectPlan,
+    pub plan: crate::pm::plan::ProjectPlan,
     /// Diagnostics audit trail (2026-08): refused PM actions (`PlanActionRejected`)
     /// and recorded orchestrator planning passes (`OrchestrationRun`). Derived
     /// read-side records so misbehaving plans are visible in the UI, never
@@ -156,7 +156,7 @@ impl Projection {
         // Classification + severity come from the single source of truth
         // (crate::triage) — the same one that stamps the ExternalRequestReceived
         // event, so this read-side verdict can never disagree with the log.
-        let (classification, severity) = crate::triage::classify(title, body, labels);
+        let (classification, severity) = crate::pm::triage::classify(title, body, labels);
 
         // Duplicate: same source + external_id, or same source + normalized (lowercased) title.
         let dup = self.external_requests.iter().any(|r| {
@@ -202,7 +202,7 @@ impl Projection {
                 status: TaskStatus::Backlog,
                 assignee: None,
                 merge_authority: crate::types::MergeAuthority::default(),
-                priority: crate::plan::Priority::default(),
+                priority: crate::pm::plan::Priority::default(),
                 review: None,
                 parent_id: string_field(e, "parent_id"),
             }),
@@ -393,10 +393,10 @@ impl Projection {
                     .get("warn_at")
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.80);
-                self.budget = Some(crate::guard::Budget { limit_usd, warn_at });
+                self.budget = Some(crate::pm::guard::Budget { limit_usd, warn_at });
             }
             EventType::WorkPaused => {
-                self.paused = Some(crate::guard::PauseInfo {
+                self.paused = Some(crate::pm::guard::PauseInfo {
                     reason: string_field(e, "reason").unwrap_or_default(),
                     by: string_field(e, "by").unwrap_or_default(),
                     at: e.timestamp.to_string(),
@@ -463,7 +463,7 @@ impl Projection {
                 });
             }
             EventType::ProjectDirectiveCreated => {
-                use crate::directive::{Directive, DirectiveKind, DirectiveStrength};
+                use crate::runtime::directive::{Directive, DirectiveKind, DirectiveStrength};
                 let kind: Option<DirectiveKind> = e
                     .data
                     .get("kind")
@@ -489,22 +489,22 @@ impl Projection {
             }
             EventType::ProjectDirectiveSuspended => {
                 if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
-                    d.status = crate::directive::DirectiveStatus::Suspended;
+                    d.status = crate::runtime::directive::DirectiveStatus::Suspended;
                 }
             }
             EventType::ProjectDirectiveResumed => {
                 if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
-                    d.status = crate::directive::DirectiveStatus::Active;
+                    d.status = crate::runtime::directive::DirectiveStatus::Active;
                 }
             }
             EventType::ProjectDirectiveSuperseded => {
                 if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
-                    d.status = crate::directive::DirectiveStatus::Superseded;
+                    d.status = crate::runtime::directive::DirectiveStatus::Superseded;
                 }
             }
             EventType::ProjectDirectiveExpired => {
                 if let Some(d) = self.directives.iter_mut().find(|d| d.id == e.aggregate.id) {
-                    d.status = crate::directive::DirectiveStatus::Expired;
+                    d.status = crate::runtime::directive::DirectiveStatus::Expired;
                 }
             }
             EventType::DecisionProposed => self.decisions.push(Decision {
@@ -521,12 +521,12 @@ impl Projection {
                     .data
                     .get("class")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or(crate::policy::DecisionClass::InternalImplementation),
+                    .unwrap_or(crate::pm::policy::DecisionClass::InternalImplementation),
                 involvement: e
                     .data
                     .get("involvement")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or(crate::policy::OwnerInvolvement::Ask),
+                    .unwrap_or(crate::pm::policy::OwnerInvolvement::Ask),
                 decided_by: None,
                 superseded_by: None,
                 owner_verdict: None,
@@ -693,7 +693,7 @@ impl Projection {
                 let cargo_target_dir = string_field(e, "cargo_target_dir").unwrap_or_default();
                 let port = e.data.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
                 // Build the unique key for dedup: consultant+slot or task_id.
-                let key = if !consultant.is_empty() {
+                let _key = if !consultant.is_empty() {
                     format!("{consultant}+{slot}")
                 } else if let Some(tid) = &task_id {
                     tid.clone()
@@ -744,7 +744,8 @@ impl Projection {
                 // are not removed — they are released via WorktreeReleased.
                 let task_id = string_field(e, "task_id").unwrap_or_default();
                 if !task_id.is_empty() {
-                    self.worktrees.retain(|w| w.task_id.as_deref() != Some(&task_id));
+                    self.worktrees
+                        .retain(|w| w.task_id.as_deref() != Some(&task_id));
                 }
             }
             EventType::WorktreeBound => {
@@ -780,7 +781,7 @@ impl Projection {
                 // A task is released from a persistent worktree slot (done/merged).
                 let consultant = string_field(e, "consultant").unwrap_or_default();
                 let slot = e.data.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                let task_id = string_field(e, "task_id").unwrap_or_default();
+                let _task_id = string_field(e, "task_id").unwrap_or_default();
                 if !consultant.is_empty() {
                     if let Some(wt) = self
                         .worktrees
@@ -922,7 +923,8 @@ impl Projection {
                         summary: string_field(e, "summary").unwrap_or_default(),
                         result: string_field(e, "result").unwrap_or_default(),
                         archived_at: e.timestamp.to_string(),
-                        archived_by: string_field(e, "archived_by").unwrap_or_else(|| "system".into()),
+                        archived_by: string_field(e, "archived_by")
+                            .unwrap_or_else(|| "system".into()),
                     });
                 }
             }
@@ -935,8 +937,8 @@ impl Projection {
 /// deprioritized, and decisions awaiting the owner. Recomputed from the
 /// projection; never stored authoritative.
 impl Projection {
-    pub fn plan(&self) -> crate::plan::ProjectPlan {
-        use crate::plan::{PlannedItem, Priority};
+    pub fn plan(&self) -> crate::pm::plan::ProjectPlan {
+        use crate::pm::plan::{PlannedItem, Priority};
 
         let objective = self.requirements.last().map(|r| r.title.clone());
 
@@ -965,7 +967,7 @@ impl Projection {
             .collect();
 
         // Active governing directives, strongest-first (governance surfaced).
-        use crate::directive::DirectiveStatus;
+        use crate::runtime::directive::DirectiveStatus;
         let mut active = self
             .directives
             .iter()
@@ -988,7 +990,7 @@ impl Projection {
             })
             .collect();
 
-        crate::plan::ProjectPlan {
+        crate::pm::plan::ProjectPlan {
             objective,
             priorities: tasks
                 .iter()
@@ -1027,3 +1029,6 @@ fn actor_name(e: &Event) -> String {
         crate::event::Actor::System => "system".into(),
     }
 }
+
+pub mod graph;
+pub mod port;

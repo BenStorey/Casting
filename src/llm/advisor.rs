@@ -7,17 +7,17 @@
 //! designed for). The reply lands back in the ISOLATED `advisor_thread`, never
 //! in the PM's context until an explicit handoff.
 
-use crate::context::AgentContext;
 use crate::llm::client::{ChatMessage, ChatRequest};
 use crate::llm::routing::ModelResolver;
 use crate::projection::Message;
+use crate::runtime::context::AgentContext;
 use anyhow::Result;
 
 /// The outcome of an advisor reply: the text + optional metering.
 #[derive(Debug, Clone)]
 pub struct AdvisorOutcome {
     pub reply: String,
-    pub metering: Option<crate::orchestrator::CostMetering>,
+    pub metering: Option<crate::runtime::orchestrator::CostMetering>,
 }
 
 /// Generate the advisor's reply to `owner_msg`, given the private thread so far
@@ -91,7 +91,7 @@ pub async fn advisor_reply(
     let estimated_usd = (u.prompt_tokens as f64 * resolved.input_price_per_mtok
         + u.completion_tokens as f64 * resolved.output_price_per_mtok)
         / 1_000_000.0;
-    let metering = Some(crate::orchestrator::CostMetering {
+    let metering = Some(crate::runtime::orchestrator::CostMetering {
         agent_id: "advisor".into(),
         task_id: None,
         model_tier: "premium".into(),

@@ -4,13 +4,13 @@
 //! snapshot + tail events must equal building from the full log, and a
 //! missing/corrupt snapshot must fall back cleanly.
 
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::snapshot::{self, SnapshotStore, SqliteSnapshotStore};
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
+use casting::store::{self, SnapshotStore, SqliteSnapshotStore};
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
@@ -49,7 +49,7 @@ fn snapshot_then_tail_equals_full_fold() {
     hire_engineer(&state, "james-wilson");
 
     // Building from snapshot should catch only the tail (james-wilson).
-    let from_snap = snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let from_snap = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(from_snap.agents.len(), 3);
     assert!(from_snap.agents.iter().any(|a| a.id == "james-wilson"));
     assert!(from_snap.agents.iter().any(|a| a.id == "marcus-reed"));
@@ -66,7 +66,7 @@ fn build_from_falls_back_to_full_fold_without_a_snapshot() {
     hire_engineer(&state, "maya-patel");
     let snapshots = SqliteSnapshotStore::in_memory().unwrap(); // empty
 
-    let proj = snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let proj = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents.len(), 2);
     assert_eq!(
         proj.agents,
@@ -81,7 +81,7 @@ fn corrupt_snapshot_is_discarded_and_falls_back() {
 
     // A file-backed snapshot store we can corrupt from a second connection.
     let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("snapshots.db");
+    let path = tmp.path().join("store::db");
     let snapshots = SqliteSnapshotStore::open(&path).unwrap();
 
     // Inject a corrupt row directly.
@@ -96,7 +96,7 @@ fn corrupt_snapshot_is_discarded_and_falls_back() {
     // Corrupt snapshot -> load() returns None -> build_from falls back to a
     // full fold, identical to ground truth. (Snapshots are disposable.)
     assert!(snapshots.load("proj-snap").is_none());
-    let proj = snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let proj = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents.len(), 1);
     assert_eq!(
         proj.agents,
@@ -120,7 +120,7 @@ fn snapshot_round_trips_through_the_store() {
     assert_eq!(loaded_seq, seq);
     assert_eq!(loaded.agents.len(), 3);
     // No tail events after the snapshot: build_from returns exactly the snapshot.
-    let proj = snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let proj = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents, full.agents);
 }
 

@@ -60,7 +60,7 @@ pub fn capture_and_emit<S: crate::store::EventStore>(
         },
         serde_json::to_value(&rm)?,
     );
-    crate::integrity::check_append(proj, &ev)?;
+    crate::event::integrity::check_append(proj, &ev)?;
     proj.apply(&ev);
     store.append(ev)?;
     Ok(())

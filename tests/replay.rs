@@ -4,10 +4,10 @@
 //! checks stream invariants (contiguous sequences, DecisionMade after
 //! DecisionProposed, TaskCompleted after TaskCreated).
 
+use casting::event::replay;
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::replay;
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteEventStore;
 
 fn make_store() -> SqliteEventStore {
     SqliteEventStore::in_memory().unwrap()

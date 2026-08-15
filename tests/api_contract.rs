@@ -14,7 +14,7 @@
 //! mirror without the other.
 
 use casting::event::EventType;
-use casting::plan::Priority;
+use casting::pm::plan::Priority;
 use casting::projection::{DecisionStatus, TaskStatus};
 
 fn s<T: serde::Serialize>(v: &T) -> String {

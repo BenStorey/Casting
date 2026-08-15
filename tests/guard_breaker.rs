@@ -7,13 +7,13 @@
 //! flag, and every LLM/side-effect dispatch point consults the gate.
 
 use casting::actions::{validate, PmAction, PolicyError};
-use casting::cursor::SqliteCursorStore;
 use casting::event::{Actor, Aggregate, Event, EventType};
-use casting::executor::{execute, Activity, ActivityKind, NoopRunner};
-use casting::guard::{self, BudgetStatus};
+use casting::pm::guard::{self, BudgetStatus};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
+use casting::runtime::executor::{execute, Activity, ActivityKind, NoopRunner};
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();

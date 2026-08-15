@@ -77,7 +77,7 @@ pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<A
 pub(crate) async fn context_handler(
     State(state): State<AppState>,
     Path(actor): Path<String>,
-) -> Result<Json<crate::context::AgentContext>, StatusCode> {
+) -> Result<Json<crate::runtime::context::AgentContext>, StatusCode> {
     let proj = state
         .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -88,7 +88,7 @@ pub(crate) async fn context_handler(
 pub(crate) async fn persona_handler(
     State(state): State<AppState>,
     Path(agent_id): Path<String>,
-) -> Result<Json<crate::persona::Persona>, StatusCode> {
+) -> Result<Json<crate::runtime::persona::Persona>, StatusCode> {
     let proj = state
         .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -104,7 +104,7 @@ pub(crate) async fn persona_handler(
 /// + "what's stuck" + "why in this order"). Pure derivation, no authority.
 pub(crate) async fn graph_handler(
     State(state): State<AppState>,
-) -> Result<Json<crate::graph::GraphView>, StatusCode> {
+) -> Result<Json<crate::projection::graph::GraphView>, StatusCode> {
     let proj = state
         .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -117,7 +117,7 @@ pub(crate) async fn graph_handler(
 pub(crate) async fn graph_task_context_handler(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
-) -> Result<Json<crate::graph::PmTaskContext>, StatusCode> {
+) -> Result<Json<crate::projection::graph::PmTaskContext>, StatusCode> {
     let proj = state
         .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -133,7 +133,7 @@ pub(crate) async fn graph_task_context_handler(
 /// way?" / "what does it believe?" debug surface. Pure derivation.
 pub(crate) async fn model_handler(
     State(state): State<AppState>,
-) -> Result<Json<crate::mental::OperatingModel>, StatusCode> {
+) -> Result<Json<crate::runtime::mental::OperatingModel>, StatusCode> {
     let proj = state
         .projection()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -149,7 +149,7 @@ pub(crate) struct FullActorContext {
     pub actor: String,
     pub system_prompt: String,
     pub planning_instructions: String,
-    pub agent_context: crate::context::AgentContext,
+    pub agent_context: crate::runtime::context::AgentContext,
     pub assembled_context: String,
 }
 
@@ -161,8 +161,8 @@ pub(crate) async fn full_context_handler(
     State(state): State<AppState>,
     Path(actor): Path<String>,
 ) -> Result<Json<FullActorContext>, StatusCode> {
-    use crate::llm::orchestrator::LlmOrchestrator;
     use crate::llm::config::ProviderConfig;
+    use crate::llm::orchestrator::LlmOrchestrator;
 
     let proj = state
         .projection()

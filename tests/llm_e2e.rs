@@ -104,8 +104,8 @@ fn default_responder(actions_json: &'static str, expect_ask: &'static str) -> Re
 }
 
 fn make_state() -> AppState {
-    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let store = casting::store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-llm")
 }
 
@@ -315,7 +315,7 @@ fn prompt_contract_matches_serde_shape() {
         (
             PmAction::SetTaskPriority {
                 task_id: "t".into(),
-                priority: casting::plan::Priority::High,
+                priority: casting::pm::plan::Priority::High,
             },
             "set_task_priority",
         ),
@@ -324,7 +324,7 @@ fn prompt_contract_matches_serde_shape() {
                 id: "pc".into(),
                 subject: "s".into(),
                 role_id: "engineer".into(),
-                involvement: casting::policy::OwnerInvolvement::Pm,
+                involvement: casting::pm::policy::OwnerInvolvement::Pm,
             },
             "propose_consultant",
         ),
@@ -369,8 +369,8 @@ fn prompt_enum_values_match_serde() {
     let orch = orch_for("http://stub".into(), false);
     let prompt = orch.planning_instructions("pm");
 
-    use casting::plan::Priority;
-    use casting::policy::OwnerInvolvement;
+    use casting::pm::plan::Priority;
+    use casting::pm::policy::OwnerInvolvement;
     use casting::projection::RiskStatus;
     use casting::types::TaskStatus;
 

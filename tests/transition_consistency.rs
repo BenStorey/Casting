@@ -8,8 +8,8 @@
 //! gate's non-status invariants (task-must-exist, assignee rules) are intact.
 
 use casting::actions::{validate, PmAction, PolicyError};
-use casting::graph::valid_from_status;
-use casting::plan::Priority;
+use casting::pm::plan::Priority;
+use casting::projection::graph::valid_from_status;
 use casting::projection::{Projection, TaskStatus};
 use casting::types::{Agent, Task};
 

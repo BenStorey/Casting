@@ -3,9 +3,9 @@
 //! derivations off the projection exposed through `/api/model`, so they're
 //! tested by folding a hand-built projection through `operating_model()`.
 
-use casting::mental::OperatingModel;
-use casting::policy::{DecisionClass, OwnerInvolvement};
+use casting::pm::policy::{DecisionClass, OwnerInvolvement};
 use casting::projection::{Commit, Decision, DecisionStatus, Projection};
+use casting::runtime::mental::OperatingModel;
 
 fn owner_decision(id: &str, involvement: OwnerInvolvement, decided_by: Option<&str>) -> Decision {
     Decision {

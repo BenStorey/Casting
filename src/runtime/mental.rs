@@ -9,9 +9,9 @@
 //! wrong-priority PM can see exactly what the models were working from. Pure
 //! derivation; the event log stays the only authority.
 
-use crate::directive;
-use crate::plan::PlannedItem;
-use crate::policy::DecisionPolicy;
+use crate::pm::plan::PlannedItem;
+use crate::pm::DecisionPolicy;
+use crate::runtime::directive;
 use serde::Serialize;
 
 /// The owner-facing / debugging "operating picture" of a project.
@@ -41,7 +41,7 @@ pub struct OperatingModel {
     pub guards: GuardsView,
     /// Per-actor operating context — EXACTLY what each model is handed when it
     /// plans. This is the heart of "see what the models are seeing".
-    pub actor_contexts: Vec<crate::context::AgentContext>,
+    pub actor_contexts: Vec<crate::runtime::context::AgentContext>,
     /// The isolated consultant workspaces currently provisioned (2026-08-12):
     /// each summoned consultant's desk (task, branch, path, build target,
     /// port). The platform's structural-isolation boundary, visible at a glance.
@@ -107,7 +107,7 @@ pub struct GuardsView {
     /// The owner-set budget, if any.
     pub budget: Option<BudgetView>,
     /// An active resumable pause, if any (reason/by/at).
-    pub paused: Option<crate::guard::PauseInfo>,
+    pub paused: Option<crate::pm::guard::PauseInfo>,
 }
 
 /// The curated budget phase, as the owner reads it.
@@ -517,12 +517,12 @@ impl crate::projection::Projection {
             },
             guards: GuardsView {
                 budget: self.budget.as_ref().map(|b| {
-                    let status = crate::guard::budget_status(self);
+                    let status = crate::pm::guard::budget_status(self);
                     BudgetView {
                         limit_usd: b.limit_usd,
                         warn_at: b.warn_at,
                         status: status.label().to_string(),
-                        spend_fraction: crate::guard::budget_fraction(self),
+                        spend_fraction: crate::pm::guard::budget_fraction(self),
                     }
                 }),
                 paused: self.paused.clone(),
@@ -556,7 +556,7 @@ impl crate::projection::Projection {
 /// Derive the owner-engagement view from the decision log. See
 /// [`OwnerEngagementView`] for semantics.
 fn owner_engagement(proj: &crate::projection::Projection) -> OwnerEngagementView {
-    use crate::policy::OwnerInvolvement;
+    use crate::pm::OwnerInvolvement;
     use crate::types::DecisionStatus;
     let mut awaiting = 0usize;
     let mut owner_decided = 0usize;

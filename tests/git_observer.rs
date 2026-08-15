@@ -7,12 +7,12 @@
 //!
 //! All repos are throwaway tempdirs; none ever touch the product repo.
 
-use casting::cursor::{CursorStore, SqliteCursorStore};
 use casting::event::EventType;
-use casting::git_observer;
 use casting::projection::Projection;
-use casting::sqlite_store::SqliteEventStore;
 use casting::store::EventStore;
+use casting::store::SqliteEventStore;
+use casting::store::{CursorStore, SqliteCursorStore};
+use casting::workspace::git_observer;
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo, ready for observer tests.

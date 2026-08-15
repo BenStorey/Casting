@@ -345,10 +345,7 @@ impl Workspace {
                 .git_command_for(&path)
                 .args(["reset", "--hard", "origin/main"])
                 .output();
-            let _ = self
-                .git_command_for(&path)
-                .args(["clean", "-fd"])
-                .output();
+            let _ = self.git_command_for(&path).args(["clean", "-fd"]).output();
             // Delete existing task branch if present, then create fresh.
             self.git_command_for(&path)
                 .args(["branch", "-D", &branch])

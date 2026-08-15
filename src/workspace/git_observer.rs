@@ -53,7 +53,7 @@ struct BranchTip {
 pub fn observe<S: EventStore>(
     ws: &Workspace,
     store: &S,
-    cursors: &dyn crate::cursor::CursorStore,
+    cursors: &dyn crate::store::CursorStore,
     project: &str,
 ) -> Result<u32> {
     let cursor = cursors.get(project, GIT_OBSERVER_CONSUMER)?;
@@ -105,7 +105,7 @@ pub fn observe<S: EventStore>(
                     "task_id": derive_task_id(&branch.name),
                 }),
             );
-            crate::integrity::check_append(&proj, &ev)?;
+            crate::event::integrity::check_append(&proj, &ev)?;
             proj.apply(&ev);
             store.append(ev)?;
             emitted += 1;
@@ -134,7 +134,7 @@ pub fn observe<S: EventStore>(
                     "files": commit.files,
                 }),
             );
-            crate::integrity::check_append(&proj, &ev)?;
+            crate::event::integrity::check_append(&proj, &ev)?;
             proj.apply(&ev);
             store.append(ev)?;
             emitted += 1;
@@ -159,7 +159,7 @@ pub fn observe<S: EventStore>(
                         "to_branch": branch.name,
                     }),
                 );
-                crate::integrity::check_append(&proj, &ev)?;
+                crate::event::integrity::check_append(&proj, &ev)?;
                 proj.apply(&ev);
                 store.append(ev)?;
                 emitted += 1;
@@ -172,7 +172,13 @@ pub fn observe<S: EventStore>(
     // by language, best-effort coverage) and append them (during the same pass,
     // before the cursor advances — always tagged with the merge that caused it).
     if let Some(merge_sha) = &last_merge_sha {
-        crate::repo_metrics::capture_and_emit(ws, store, project, &mut proj, Some(merge_sha))?;
+        crate::workspace::repo_metrics::capture_and_emit(
+            ws,
+            store,
+            project,
+            &mut proj,
+            Some(merge_sha),
+        )?;
     }
 
     // Advance the cursor past everything we've emitted (and everything else).

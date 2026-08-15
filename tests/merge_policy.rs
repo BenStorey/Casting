@@ -3,11 +3,11 @@
 //! pass through the PM's review (pm), plus the SetMergeAuthority escape hatch.
 
 use casting::actions::{validate, PmAction, PolicyError};
-use casting::types::{MergeAuthority, Task, TaskStatus};
-use casting::projection::{Agent, Projection};
-use casting::cursor::SqliteCursorStore;
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::projection::{Agent, Projection};
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
+use casting::types::{MergeAuthority, Task, TaskStatus};
 
 /// A project with one task in Working, assigned to `agent`, with the given
 /// merge authority. `agent` is the only hired agent (so it's a valid assignee
@@ -26,7 +26,7 @@ fn project(agent_id: &str, authority: MergeAuthority) -> Projection {
             status: TaskStatus::Working,
             assignee: Some(agent_id.into()),
             merge_authority: authority,
-            priority: casting::plan::Priority::Medium,
+            priority: casting::pm::plan::Priority::Medium,
             review: None,
             parent_id: None,
         }],

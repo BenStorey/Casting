@@ -345,8 +345,8 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
 pub struct DecisionAudit {
     pub decision_id: String,
     pub subject: String,
-    pub class: crate::policy::DecisionClass,
-    pub involvement: crate::policy::OwnerInvolvement,
+    pub class: crate::pm::DecisionClass,
+    pub involvement: crate::pm::OwnerInvolvement,
     pub status: String,
     pub proposed_by: String,
     /// The decider once `DecisionMade` is recorded (owner or agent id).
@@ -375,8 +375,8 @@ pub fn for_decision<S: EventStore>(
         return Ok(DecisionAudit {
             decision_id: decision_id.to_string(),
             subject: String::new(),
-            class: crate::policy::DecisionClass::InternalImplementation,
-            involvement: crate::policy::OwnerInvolvement::Ask,
+            class: crate::pm::DecisionClass::InternalImplementation,
+            involvement: crate::pm::OwnerInvolvement::Ask,
             status: "unknown".into(),
             proposed_by: String::new(),
             decided_by: None,
@@ -396,12 +396,12 @@ pub fn for_decision<S: EventStore>(
         .data
         .get("class")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or(crate::policy::DecisionClass::InternalImplementation);
+        .unwrap_or(crate::pm::DecisionClass::InternalImplementation);
     let involvement = proposed
         .data
         .get("involvement")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or(crate::policy::OwnerInvolvement::Ask);
+        .unwrap_or(crate::pm::OwnerInvolvement::Ask);
     let proposed_by = actor_label(&proposed.actor);
 
     // The resolution, if any.

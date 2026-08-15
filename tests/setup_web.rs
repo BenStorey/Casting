@@ -3,9 +3,9 @@
 //! /api/setup hires the cast (idempotently), persists the owner token, and fires
 //! the objective message so onboarding kicks off.
 
-use casting::cursor::SqliteCursorStore;
 use casting::pm::AppState;
-use casting::sqlite_store::SqliteEventStore;
+use casting::store::SqliteCursorStore;
+use casting::store::SqliteEventStore;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -207,7 +207,7 @@ async fn setup_is_idempotent_and_persists_token() {
 // presents the CURRENT token. An unauthenticated POST must never rotate it.
 #[tokio::test]
 async fn setup_refuses_silent_token_rotation_without_current_token() {
-    use casting::setup::read_config;
+    use casting::workspace::setup::read_config;
 
     let dir = tempfile::tempdir().unwrap();
     // Simulate a repo whose setup already persisted a token (`cast init`).
@@ -260,7 +260,7 @@ async fn setup_refuses_silent_token_rotation_without_current_token() {
 // First-run with NO previously-persisted token may still SET a token.
 #[tokio::test]
 async fn setup_may_set_token_on_first_run() {
-    use casting::setup::read_config;
+    use casting::workspace::setup::read_config;
 
     let dir = tempfile::tempdir().unwrap();
     // No config.json yet, but a state_dir is attached (bare `cast run`).

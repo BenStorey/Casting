@@ -20,7 +20,7 @@
 //! performs side effects, so the runner holds the key and its value never needs
 //! to enter an LLM context window at all.
 
-use crate::executor::{Activity, ActivityKind};
+use crate::runtime::executor::{Activity, ActivityKind};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

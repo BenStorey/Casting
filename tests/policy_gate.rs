@@ -30,7 +30,7 @@ fn state_with(agents: &[&str], tasks: &[&str]) -> Projection {
                 status: casting::projection::TaskStatus::Backlog,
                 assignee: None,
                 merge_authority: Default::default(),
-                priority: casting::plan::Priority::default(),
+                priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
             })
@@ -150,11 +150,11 @@ fn a_full_valid_sequence_passes() {
         title: "x".into(),
         kind: "feature".into(),
         status: casting::projection::TaskStatus::Backlog,
-                assignee: None,
-                merge_authority: Default::default(),
-                priority: casting::plan::Priority::default(),
-                review: None,
-                parent_id: None,
+        assignee: None,
+        merge_authority: Default::default(),
+        priority: casting::pm::plan::Priority::default(),
+        review: None,
+        parent_id: None,
     });
     assert!(validate(
         &casting::actions::PmAction::AssignTask {
@@ -203,8 +203,8 @@ fn assignee_can_start_their_own_task() {
         Err(PolicyError::TaskHasNoWorktree("task-1".into()))
     );
     st.worktrees.push(casting::projection::Worktree {
-                    consultant: "lead-programmer".into(),
-                    slot: 0,
+        consultant: "lead-programmer".into(),
+        slot: 0,
         task_id: Some("task-1".into()),
         branch: "casting/task-1-x".into(),
         path: "/x".into(),
@@ -266,8 +266,8 @@ fn provision_worktree_rejects_duplicate() {
     let mut st = state_with(&["marcus-reed"], &["task-1"]);
     st.tasks[0].assignee = Some("marcus-reed".into());
     st.worktrees.push(casting::projection::Worktree {
-                    consultant: "lead-programmer".into(),
-                    slot: 0,
+        consultant: "lead-programmer".into(),
+        slot: 0,
         task_id: Some("task-1".into()),
         branch: "casting/task-1-auth".into(),
         path: "/x".into(),
@@ -495,7 +495,7 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 status: TaskStatus::Backlog,
                 assignee: Some("marcus-reed".into()),
                 merge_authority: Default::default(),
-                priority: casting::plan::Priority::default(),
+                priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
             },
@@ -506,7 +506,7 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 status: TaskStatus::Backlog,
                 assignee: Some("maya-patel".into()),
                 merge_authority: Default::default(),
-                priority: casting::plan::Priority::default(),
+                priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
             },
@@ -517,8 +517,8 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
             required_state: TaskStatus::Done,
         }],
         worktrees: vec![Worktree {
-                    consultant: "lead-programmer".into(),
-                    slot: 0,
+            consultant: "lead-programmer".into(),
+            slot: 0,
             task_id: Some("api".into()),
             branch: "casting/api".into(),
             path: "/wt/api".into(),

@@ -186,8 +186,8 @@ fn provisioned_worktree_is_structurally_correct() {
 fn worktree_provisioned_event_projects_worktree_and_change_set() {
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::projection::{ChangeSetStatus, Projection};
-    use casting::sqlite_store::SqliteEventStore;
     use casting::store::EventStore;
+    use casting::store::SqliteEventStore;
 
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteEventStore::open(dir.path().join("events.db")).unwrap();
@@ -234,13 +234,13 @@ fn worktree_provisioned_event_projects_worktree_and_change_set() {
 /// allocating distinct ports, so StartTask can pass the fail-closed gate.
 #[tokio::test]
 async fn pm_onboarding_provisions_distinct_worktrees() {
-    use casting::cursor::CursorStore as _;
     use casting::pm::AppState;
+    use casting::store::CursorStore as _;
     use casting::store::EventStore as _;
     use std::time::Duration;
 
-    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let store = casting::store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     let state = AppState::new(store, cursors, "proj").with_step_delay(Duration::ZERO);
 
     // Hire the default cast + seed project so plan_onboard sees requirements
@@ -324,8 +324,8 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
 /// distinct ports.
 #[tokio::test]
 async fn pm_physically_provisions_worktrees_with_workspace() {
-    use casting::cursor::CursorStore as _;
     use casting::pm::AppState;
+    use casting::store::CursorStore as _;
     use casting::store::EventStore as _;
     use std::sync::Arc;
     use std::time::Duration;
@@ -333,8 +333,8 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
     let (_tmp, repo) = repo_dir(); // real git repo with an initial commit
     let ws = ws(&repo);
     let state = {
-        let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-        let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+        let store = casting::store::SqliteEventStore::in_memory().unwrap();
+        let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
         AppState::new(store, cursors, "proj")
             .with_step_delay(Duration::ZERO)
             .with_workspace(Arc::new(ws.clone()))
@@ -515,12 +515,15 @@ fn reconciler_releases_done_worktrees_and_unbinds_slot() {
     ws.provision_persistent_worktree("consultant-b", 0, "task-382", 8091)
         .unwrap();
 
-    let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
-    let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
+    let store = casting::store::SqliteEventStore::in_memory().unwrap();
+    let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     let state =
         casting::pm::AppState::new(store, cursors, "proj").with_workspace(Arc::new(ws.clone()));
     // Seed the event log with both WorktreeProvisioned so the projection has them.
-    for (consultant, tid, port) in [("consultant-a", "task-381", 8090), ("consultant-b", "task-382", 8091)] {
+    for (consultant, tid, port) in [
+        ("consultant-a", "task-381", 8090),
+        ("consultant-b", "task-382", 8091),
+    ] {
         state
             .append(casting::event::Event::new(
                 "proj",
@@ -573,18 +576,26 @@ fn reconciler_releases_done_worktrees_and_unbinds_slot() {
     assert!(ws.consultant_worktree_path("consultant-a", 0).exists());
     assert!(ws.consultant_worktree_path("consultant-b", 0).exists());
 
-    let pruned = casting::reconciler::prune_worktrees(&state).unwrap();
+    let pruned = casting::pm::reconciler::prune_worktrees(&state).unwrap();
     assert_eq!(pruned, 1, "exactly the done task's worktree is released");
 
     let proj = state.projection().unwrap();
     // BOTH worktree records persist (persistent model — nothing is removed).
     assert_eq!(proj.worktrees.len(), 2);
     // consultant-a's slot is released: task_id unbound, branch back to main.
-    let a = proj.worktrees.iter().find(|w| w.consultant == "consultant-a").unwrap();
+    let a = proj
+        .worktrees
+        .iter()
+        .find(|w| w.consultant == "consultant-a")
+        .unwrap();
     assert_eq!(a.task_id, None, "released worktree is unbound");
     assert_eq!(a.branch, "main");
     // consultant-b's worktree is still bound to its active task.
-    let b = proj.worktrees.iter().find(|w| w.consultant == "consultant-b").unwrap();
+    let b = proj
+        .worktrees
+        .iter()
+        .find(|w| w.consultant == "consultant-b")
+        .unwrap();
     assert_eq!(b.task_id.as_deref(), Some("task-382"));
     // Both physical worktrees remain on disk (reset, not removed).
     assert!(ws.consultant_worktree_path("consultant-a", 0).exists());
@@ -595,7 +606,7 @@ fn reconciler_releases_done_worktrees_and_unbinds_slot() {
 /// operating picture (so D2/the owner can see the desk the agent works in).
 #[test]
 fn worktree_surfaces_in_context_and_operating_model() {
-    use casting::context::WorktreeInfo;
+    use casting::runtime::context::WorktreeInfo;
 
     // Build a projection via the WorktreeProvisioned reducer.
     let (tmp, repo) = repo_dir();
@@ -615,7 +626,7 @@ fn worktree_surfaces_in_context_and_operating_model() {
             status: casting::projection::TaskStatus::Backlog,
             assignee: Some("marcus-reed".into()),
             merge_authority: Default::default(),
-            priority: casting::plan::Priority::default(),
+            priority: casting::pm::plan::Priority::default(),
             review: None,
             parent_id: None,
         }],

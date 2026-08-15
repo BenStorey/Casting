@@ -4,9 +4,9 @@
 //! sees trait objects, so swapping is a one-line config change. This is the
 //! owner's "freely swap one for the other" seam made concrete.
 
-use crate::cursor::CursorStore;
-use crate::snapshot::SnapshotStore;
+use crate::store::CursorStore;
 use crate::store::EventStore;
+use crate::store::SnapshotStore;
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
@@ -15,13 +15,13 @@ use std::sync::Arc;
 pub enum Backend {
     /// Default: a per-project SQLite DB file under the project's `.casting/`.
     Sqlite {
-        events: Arc<crate::sqlite_store::SqliteEventStore>,
-        cursors: Arc<crate::cursor::SqliteCursorStore>,
-        snapshots: Arc<crate::snapshot::SqliteSnapshotStore>,
+        events: Arc<crate::store::SqliteEventStore>,
+        cursors: Arc<crate::store::SqliteCursorStore>,
+        snapshots: Arc<crate::store::SqliteSnapshotStore>,
     },
     /// Hosted: everything on a Postgres server (real concurrency + durability).
     Postgres {
-        pg: Arc<crate::postgres_store::PostgresBackend>,
+        pg: Arc<crate::store::PostgresBackend>,
     },
 }
 
@@ -29,13 +29,13 @@ impl Backend {
     /// Open the default SQLite backend for a project's `.casting/` dir.
     pub fn sqlite(casting_dir: &Path) -> Result<Self> {
         Ok(Backend::Sqlite {
-            events: Arc::new(crate::sqlite_store::SqliteEventStore::open(
+            events: Arc::new(crate::store::SqliteEventStore::open(
                 casting_dir.join("events.db"),
             )?),
-            cursors: Arc::new(crate::cursor::SqliteCursorStore::open(
+            cursors: Arc::new(crate::store::SqliteCursorStore::open(
                 casting_dir.join("cursors.db"),
             )?),
-            snapshots: Arc::new(crate::snapshot::SqliteSnapshotStore::open(
+            snapshots: Arc::new(crate::store::SqliteSnapshotStore::open(
                 casting_dir.join("snapshots.db"),
             )?),
         })
@@ -44,7 +44,7 @@ impl Backend {
     /// Open a Postgres backend from a libpq connection string.
     pub fn postgres(cfg: &str) -> Result<Self> {
         Ok(Backend::Postgres {
-            pg: Arc::new(crate::postgres_store::PostgresBackend::connect(cfg)?),
+            pg: Arc::new(crate::store::PostgresBackend::connect(cfg)?),
         })
     }
 
