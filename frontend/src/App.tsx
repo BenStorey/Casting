@@ -82,7 +82,7 @@ export default function App() {
         <div className="logo">🎬</div>
         <div className="brand">
           <h1>Casting</h1>
-          <p>Your autonomous software company</p>
+          <p>Every great build starts with a great cast.</p>
         </div>
         <div className="ml-auto">
           <Health />

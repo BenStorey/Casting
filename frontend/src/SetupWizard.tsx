@@ -70,6 +70,13 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="app max-w-2xl">
+      {/* Brand hero — the first thing an owner sees on first run. */}
+      <div className="mb-6 text-center">
+        <div className="logo mx-auto mb-2">🎬</div>
+        <h1 className="text-3xl font-bold leading-tight">You direct. The cast delivers.</h1>
+        <p className="text-muted-foreground mt-2">Every great build starts with a great cast.</p>
+      </div>
+
       <div className="flex items-start gap-4">
         <img
           src={PM_IDENTITY.avatar ?? ""}
@@ -77,7 +84,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
           className="h-16 w-16 rounded-2xl shrink-0"
         />
         <div>
-          <h1 className="text-2xl font-bold leading-none">Hi — I'm {PM_IDENTITY.name}.</h1>
+          <h2 className="text-2xl font-bold leading-none">Hi — I'm {PM_IDENTITY.name}.</h2>
           <p className="text-muted-foreground mt-1">
             {PM_IDENTITY.role} · {PM_IDENTITY.persona}
           </p>
