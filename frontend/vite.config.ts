@@ -5,10 +5,10 @@ import tailwindcss from "@tailwindcss/vite";
 // The SPA builds to `dist/` (gitignored) and its contents are embedded into the
 // Rust binary via rust-embed (see src/web.rs + build.rs).
 //
-// In dev, `npm run dev` serves the SPA from Vite on :5173 with hot-reload and
+// In dev, `npm run dev` serves the SPA from Vite on :5000 with hot-reload and
 // proxies `/api` to the Rust `cast run` server, so you can iterate on the
 // frontend without rebuilding or re-embedding. Start `cast run` first, then
-// open http://127.0.0.1:5173.
+// open http://127.0.0.1:5000.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -21,7 +21,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 5173,
+    port: 5000,
     // Allow access via the public dev host (Caddy forwards it). Vite otherwise
     // blocks requests whose Host isn't localhost/127.0.0.1.
     allowedHosts: ["dev.benstorey.com"],

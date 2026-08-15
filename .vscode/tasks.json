@@ -35,7 +35,7 @@
     },
     {
       "label": "Start All",
-      "detail": "Build Rust + SPA, then launch cast run (:8080) and Vite HMR (:5173). Ctrl-C to stop both.",
+      "detail": "Build Rust + SPA, then launch cast run (:8080) and Vite HMR (:5000). Ctrl-C to stop both.",
       "type": "shell",
       "command": "make dev",
       "group": { "kind": "build", "isDefault": false },
@@ -45,9 +45,9 @@
     },
     {
       "label": "Purge project",
-      "detail": "Delete .casting/ state from the demo workspace (~/casting-workspace/proj). Ask confirmation.",
+      "detail": "Delete .casting/ state from the demo workspace (~/casting-workspace/proj). Force — no prompt.",
       "type": "shell",
-      "command": "make purge",
+      "command": "cargo run -- purge ~/casting-workspace/proj --force",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
@@ -55,7 +55,7 @@
       "label": "Purge + Start All",
       "detail": "Reset project to clean slate, then build and launch everything.",
       "type": "shell",
-      "command": "make purge && make dev",
+      "command": "cargo run -- purge ~/casting-workspace/proj --force && make dev",
       "problemMatcher": [],
       "runOptions": { "instanceLimit": 1 },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
@@ -71,7 +71,7 @@
     },
     {
       "label": "Dev: Frontend only (Vite HMR)",
-      "detail": "Start Vite dev server at :5173 (needs cast run on :8080 first).",
+      "detail": "Start Vite dev server at :5000 (needs cast run on :8080 first).",
       "type": "shell",
       "command": "cd frontend && npm run dev",
       "problemMatcher": [],

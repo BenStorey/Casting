@@ -147,7 +147,11 @@ pub fn ensure_hires(
 }
 
 /// Persist the runtime config (name + owner token) that `cast run` reads.
-pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&str>) -> Result<()> {
+pub fn persist_config(
+    dir: &std::path::Path,
+    name: &str,
+    owner_token: Option<&str>,
+) -> Result<()> {
     let spec = SetupSpec {
         name: name.to_string(),
         roles: vec![],
@@ -155,6 +159,36 @@ pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&st
         directives: vec![],
     };
     write_config(dir, &spec)
+}
+
+/// Persist setup-time LLM api key and owner preferences (name, experience level)
+/// into the existing config, MERGING so nothing is clobbered.
+pub fn persist_setup_prefs(
+    dir: &std::path::Path,
+    owner_name: Option<&str>,
+    experience_level: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<()> {
+    let prior = read_config(dir).unwrap_or(RuntimeConfig {
+        name: String::new(),
+        owner_name: None,
+        experience_level: None,
+        owner_token: None,
+        api_key: None,
+        telegram_token: None,
+        telegram_chat_id: None,
+    });
+    let cfg = RuntimeConfig {
+        name: prior.name,
+        owner_name: owner_name.map(|s| s.to_string()).or(prior.owner_name),
+        experience_level: experience_level.map(|s| s.to_string()).or(prior.experience_level),
+        owner_token: prior.owner_token,
+        api_key: api_key.map(|s| s.to_string()).or(prior.api_key),
+        telegram_token: prior.telegram_token,
+        telegram_chat_id: prior.telegram_chat_id,
+    };
+    let json = serde_json::to_string_pretty(&cfg)?;
+    std::fs::write(dir.join(CONFIG_FILE), json).context("write persisted setup prefs")
 }
 
 /// The canonical agent id for a default-cast role, if any (so the wizard's
@@ -247,8 +281,20 @@ fn apply_to_store(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeConfig {
     pub name: String,
+    /// What the owner wants to be called (e.g. "Ben").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+    /// How familiar the owner is with software dev — "novice" | "somewhat" | "confident".
+    /// Used by the PM to calibrate how technically it explains things.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experience_level: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_token: Option<String>,
+    /// LLM provider API key (e.g. OpenRouter). Persisted at setup so the user
+    /// doesn't need the CAST_LLM_API_KEY env var for the default provider.
+    /// Falls through as a fallback to the env var in the LLM config loader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
     /// Persisted Telegram channel config (2026-08-14). Set via the UI
     /// `POST /api/telegram/configure` so a user of Casting never touches env.
     /// Both are secrets-adjacent (a bot token; a user's chat id) and live in
@@ -264,7 +310,10 @@ const CONFIG_FILE: &str = "config.json";
 fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
     let cfg = RuntimeConfig {
         name: spec.name.clone(),
+        owner_name: None,
+        experience_level: None,
         owner_token: spec.owner_token.clone(),
+        api_key: None,
         telegram_token: None,
         telegram_chat_id: None,
     };
@@ -290,13 +339,19 @@ pub fn persist_telegram_config(
 ) -> Result<()> {
     let prior = read_config(dir).unwrap_or(RuntimeConfig {
         name: String::new(),
+        owner_name: None,
+        experience_level: None,
         owner_token: None,
+        api_key: None,
         telegram_token: None,
         telegram_chat_id: None,
     });
     let cfg = RuntimeConfig {
         name: prior.name,
+        owner_name: prior.owner_name,
+        experience_level: prior.experience_level,
         owner_token: prior.owner_token,
+        api_key: prior.api_key,
         telegram_token: Some(token.into()),
         telegram_chat_id: Some(chat_id),
     };

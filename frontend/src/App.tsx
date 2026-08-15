@@ -76,6 +76,12 @@ export default function App() {
     return unsub;
   }, [start]);
 
+  // First-run: no cast hired beyond the seed PM → show setup wizard full-screen
+  const needsSetup =
+    state && state.agents.filter((a) => a.id !== "pm").length === 0;
+  if (needsSetup) return <SetupWizard onDone={refresh} />;
+  if (!state) return null;
+
   return (
     <div className="app">
       <header className="top">
@@ -101,14 +107,7 @@ export default function App() {
         </div>
       )}
 
-      {/* First-run: no company cast yet (only the seed PM) -> show the setup
-          wizard. Once engaged it drives the same engine as `cast init`. */}
-      {state && state.agents.filter((a) => a.id !== "pm").length === 0 && (
-        <SetupWizard onDone={refresh} />
-      )}
-      {state && state.agents.filter((a) => a.id !== "pm").length > 0 && (
-        <>
-          <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
             <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5 md:grid-cols-10">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="graph">Graph</TabsTrigger>
@@ -155,8 +154,6 @@ export default function App() {
             )}
             {tab === "settings" && <SettingsView />}
           </Tabs>
-        </>
-      )}
 
       {/* G7: per-task drill-down drawer (opened from the board). */}
       {openTask && <TaskDrawer task={openTask} onClose={() => setOpenTask(null)} />}

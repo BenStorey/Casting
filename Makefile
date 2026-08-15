@@ -63,11 +63,13 @@ run: build
 	mkdir -p $(REPO_DIR)
 	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(REPO_DIR)
 
-# Live UI dev: cast run (API on :8080) + Vite HMR (on :5173, proxies /api).
-# Both in one shell; Ctrl-C stops both.
+# Live UI dev: cast run (API on :8080) + Vite HMR (on :5000, proxies /api).
+# Both in one shell; Ctrl-C stops both. Kill any stale processes on the ports first.
 dev: build
 	mkdir -p $(REPO_DIR)
-	@echo "→ starting cast run (API :$(CAST_ADDR)) + Vite HMR (:5173); Ctrl-C to stop both"
+	@echo "→ freeing ports :8080 and :5000…"
+	@fuser -k 8080/tcp 5000/tcp 2>/dev/null || true
+	@echo "→ starting cast run (API :$(CAST_ADDR)) + Vite HMR (:5000); Ctrl-C to stop both"
 	trap 'kill 0' INT TERM EXIT; \
 	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(REPO_DIR) & \
 	cd frontend && npm run dev

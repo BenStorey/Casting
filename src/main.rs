@@ -985,10 +985,8 @@ fn do_smoke(dir: &Path) -> Result<()> {
 fn do_purge(dir: &Path, force: bool) -> Result<()> {
     let state_dir = dir.join(".casting");
     if !state_dir.exists() {
-        anyhow::bail!(
-            "no Casting state found at {} (try `cast init` first)",
-            dir.display()
-        );
+        println!("nothing to purge at {} (already clean)", dir.display());
+        return Ok(());
     }
 
     if !force {

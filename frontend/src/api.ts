@@ -289,12 +289,23 @@ export async function submitSetup(
   name: string,
   objective: string,
   cast: string[],
+  ownerName?: string,
+  experienceLevel?: string,
+  apiKey?: string,
   ownerToken?: string
 ): Promise<SetupResult> {
   return j<SetupResult>("/api/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, objective, cast, owner_token: ownerToken || undefined }),
+    body: JSON.stringify({
+      name,
+      objective,
+      cast,
+      owner_name: ownerName || undefined,
+      experience_level: experienceLevel || undefined,
+      api_key: apiKey || undefined,
+      owner_token: ownerToken || undefined,
+    }),
   });
 }
 

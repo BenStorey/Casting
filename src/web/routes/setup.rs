@@ -31,6 +31,15 @@ pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<
 pub(crate) struct SetupIn {
     name: String,
     objective: String,
+    /// What the owner wants to be called (the PM will use this).
+    #[serde(default)]
+    owner_name: Option<String>,
+    /// Experience level calibration: "novice" | "somewhat" | "confident".
+    #[serde(default)]
+    experience_level: Option<String>,
+    /// LLM provider API key (OpenRouter). Stored for D2 wiring.
+    #[serde(default)]
+    api_key: Option<String>,
     #[serde(default)]
     cast: Vec<String>,
     #[serde(default)]
@@ -85,6 +94,14 @@ pub(crate) async fn setup_handler(
             }
         }
         let _ = crate::workspace::setup::persist_config(dir, &input.name, owner_token);
+        // Persist the new fields (owner_name, experience_level, api_key) — merge
+        // into whatever's already on disk so the telegram token is preserved.
+        let _ = crate::workspace::setup::persist_setup_prefs(
+            dir,
+            input.owner_name.as_deref(),
+            input.experience_level.as_deref(),
+            input.api_key.as_deref(),
+        );
     }
 
     // Fire the owner's objective so onboarding produces the build plan.
