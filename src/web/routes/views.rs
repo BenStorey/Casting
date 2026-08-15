@@ -139,3 +139,77 @@ pub(crate) async fn model_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(proj.operating_model()))
 }
+
+/// The full assembled context that would be sent to an actor's LLM:
+/// system prompt (persona) + planning instructions (action vocabulary) +
+/// the structured AgentContext. This is the actual text the model sees,
+/// assembled exactly as the orchestrator would build it.
+#[derive(serde::Serialize)]
+pub(crate) struct FullActorContext {
+    pub actor: String,
+    pub system_prompt: String,
+    pub planning_instructions: String,
+    pub agent_context: crate::context::AgentContext,
+    pub assembled_context: String,
+}
+
+/// GET /api/debug/context/{actor} — the FULL prompt the model would receive.
+/// Combines the actor's persona, the action vocabulary, and the structured
+/// AgentContext into one readable block so you can eyeball what the model
+/// actually sees and assess context bloat.
+pub(crate) async fn full_context_handler(
+    State(state): State<AppState>,
+    Path(actor): Path<String>,
+) -> Result<Json<FullActorContext>, StatusCode> {
+    use crate::llm::orchestrator::LlmOrchestrator;
+    use crate::llm::config::ProviderConfig;
+
+    let proj = state
+        .projection()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let agent_ctx = proj.context_for(&actor);
+
+    // Resolve the system prompt / persona for this actor.
+    let system_prompt = state
+        .consultants
+        .by_id(&actor)
+        .and_then(|c| c.system_prompt.clone())
+        .or_else(|| {
+            // PM and advisor have special handling.
+            if actor == "pm" || actor == "advisor" {
+                state
+                    .consultants
+                    .by_id("pm")
+                    .and_then(|c| c.system_prompt.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
+    // Build the planning instructions (same function the real orchestrator uses).
+    let base_cfg = ProviderConfig {
+        provider: "null".into(),
+        model: "null".into(),
+        base_url: String::new(),
+        api_key: String::new(),
+    };
+    let orch = LlmOrchestrator::new(base_cfg, system_prompt.clone());
+    let planning = orch.planning_instructions(&actor);
+
+    // Assemble the full prompt.
+    let assembled = format!(
+        "{}\n\n{}\n\n# Current Operating Context\n{}",
+        system_prompt,
+        planning,
+        serde_json::to_string_pretty(&agent_ctx).unwrap_or_default()
+    );
+
+    Ok(Json(FullActorContext {
+        actor,
+        system_prompt,
+        planning_instructions: planning,
+        agent_context: agent_ctx,
+        assembled_context: assembled,
+    }))
+}

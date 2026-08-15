@@ -491,6 +491,20 @@ export function fetchModel(): Promise<OperatingModel> {
   return j<OperatingModel>("/api/model");
 }
 
+// ---- Full actor context (/api/debug/context/{actor}) -----------------------
+
+export interface FullActorContext {
+  actor: string;
+  system_prompt: string;
+  planning_instructions: string;
+  agent_context: AgentContext;
+  assembled_context: string;
+}
+
+export function fetchFullContext(actor: string): Promise<FullActorContext> {
+  return j<FullActorContext>(`/api/debug/context/${encodeURIComponent(actor)}`);
+}
+
 // ---- Graph / transition spine (/api/graph) ----------------------------------
 // Mirrors src/graph.rs GraphView (derived — the backend stays the authority).
 

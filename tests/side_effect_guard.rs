@@ -48,7 +48,9 @@ fn provision_activity() -> Activity {
         target_id: "t-1".into(),
         kind: ActivityKind::ProvisionWorktree {
             task_id: "t-1".into(),
+            assignee: "lead-programmer".into(),
             slug: "".into(),
+            slot: 0,
             port: 8081,
         },
     }

@@ -47,7 +47,9 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(i, p)| Worktree {
-                    task_id: format!("task-{i}"),
+                    consultant: format!("consultant-{i}"),
+                    slot: 0,
+                    task_id: Some(format!("task-{i}")),
                     branch: format!("casting/task-{i}-x"),
                     path: format!("/x/{i}"),
                     cargo_target_dir: format!("/x/{i}/target"),

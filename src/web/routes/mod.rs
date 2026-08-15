@@ -34,7 +34,7 @@ use state::{events_handler, events_stream, health_handler, state_handler};
 use static_files::static_handler;
 use telegram::{telegram_configure_handler, telegram_status_handler};
 use views::{
-    consultants_handler, context_handler, graph_handler, graph_task_context_handler, model_handler,
+    consultants_handler, context_handler, full_context_handler, graph_handler, graph_task_context_handler, model_handler,
     persona_handler, routing_handler,
 };
 
@@ -116,6 +116,7 @@ pub fn router(state: AppState) -> Router {
             get(provenance_decision_handler),
         )
         .route("/api/context/{actor}", get(context_handler))
+        .route("/api/debug/context/{actor}", get(full_context_handler))
         .route("/api/persona/{agent_id}", get(persona_handler))
         .route("/api/model", get(model_handler))
         .route("/api/graph", get(graph_handler))

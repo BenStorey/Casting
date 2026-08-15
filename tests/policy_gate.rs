@@ -203,7 +203,9 @@ fn assignee_can_start_their_own_task() {
         Err(PolicyError::TaskHasNoWorktree("task-1".into()))
     );
     st.worktrees.push(casting::projection::Worktree {
-        task_id: "task-1".into(),
+                    consultant: "lead-programmer".into(),
+                    slot: 0,
+        task_id: Some("task-1".into()),
         branch: "casting/task-1-x".into(),
         path: "/x".into(),
         cargo_target_dir: "/x/target".into(),
@@ -225,8 +227,10 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
     st.tasks[0].assignee = Some("marcus-reed".into());
     let act = casting::actions::PmAction::ProvisionWorktree {
         task_id: "task-1".into(),
+        assignee: "lead-programmer".into(),
         slug: "auth".into(),
         cargo_target_dir: "/x/target".into(),
+        slot: 0,
         port: 8090,
     };
     // Valid: task exists, assigned to a hired consultant, no worktree yet.
@@ -262,7 +266,9 @@ fn provision_worktree_rejects_duplicate() {
     let mut st = state_with(&["marcus-reed"], &["task-1"]);
     st.tasks[0].assignee = Some("marcus-reed".into());
     st.worktrees.push(casting::projection::Worktree {
-        task_id: "task-1".into(),
+                    consultant: "lead-programmer".into(),
+                    slot: 0,
+        task_id: Some("task-1".into()),
         branch: "casting/task-1-auth".into(),
         path: "/x".into(),
         cargo_target_dir: "/x/target".into(),
@@ -270,8 +276,10 @@ fn provision_worktree_rejects_duplicate() {
     });
     let act = casting::actions::PmAction::ProvisionWorktree {
         task_id: "task-1".into(),
+        assignee: "lead-programmer".into(),
         slug: "auth".into(),
         cargo_target_dir: "/x/target".into(),
+        slot: 0,
         port: 8090,
     };
     assert_eq!(
@@ -285,8 +293,10 @@ fn provision_worktree_requires_existing_task() {
     let st = state_with(&["marcus-reed"], &["task-1"]);
     let act = casting::actions::PmAction::ProvisionWorktree {
         task_id: "task-999".into(),
+        assignee: "lead-programmer".into(),
         slug: "x".into(),
         cargo_target_dir: "/x/target".into(),
+        slot: 0,
         port: 8090,
     };
     assert_eq!(
@@ -507,7 +517,9 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
             required_state: TaskStatus::Done,
         }],
         worktrees: vec![Worktree {
-            task_id: "api".into(),
+                    consultant: "lead-programmer".into(),
+                    slot: 0,
+            task_id: Some("api".into()),
             branch: "casting/api".into(),
             path: "/wt/api".into(),
             cargo_target_dir: "/wt/target".into(),

@@ -213,7 +213,7 @@ fn worktree_provisioned_event_projects_worktree_and_change_set() {
     let proj = Projection::build(&store, "proj").unwrap();
     assert_eq!(proj.worktrees.len(), 1);
     let wt = proj.worktrees.first().unwrap();
-    assert_eq!(wt.task_id, "task-381");
+    assert_eq!(wt.task_id.as_deref(), Some("task-381"));
     assert_eq!(wt.branch, "casting/task-381-authentication");
     assert_eq!(wt.port, 8090);
     assert!(wt.cargo_target_dir.ends_with("target"));
@@ -392,8 +392,8 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
 
     // Verify the full worktree LIFECYCLE via the event log (the source of
     // truth): every task that was provisioned a worktree got one physically,
-    // and every task that BECAME Done got it torn down immediately (write-time)
-    // — both in the projection and on disk.
+    // and every task that BECAME Done got its slot RELEASED (persistent model —
+    // unbound, reset to main, NOT removed).
     let store: &dyn casting::store::EventStore = &state.store;
     let events = store.read_since("proj", 0).unwrap();
     let provisioned: std::collections::HashSet<String> = events
@@ -406,9 +406,9 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
                 .map(String::from)
         })
         .collect();
-    let removed: std::collections::HashSet<String> = events
+    let released: std::collections::HashSet<String> = events
         .iter()
-        .filter(|e| e.event_type == casting::event::EventType::WorktreeRemoved)
+        .filter(|e| e.event_type == casting::event::EventType::WorktreeReleased)
         .filter_map(|e| {
             e.data
                 .get("task_id")
@@ -422,7 +422,7 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
         "onboarding should have provisioned worktrees"
     );
     for tid in &provisioned {
-        // If the task is Done, its worktree must be gone (write-time teardown).
+        // If the task is Done, its slot must be RELEASED (write-time release).
         let task_done = state
             .projection()
             .unwrap()
@@ -430,17 +430,17 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
             .iter()
             .any(|t| t.id == *tid && t.status == casting::projection::TaskStatus::Done);
         if task_done {
-            assert!(removed.contains(tid), "done task {tid} should be torn down");
-            assert!(
-                !ws.worktree_path(tid).exists(),
-                "done task {tid}'s worktree dir should be deleted"
-            );
+            assert!(released.contains(tid), "done task {tid} should be released");
         }
     }
 
-    // The in-progress (non-Done) worktrees that remain physically exist on their
-    // own branch with a private build target.
+    // The still-bound (non-Done) worktrees physically exist on their own
+    // branch with a private build target. Released worktrees (task_id None)
+    // are reset to main, so they're skipped here.
     for wt in state.projection().unwrap().worktrees {
+        if wt.task_id.is_none() {
+            continue; // released slot — reset to main, not on a task branch.
+        }
         let path = std::path::Path::new(&wt.path);
         assert!(path.exists(), "worktree dir {} should exist", wt.path);
         let branch = ws
@@ -500,25 +500,27 @@ fn commit_in_worktree_lands_on_the_isolated_branch() {
     assert!(Path::new(&wt.cargo_target_dir).starts_with(&wt.path));
 }
 
-/// Reconciler lifecycle close: once a task is Done, its worktree is pruned
-/// (physical dir removed + WorktreeRemoved event drops it and frees the port).
+/// Reconciler lifecycle close: once a task is Done, its persistent worktree is
+/// RELEASED — reset to main (kept warm), slot unbound (task_id → None), but
+/// the worktree record and physical dir persist for reuse by the next task.
 #[test]
-fn reconciler_prunes_done_worktrees_and_frees_their_port() {
+fn reconciler_releases_done_worktrees_and_unbinds_slot() {
     use std::sync::Arc;
 
     let (_tmp, repo) = repo_dir();
     let ws = ws(&repo);
-    // Provision two worktrees; one will be "done", one stays active.
-    ws.provision_worktree("task-381", "authentication", 8090)
+    // Provision two worktrees for DIFFERENT consultants so slots don't collide.
+    ws.provision_persistent_worktree("consultant-a", 0, "task-381", 8090)
         .unwrap();
-    ws.provision_worktree("task-382", "billing", 8091).unwrap();
+    ws.provision_persistent_worktree("consultant-b", 0, "task-382", 8091)
+        .unwrap();
 
     let store = casting::sqlite_store::SqliteEventStore::in_memory().unwrap();
     let cursors = casting::cursor::SqliteCursorStore::in_memory().unwrap();
     let state =
         casting::pm::AppState::new(store, cursors, "proj").with_workspace(Arc::new(ws.clone()));
     // Seed the event log with both WorktreeProvisioned so the projection has them.
-    for (tid, port) in [("task-381", 8090), ("task-382", 8091)] {
+    for (consultant, tid, port) in [("consultant-a", "task-381", 8090), ("consultant-b", "task-382", 8091)] {
         state
             .append(casting::event::Event::new(
                 "proj",
@@ -526,13 +528,15 @@ fn reconciler_prunes_done_worktrees_and_frees_their_port() {
                 casting::event::EventType::WorktreeProvisioned,
                 casting::event::Aggregate {
                     kind: "worktree".into(),
-                    id: format!("wt-{tid}"),
+                    id: format!("wt-{consultant}-0"),
                 },
                 serde_json::json!({
+                    "consultant": consultant,
+                    "slot": 0,
                     "task_id": tid,
                     "branch": format!("casting/{tid}"),
-                    "path": ws.worktree_path(tid).to_string_lossy().into_owned(),
-                    "cargo_target_dir": ws.worktree_path(tid).join("target").to_string_lossy().into_owned(),
+                    "path": ws.consultant_worktree_path(consultant, 0).to_string_lossy().into_owned(),
+                    "cargo_target_dir": ws.consultant_worktree_path(consultant, 0).join("target").to_string_lossy().into_owned(),
                     "port": port,
                 }),
             ))
@@ -566,28 +570,25 @@ fn reconciler_prunes_done_worktrees_and_frees_their_port() {
 
     // Sanity: before pruning both worktrees exist in the projection and on disk.
     assert_eq!(state.projection().unwrap().worktrees.len(), 2);
-    assert!(ws.worktree_path("task-381").exists());
-    assert!(ws.worktree_path("task-382").exists());
+    assert!(ws.consultant_worktree_path("consultant-a", 0).exists());
+    assert!(ws.consultant_worktree_path("consultant-b", 0).exists());
 
     let pruned = casting::reconciler::prune_worktrees(&state).unwrap();
-    assert_eq!(pruned, 1, "exactly the done task's worktree is pruned");
+    assert_eq!(pruned, 1, "exactly the done task's worktree is released");
 
     let proj = state.projection().unwrap();
-    // Only the active task's worktree remains; task-381's port is freed.
-    assert_eq!(proj.worktrees.len(), 1);
-    assert_eq!(proj.worktrees[0].task_id, "task-382");
-    // The allocator returns the LOWEST free port in the pool — 8081 is lower
-    // than 8090, but crucially 8090 is no longer taken (before pruning it was).
-    let used: std::collections::HashSet<u16> = proj.worktrees.iter().map(|w| w.port).collect();
-    assert!(
-        !used.contains(&8090),
-        "task-381's port 8090 must be freed for reuse"
-    );
-    // The remaining active worktree still holds its port (8091).
-    assert!(used.contains(&8091));
-    // The physical worktree dir is gone; the active one remains.
-    assert!(!ws.worktree_path("task-381").exists());
-    assert!(ws.worktree_path("task-382").exists());
+    // BOTH worktree records persist (persistent model — nothing is removed).
+    assert_eq!(proj.worktrees.len(), 2);
+    // consultant-a's slot is released: task_id unbound, branch back to main.
+    let a = proj.worktrees.iter().find(|w| w.consultant == "consultant-a").unwrap();
+    assert_eq!(a.task_id, None, "released worktree is unbound");
+    assert_eq!(a.branch, "main");
+    // consultant-b's worktree is still bound to its active task.
+    let b = proj.worktrees.iter().find(|w| w.consultant == "consultant-b").unwrap();
+    assert_eq!(b.task_id.as_deref(), Some("task-382"));
+    // Both physical worktrees remain on disk (reset, not removed).
+    assert!(ws.consultant_worktree_path("consultant-a", 0).exists());
+    assert!(ws.consultant_worktree_path("consultant-b", 0).exists());
 }
 
 /// The consultant's isolated workspace surfaces in the agent context AND the
@@ -619,7 +620,9 @@ fn worktree_surfaces_in_context_and_operating_model() {
             parent_id: None,
         }],
         worktrees: vec![casting::projection::Worktree {
-            task_id: "task-381".into(),
+            consultant: "marcus-reed".into(),
+            slot: 0,
+            task_id: Some("task-381".into()),
             branch: "casting/task-381".into(),
             path: ws.worktree_path("task-381").to_string_lossy().into_owned(),
             cargo_target_dir: ws
@@ -643,6 +646,6 @@ fn worktree_surfaces_in_context_and_operating_model() {
     // Operating picture includes the worktree view.
     let model = proj.operating_model();
     assert_eq!(model.worktrees.len(), 1);
-    assert_eq!(model.worktrees[0].task_id, "task-381");
+    assert_eq!(model.worktrees[0].task_id.as_deref(), Some("task-381"));
     assert_eq!(model.worktrees[0].port, 8090);
 }
