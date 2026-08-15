@@ -191,7 +191,7 @@ async fn orchestrator_routes_per_actor_model() {
 id = "marcus-reed"
 name = "Marcus"
 cast_role = "lead_developer"
-system_prompt = "{INLINE_PROMPT}"
+system_prompt = "Marcus override prompt"
 
 [consultant.model]
 provider = "stub"
@@ -199,7 +199,7 @@ base_url = "http://{addr}/v1"
 model_id = "cheap-model"
 "#
     );
-    let registry = registry_with_model(&pkg, "You are Marcus.");
+    let registry = registry_with_model(&pkg, "Marcus override prompt");
     let resolver = ModelResolver::new(cfg, registry);
     let orch = LlmOrchestrator::new(base_cfg(), "PM".into()).with_resolver(resolver);
 
@@ -406,7 +406,7 @@ async fn orchestrator_passes_consultant_temperature_and_max_tokens() {
 id = "temp-guy"
 name = "Temp"
 cast_role = "lead_developer"
-system_prompt = "{INLINE_PROMPT}"
+system_prompt = "{prompt}"
 
 [consultant.model]
 provider = "stub"
@@ -414,9 +414,10 @@ base_url = "http://{addr}/v1"
 model_id = "temp-model"
 temperature = 0.7
 max_tokens = 500
-"#
+"#,
+        prompt = "Temp prompt"
     );
-    let registry = registry_with_model(&pkg, "You are Temp.");
+    let registry = registry_with_model(&pkg, "Temp prompt");
     let resolver = ModelResolver::new(cfg, registry);
     let orch = LlmOrchestrator::new(base_cfg(), "PM".into()).with_resolver(resolver);
     let ctx = casting::runtime::context::AgentContext {

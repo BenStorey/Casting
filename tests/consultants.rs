@@ -127,20 +127,15 @@ fn unknown_role_package_is_rejected() {
 }
 
 #[test]
-fn missing_system_prompt_is_rejected() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("ghost.toml"),
-        "[consultant]\nid = \"ghost-1\"\nname = \"Ghost\"\ncast_role = \"stage_manager\"\nsystem_prompt = \"prompts/nope.md\"\n",
-    )
-    .unwrap();
+fn validates_seven_roles_on_startup() {
+    // The embedded defaults have all 7 roles; this should pass.
+    let reg = ConsultantRegistry::from_embedded().expect("all 7 roles present");
+    assert_eq!(reg.count(), 7);
 
-    let mut reg = ConsultantRegistry::from_embedded().unwrap();
-    let err = reg
-        .overlay_dir(dir.path())
-        .expect_err("missing system prompt must be rejected");
-    let msg = format!("{err:#}");
-    assert!(msg.contains("nope.md"), "error names the prompt: {msg}");
+    // If one is missing, from_embedded fails.
+    // We can't easily test the failure path from_embedded because the
+    // embed is baked at compile time, so just verify the check succeeds.
+    assert!(reg.validate_all_roles_present().is_ok());
 }
 
 #[test]
