@@ -99,6 +99,19 @@ fn load_consultants(
 }
 
 fn main() -> Result<()> {
+    // Initialise structured logging (env_logger / RUST_LOG). Default to "info"
+    // level for cast-specific modules, "warn" for dependencies.
+    // Use local time and a clean format: [HH:MM:SS LEVEL] message
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&rust_log))
+        .format(|buf, record| {
+            use std::io::Write;
+            let ts = chrono::Local::now().format("%H:%M:%S%.3f");
+            writeln!(buf, "[{} {}] {}", ts, record.level(), record.args())
+        })
+        .init();
+    log::info!("Casting starting up");
+
     let args: Vec<String> = std::env::args().collect();
     let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("help");
 
@@ -843,29 +856,11 @@ fn seed_project(state: &AppState) -> Result<()> {
         serde_json::json!({"role": "Project Manager"}),
     ))?;
 
-    // Hire the default cast at seed so EVERY fresh open — scripted OR LLM-driven
-    // — always has a working team (at least one developer) to assign work to.
-    // The scripted `plan_onboard` also hires the default cast on the first owner
-    // message, but its already-hired filter makes this idempotent (no dupes); the
-    // LLM path never runs plan_onboard, so seeding here is what guarantees the
-    // developer exists before the model tries to assign. A custom cast chosen via
-    // setup is a separate store (apply_to_store), so `seed_project` only fires on
-    // a genuinely bare first open.
-    for m in casting::workspace::cast::DEFAULT_CAST {
-        let role = casting::workspace::cast::role_by_id(m.role_id)
-            .map(|r| r.title.to_string())
-            .unwrap_or_else(|| m.role_id.to_string());
-        state.append(Event::new(
-            &project,
-            Actor::System,
-            EventType::AgentHired,
-            Aggregate {
-                kind: "agent".into(),
-                id: m.agent_id.into(),
-            },
-            serde_json::json!({ "role": role }),
-        ))?;
-    }
+    // Done — the setup wizard handles hiring the rest of the cast. If the
+    // wizard is skipped (headless `cast init`), the setup flow in the backend
+    // hires them. Previously we seeded the full default cast here, but that
+    // prevented the first-run wizard from showing (the cast was already full).
+    println!("   PM seeded — setup wizard will handle the rest");
     Ok(())
 }
 

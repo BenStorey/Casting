@@ -375,11 +375,11 @@ pub async fn run_pm(state: AppState, ws: crate::workspace::Workspace) {
             // Observe the repo first — new commits become events the PM can react to.
             crate::workspace::git_observer::observe_once(&state, &ws).await;
             if let Err(e) = drain(&state).await {
-                eprintln!("[pm] drain error: {e:#}");
+                log::error!("[pm] drain error: {e:#}");
             }
             // Drift reconciliation: every N events, run every registered pass.
             if let Err(e) = crate::pm::reconciler::run_if_due(&state) {
-                eprintln!("[pm] reconciler error: {e:#}");
+                log::error!("[pm] reconciler error: {e:#}");
             }
         }
     }
@@ -440,7 +440,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 // exhausted, do NOT issue the provider call (no spend) and skip
                 // planning entirely.
                 if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(projection) {
-                    eprintln!("[pm] guard blocked LLM dispatch: {reason}");
+                    log::warn!("[pm] guard blocked LLM dispatch: {reason}");
                     (Vec::new(), None)
                 } else {
                     let context = projection.context_for("pm");
@@ -455,7 +455,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     let out = match orch.plan(&context, e).await {
                         Ok(out) => out,
                         Err(err) => {
-                            eprintln!("[pm] orchestrator error: {err:#}");
+                            log::error!("[pm] orchestrator error: {err:#}");
                             planning_failed = true;
                             let _ = state.append(crate::pm::planning::orchestration_run_event(
                                 &state.project,
@@ -588,7 +588,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         match actions::validate(&action, &who, &projection) {
             Ok(()) => {}
             Err(e) => {
-                eprintln!("[pm] policy gate rejected {who} action: {e}");
+                log::warn!("[pm] policy gate rejected {who} action: {e}");
                 // Audit the refusal in the event log so a misbehaving plan
                 // (esp. the real LLM) is visible in the UI/stream, not just
                 // stderr. Serialized PmAction + reason => exactly what was
@@ -644,7 +644,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                     if let Err(e) =
                         crate::runtime::executor::run_side_effect(state, &runner, &activity)
                     {
-                        eprintln!("[pm] workspace side-effect failed: {e:#}");
+                        log::error!("[pm] workspace side-effect failed: {e:#}");
                         // Align the projection with physical reality: a
                         // WorktreeProvisioned whose physical `git worktree`
                         // never got created must not claim a desk (the fail-closed
@@ -688,7 +688,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                     | crate::event::EventType::MergeCompleted
             ) {
                 if let Err(e) = crate::pm::reconciler::prune_worktrees(state) {
-                    eprintln!("[pm] write-time worktree prune failed: {e:#}");
+                    log::error!("[pm] write-time worktree prune failed: {e:#}");
                 }
             }
             if !state.step_delay.is_zero() {
@@ -698,7 +698,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
     }
 
     if rejected > 0 {
-        eprintln!("[pm] rejected {rejected} invalid action(s) this pass");
+        log::info!("[pm] rejected {rejected} invalid action(s) this pass");
     }
     Ok(authored)
 }

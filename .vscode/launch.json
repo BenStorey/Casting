@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Run API (cast run)",
+      "preLaunchTask": "Build (Rust only)",
+      "program": "${workspaceFolder}/target/debug/cast",
+      "args": ["run", "${env:HOME}/casting-workspace/proj"],
+      "env": {
+        "CAST_ADDR": "127.0.0.1:8080",
+        "RUST_LOG": "info"
+      },
+      "terminal": "console",
+      "internalConsoleOptions": "openOnSessionStart",
+      "sourceLanguages": ["rust"],
+      "initCommands": [
+        "process handle SIGCHLD -n false -p true -s false"
+      ],
+      "presentation": { "group": "cast", "order": 1 }
+    },
+    {
+      "type": "lldb",
+      "request": "attach",
+      "name": "Attach to running cast",
+      "program": "${workspaceFolder}/target/debug/cast",
+      "sourceLanguages": ["rust"],
+      "initCommands": [
+        "process handle SIGCHLD -n false -p true -s false"
+      ],
+      "presentation": { "group": "cast", "order": 2 }
+    }
+  ]
+}

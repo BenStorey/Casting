@@ -3,17 +3,17 @@
   "tasks": [
     {
       "label": "Build (Rust only)",
+      "group": { "kind": "build", "isDefault": true },
       "type": "shell",
       "command": "cargo build",
-      "group": { "kind": "build", "isDefault": true },
       "problemMatcher": ["$rustc"],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
       "label": "Test",
+      "group": { "kind": "test", "isDefault": true },
       "type": "shell",
       "command": "cargo test",
-      "group": { "kind": "test", "isDefault": true },
       "problemMatcher": ["$rustc"],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
@@ -21,7 +21,6 @@
       "label": "Lint (clippy)",
       "type": "shell",
       "command": "cargo clippy --all-targets -- -D warnings",
-      "group": "build",
       "problemMatcher": ["$rustc"],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
@@ -29,62 +28,25 @@
       "label": "Format (rustfmt)",
       "type": "shell",
       "command": "cargo fmt",
-      "group": "build",
       "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
-    },
-    {
-      "label": "Start All",
-      "detail": "Build Rust + SPA, then launch cast run (:8080) and Vite HMR (:5000). Ctrl-C to stop both.",
-      "type": "shell",
-      "command": "make dev",
-      "group": { "kind": "build", "isDefault": false },
-      "problemMatcher": [],
-      "runOptions": { "instanceLimit": 1 },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
       "label": "Purge project",
-      "detail": "Delete .casting/ state from the demo workspace (~/casting-workspace/proj). Force — no prompt.",
+      "detail": "Delete .casting/ state from the demo workspace.",
       "type": "shell",
       "command": "cargo run -- purge ~/casting-workspace/proj --force",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Purge + Start All",
-      "detail": "Reset project to clean slate, then build and launch everything.",
-      "type": "shell",
-      "command": "cargo run -- purge ~/casting-workspace/proj --force && make dev",
-      "problemMatcher": [],
-      "runOptions": { "instanceLimit": 1 },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
-    },
-    {
-      "label": "Run workspace (make run)",
-      "detail": "Build and run cast run only (API + embedded SPA on :8080, no HMR).",
-      "type": "shell",
-      "command": "make run",
-      "problemMatcher": [],
-      "runOptions": { "instanceLimit": 1 },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
-    },
-    {
-      "label": "Dev: Frontend only (Vite HMR)",
-      "detail": "Start Vite dev server at :5000 (needs cast run on :8080 first).",
+      "label": "Run Frontend",
+      "detail": "Start Vite dev server at :5000.",
       "type": "shell",
       "command": "cd frontend && npm run dev",
       "problemMatcher": [],
       "runOptions": { "instanceLimit": 1 },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": false }
-    }
-  ],
-  "inputs": [
-    {
-      "id": "testFilter",
-      "type": "promptString",
-      "description": "Partial test name to filter (e.g. cursor_starts_zero). Empty runs all.",
-      "default": ""
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "frontend", "clear": true }
     }
   ]
 }

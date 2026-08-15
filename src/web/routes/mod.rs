@@ -20,6 +20,19 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
 
+/// Log every incoming API request and its response status.
+async fn log_request(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    log::info!("→ {} {}", method, uri);
+    let response = next.run(req).await;
+    log::info!("← {} {} → {}", method, uri, response.status().as_u16());
+    response
+}
+
 use advisor::{advisor_handoff_handler, advisor_message_handler, advisor_summarize_handler};
 use auth::{login_handler, require_auth};
 use inbox::inbox_handler;
@@ -127,5 +140,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/graph/task/{task_id}", get(graph_task_context_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.
         .fallback(static_handler)
+        .layer(axum::middleware::from_fn(log_request))
         .with_state(state)
 }

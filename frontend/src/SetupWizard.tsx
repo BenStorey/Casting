@@ -35,6 +35,7 @@ type Step =
   | { kind: "cast-intro"; index: number }
   | { kind: "existing-project" }
   | { kind: "project-details" }
+  | { kind: "policies" }
   | { kind: "api-key" }
   | { kind: "launch" };
 
@@ -45,8 +46,34 @@ const STEPS: { kind: Step["kind"]; label: string }[] = [
   { kind: "cast-intro", label: "Meet the team" },
   { kind: "existing-project", label: "Project" },
   { kind: "project-details", label: "Details" },
+  { kind: "policies", label: "Policies" },
   { kind: "api-key", label: "API Key" },
   { kind: "launch", label: "Launch" },
+];
+
+// Decision classes and their human-readable labels
+const DECISION_CLASSES: { id: string; label: string; desc: string }[] = [
+  { id: "InternalRename", label: "Internal renames", desc: "Renaming variables or symbols" },
+  { id: "InternalRefactor", label: "Internal refactors", desc: "Code changes with no product-facing effect" },
+  { id: "TestingLibrary", label: "Testing choices", desc: "Choosing test frameworks or tools" },
+  { id: "AddConsultant", label: "Hiring new team members", desc: "Bringing new specialists onto the cast" },
+  { id: "InternalImplementation", label: "Implementation approach", desc: "How to build something internally" },
+  { id: "Database", label: "Database changes", desc: "Choosing or changing the database" },
+  { id: "Architecture", label: "Architecture decisions", desc: "System-level design choices" },
+  { id: "ProductRequirement", label: "Product requirements", desc: "Changes to product scope or specs" },
+  { id: "SpendingThreshold", label: "Spending decisions", desc: "Exceeding configured budget thresholds" },
+  { id: "ProductionDeployment", label: "Production deploys", desc: "When and how to deploy to production" },
+  { id: "SecurityCritical", label: "Security issues", desc: "Security-critical actions" },
+  { id: "Irreversible", label: "Irreversible actions", desc: "Actions that can't be undone" },
+  { id: "GovernanceChange", label: "Governance changes", desc: "Changing project rules or policies" },
+];
+
+// Policy presets: which classes are "ask owner" vs "pm can decide"
+type PolicyPreset = "autonomous" | "balanced" | "supervised";
+const POLICY_PRESETS: { id: PolicyPreset; label: string; desc: string }[] = [
+  { id: "autonomous", label: "Do everything autonomously", desc: "I trust you — only flag security issues to me." },
+  { id: "balanced", label: "Only high-impact changes by me", desc: "Run the day-to-day; escalate architecture, database, and spending decisions." },
+  { id: "supervised", label: "Run everything past me", desc: "I want to review every decision before it's made." },
 ];
 
 export default function SetupWizard({ onDone }: { onDone: () => void }) {
@@ -63,6 +90,22 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [projectName, setProjectName] = useState("");
   const [objective, setObjective] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [policyPreset, setPolicyPreset] = useState<PolicyPreset>("balanced");
+  // Which classes should ask the owner (true = ask, false = pm can decide)
+  const [policyOverrides, setPolicyOverrides] = useState<Record<string, boolean>>(() => {
+    const overrides: Record<string, boolean> = {};
+    for (const dc of DECISION_CLASSES) {
+      // Default: Database, Architecture, ProductRequirement, SpendingThreshold,
+      // ProductionDeployment, Irreversible, GovernanceChange = ask
+      // SecurityCritical = notify (still needs owner)
+      // Everything else = pm can decide
+      const askByDefault = ["Database", "Architecture", "ProductRequirement",
+        "SpendingThreshold", "ProductionDeployment", "Irreversible",
+        "GovernanceChange", "SecurityCritical"];
+      overrides[dc.id] = askByDefault.includes(dc.id);
+    }
+    return overrides;
+  });
 
   const consultants = useCastStore((s) => s.consultants);
 
@@ -91,6 +134,8 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         return existingProject !== null;
       case "project-details":
         return projectName.trim().length > 0 && objective.trim().length > 0;
+      case "policies":
+        return true;
       case "api-key":
         return apiKey.trim().length > 0;
       case "launch":
@@ -120,6 +165,9 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         setStep({ kind: "project-details" });
         break;
       case "project-details":
+        setStep({ kind: "policies" });
+        break;
+      case "policies":
         setStep({ kind: "api-key" });
         break;
       case "api-key":
@@ -153,13 +201,36 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       case "project-details":
         setStep({ kind: "existing-project" });
         break;
-      case "api-key":
+      case "policies":
         setStep({ kind: "project-details" });
+        break;
+      case "api-key":
+        setStep({ kind: "policies" });
         break;
       case "launch":
         setStep({ kind: "api-key" });
         break;
     }
+  };
+
+  const applyPreset = (preset: PolicyPreset) => {
+    setPolicyPreset(preset);
+    const updated: Record<string, boolean> = {};
+    for (const dc of DECISION_CLASSES) {
+      if (preset === "supervised") {
+        updated[dc.id] = true; // everything asks owner
+      } else if (preset === "autonomous") {
+        // only security-critical asks
+        updated[dc.id] = dc.id === "SecurityCritical";
+      } else {
+        // balanced: sensible defaults
+        const askByDefault = ["Database", "Architecture", "ProductRequirement",
+          "SpendingThreshold", "ProductionDeployment", "Irreversible",
+          "GovernanceChange", "SecurityCritical"];
+        updated[dc.id] = askByDefault.includes(dc.id);
+      }
+    }
+    setPolicyOverrides(updated);
   };
 
   const launch = async () => {
@@ -174,6 +245,18 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         expLevel ?? undefined,
         apiKey.trim() || undefined
       );
+      // Apply policy overrides: for classes where the owner chose a non-default
+      // involvement, POST to /api/policy. The backend fires DecisionPolicyChanged.
+      for (const dc of DECISION_CLASSES) {
+        const ask = policyOverrides[dc.id];
+        // Map boolean to OwnerInvolvement: true → "ask", false → "pm"
+        const involvement = ask ? "ask" : "pm";
+        await fetch("/api/policy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ class: dc.id, involvement }),
+        });
+      }
       onDone();
     } catch (e) {
       setErr(String(e));
@@ -188,7 +271,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       <div className="w-full max-w-xl space-y-8">
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-2">
-          {STEPS.slice(0, 5).map((s, i) => (
+          {STEPS.slice(0, 7).map((s, i) => (
             <span
               key={s.kind}
               className={
@@ -471,6 +554,68 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               <Button onClick={nextStep} disabled={!canContinue}>
                 Continue
               </Button>
+            </div>
+          </div>
+        )}
+
+        {/* POLICIES */}
+        {step.kind === "policies" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-center">
+              How much autonomy should the PM have?
+            </h2>
+            <p className="text-muted-foreground text-center max-w-sm mx-auto leading-relaxed">
+              You can always change these later. Pick a style that feels right.
+            </p>
+            <div className="space-y-3">
+              {POLICY_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPreset(p.id)}
+                  className={
+                    "w-full text-left rounded-xl border p-4 transition-all " +
+                    (policyPreset === p.id
+                      ? "border-primary bg-primary/10 shadow-sm"
+                      : "border-border bg-card hover:border-primary/40")
+                  }
+                >
+                  <div className="font-semibold">{p.label}</div>
+                  <div className="text-sm text-muted-foreground mt-1">{p.desc}</div>
+                </button>
+              ))}
+            </div>
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">
+                Tweak individual decisions
+              </summary>
+              <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                {DECISION_CLASSES.map((dc) => (
+                  <label
+                    key={dc.id}
+                    className="flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-muted/30"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={policyOverrides[dc.id] ?? false}
+                      onChange={() => {
+                        const next = { ...policyOverrides };
+                        next[dc.id] = !next[dc.id];
+                        setPolicyOverrides(next);
+                      }}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <div>
+                      <div className="text-sm font-medium">{dc.label}</div>
+                      <div className="text-xs text-muted-foreground">{dc.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </details>
+            <div className="flex justify-center gap-3">
+              <Button variant="ghost" onClick={prevStep}>Back</Button>
+              <Button onClick={nextStep}>Continue</Button>
             </div>
           </div>
         )}
