@@ -55,7 +55,7 @@ pub(crate) async fn advisor_message_handler(
 /// append it + its cost to the thread. Best-effort: failures/guard blocks are
 /// audited silently (a reply is a nice-to-have, never load-bearing).
 async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
-    let Some(base_cfg) = crate::llm::config::from_env().ok().flatten() else {
+    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref()).ok().flatten() else {
         return; // LLM not configured — deterministic (no reply).
     };
     // Harness guard: paused / budget-halted → no provider call, no spend.
@@ -195,7 +195,7 @@ pub(crate) async fn advisor_summarize_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let thread = proj.advisor_thread.clone();
     let fallback = crate::llm::advisor_summarize_deterministic(&thread);
-    let Some(base_cfg) = crate::llm::config::from_env().ok().flatten() else {
+    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref()).ok().flatten() else {
         return Ok(Json(serde_json::json!({ "summary": fallback })));
     };
     let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());

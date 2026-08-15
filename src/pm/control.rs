@@ -244,7 +244,8 @@ impl AppState {
     /// spend). The consultant registry's default system prompt seeds the LLM's
     /// persona when one is available.
     pub fn pipe_llm_orchestrator(self) -> Self {
-        match crate::llm::config::from_env() {
+        let state_dir = self.state_dir.as_deref();
+        match crate::llm::config::from_env(state_dir) {
             Ok(Some(cfg)) => {
                 // The PM persona: prefer a consultant bound to the pm role if one
                 // exists, else the canonical PM identity (the registry holds the

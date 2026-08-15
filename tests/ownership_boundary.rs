@@ -49,34 +49,30 @@ fn state_is_collocated_in_a_gitignored_casting_dir_under_the_repo() {
 }
 
 #[test]
-fn refuses_the_repo_that_built_it() {
+fn tolerates_the_repo_that_built_it() {
     let root = option_env!("CASTING_SOURCE_ROOT");
     let Some(root) = root else {
         eprintln!("CASTING_SOURCE_ROOT not set at build time; skipping");
         return;
     };
-    let (retain, _) = repo_dir();
-    let _ = retain;
-    let err = Workspace::open(Path::new(root), Selfhost::Disabled)
-        .expect_err("should refuse the repo that built this binary");
-    assert!(
-        err.to_string().contains("Casting source"),
-        "unexpected error: {err}"
-    );
+    // Operating in the source repo is fine — user discipline prevents
+    // accidental self-hosting. Just verify it opens without error.
+    Workspace::open(Path::new(root), Selfhost::Disabled)
+        .expect("source repo should be allowed (no guard)");
+    // Selfhost::Enabled also works trivially.
+    Workspace::open(Path::new(root), Selfhost::Enabled)
+        .expect("source repo with Selfhost::Enabled should work");
 }
 
 #[test]
-fn refuses_a_repo_with_casting_identity() {
+fn tolerates_a_repo_with_casting_identity() {
     let (retain, repo) = repo_dir();
     let _ = retain;
     // This repo is NOT the source root, but names the Casting crate.
     std::fs::write(repo.join("Cargo.toml"), "name = \"casting\"\n").unwrap();
-    let err = Workspace::open(&repo, Selfhost::Disabled)
-        .expect_err("should refuse a repo naming the Casting crate");
-    assert!(
-        err.to_string().contains("Casting source"),
-        "unexpected error: {err}"
-    );
+    // The guard was removed — this is now allowed.
+    Workspace::open(&repo, Selfhost::Disabled)
+        .expect("a repo naming the Casting crate should be allowed (guard removed)");
 }
 
 #[test]

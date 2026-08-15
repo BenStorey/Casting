@@ -36,7 +36,7 @@ pub(crate) struct ActorRouting {
 /// config + the consultant registry (the same resolver `cast run` builds).
 /// Read-only debug surface: which model each actor is handed.
 pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<ActorRouting>> {
-    let Some(base_cfg) = crate::llm::config::from_env().ok().flatten() else {
+    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref()).ok().flatten() else {
         return Json(Vec::new()); // LLM not configured — nothing to route.
     };
     let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());

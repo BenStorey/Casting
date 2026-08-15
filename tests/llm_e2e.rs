@@ -753,7 +753,7 @@ async fn provider_http_error_is_audited_no_panic() {
 #[tokio::test]
 #[ignore = "requires a live OpenRouter key; run manually with -- --ignored"]
 async fn live_openrouter_round_trip() {
-    let cfg = casting::llm::config::from_env().unwrap();
+    let cfg = casting::llm::config::from_env(None).unwrap();
     let Some(_cfg) = cfg else {
         eprintln!("skipping live test: set CAST_LLM_API_KEY + CAST_LLM_MODEL");
         return;
@@ -761,7 +761,7 @@ async fn live_openrouter_round_trip() {
 
     let state = make_state()
         .with_orchestrator(Arc::new(LlmOrchestrator::new(
-            casting::llm::config::from_env().unwrap().unwrap(),
+            casting::llm::config::from_env(None).unwrap().unwrap(),
             "You are the Project Manager.".into(),
         )))
         .with_step_delay(std::time::Duration::ZERO);

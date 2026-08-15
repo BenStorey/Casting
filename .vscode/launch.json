@@ -7,7 +7,7 @@
       "name": "Run API (cast run)",
       "preLaunchTask": "Build (Rust only)",
       "program": "${workspaceFolder}/target/debug/cast",
-      "args": ["run", "${env:HOME}/casting-workspace/proj"],
+      "args": ["run"],
       "env": {
         "CAST_ADDR": "127.0.0.1:8080",
         "RUST_LOG": "info"

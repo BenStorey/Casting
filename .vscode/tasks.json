@@ -33,9 +33,9 @@
     },
     {
       "label": "Purge project",
-      "detail": "Delete .casting/ state from the demo workspace.",
+      "detail": "Delete .casting/ state from the current directory.",
       "type": "shell",
-      "command": "cargo run -- purge ~/casting-workspace/proj --force",
+      "command": "cargo run -- purge --force",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },

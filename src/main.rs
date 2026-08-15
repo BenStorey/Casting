@@ -15,6 +15,16 @@ use casting::workspace::git_observer as git;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
 
+/// Helper: parse the project directory from the tail of args, defaulting to "."
+/// if the first token is a flag (--something). This lets `cast brief --subject X`
+/// work without a project dir.
+fn parse_dir_or_first_non_flag(args: &[String]) -> PathBuf {
+    args.first()
+        .filter(|a| !a.starts_with("--"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// Open a project's storage backend from the CLI (workspace + selector), then
 /// build an integrity-enforcing, snapshot-aware AppState. Shared by the
 /// command-line write paths (brief/request) so they can't drift (review
@@ -121,18 +131,14 @@ fn main() -> Result<()> {
             do_init(init)
         }
         "smoke" => {
-            let dir_str = args.get(2).context("usage: cast smoke <project-dir>")?;
+            let dir_str = args.get(2).map(|s| s.as_str()).unwrap_or(".");
             let dir = Path::new(dir_str);
             do_smoke(dir)
         }
-        // `cast run <project-dir>` — boot the ONE project. Single-project model:
-        // the binary only ever relates to one project; multi-project is removed
-        // (owner decision 2026-08-12). `--db <selector>` selects the storage
-        // backend (sqlite default); CAST_DB env also works.
+        // `cast run [<project-dir>]` — boot the ONE project. Defaults to current
+        // directory. `.casting/` state lives in the project root.
         "run" => {
-            let dir = args
-                .get(2)
-                .context("usage: cast run <project-dir> [--db <selector>]")?;
+            let dir = args.get(2).map(|s| s.as_str()).unwrap_or(".");
             let db = args
                 .windows(2)
                 .find(|w| w[0] == "--db")
@@ -140,19 +146,15 @@ fn main() -> Result<()> {
                 .cloned();
             do_run(PathBuf::from(dir), db)
         }
-        // `cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->`
+        // `cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->`
         "brief" => {
-            let dir = args.get(2).context(
-                "usage: cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->",
-            )?;
-            do_brief(&args[3..], Path::new(dir))
+            let dir = parse_dir_or_first_non_flag(&args[2..]);
+            do_brief(&args[3..], &dir)
         }
-        // `cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>`
+        // `cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>`
         "request" => {
-            let dir = args.get(2).context(
-                "usage: cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>",
-            )?;
-            do_request(&args[3..], Path::new(dir))
+            let dir = parse_dir_or_first_non_flag(&args[2..]);
+            do_request(&args[3..], &dir)
         }
         "log" => {
             let log = parse_log(&args[2..])?;
@@ -162,16 +164,14 @@ fn main() -> Result<()> {
         // to reset the project to a clean slate. Equivalent to
         // `rm -rf <project-dir>/.casting`. With --force, skip confirmation.
         "purge" => {
-            let dir = args
-                .get(2)
-                .context("usage: cast purge <project-dir> [--force]")?;
+            let dir = args.get(2).map(|s| s.as_str()).unwrap_or(".");
             let force = args.iter().any(|a| a == "--force");
             do_purge(Path::new(dir), force)
         }
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company\n\n\
-                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run <project-dir> [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the one project\n  cast purge <project-dir> [--force]\n                                delete .casting/ state directory (reset to clean slate)\n  cast smoke <dir>              append sample events and replay them\n  cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_OWNER_TOKEN owner auth token (or set via `cast init --owner-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
+                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run [<project-dir>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (defaults to current dir)\n  cast purge [<project-dir>] [--force]\n                                delete .casting/ state directory (reset to clean slate)\n                                (defaults to current dir)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_OWNER_TOKEN owner auth token (or set via `cast init --owner-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }

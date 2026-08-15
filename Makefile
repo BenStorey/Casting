@@ -25,11 +25,10 @@ SHELL := /bin/bash
 CARGO_HOME := $(HOME)/.cargo
 export PATH := $(CARGO_HOME)/bin:$(PATH)
 
-# The workspace `cast run` drives. Always outside the source tree (D5
-# ownership-boundary guard refuses any repo nested under /home/ben/casting).
-# Casting is SINGLE-PROJECT (2026-08-12): run the project dir directly — there
-# is no registry / project name anymore.
-REPO_DIR := $(HOME)/casting-workspace/proj
+# The workspace `cast run` drives. Defaults to the current directory when
+# running `make dev` or `make run` — `.casting/` state lives in the project root.
+# Override: make run REPO_DIR=/path/to/project
+REPO_DIR ?= .
 CAST_ADDR ?= 127.0.0.1:8080
 
 .PHONY: all dev run frontend test lint fmt clean deploy-dev restart
@@ -95,10 +94,10 @@ restart:
 clean:
 	cargo clean
 
-# Purge all Casting state from the demo workspace — equivalent to
-# `rm -rf $(REPO_DIR)/.casting`. Ask for confirmation.
+# Purge all Casting state from the project dir — equivalent to
+# `rm -rf .casting`. Ask for confirmation.
 purge:
 	@test -d $(REPO_DIR)/.casting || { echo "no state to purge at $(REPO_DIR)"; exit 0; }; \
-	read -p "Delete $(REPO_DIR)/.casting? [y/N] " ans; \
+	read -p "Delete .casting/? [y/N] " ans; \
 	[ "$$ans" = "y" ] || { echo "aborted"; exit 0; }; \
-	rm -rf $(REPO_DIR)/.casting && echo "✓ purged $(REPO_DIR) — ready for make run"
+	rm -rf $(REPO_DIR)/.casting && echo "✓ purged — ready for cast run"
