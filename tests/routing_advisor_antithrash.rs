@@ -568,7 +568,7 @@ fn gate_allows_different_subject_after_one_is_open() {
 #[test]
 fn prompt_mentions_anti_thrash_rule() {
     let orch = LlmOrchestrator::new(base_cfg(), "PM".into());
-    let prompt = orch.planning_instructions();
+    let prompt = orch.planning_instructions("pm");
     assert!(
         prompt.contains("ANTI-THRASH"),
         "prompt must state the anti-thrash rule"

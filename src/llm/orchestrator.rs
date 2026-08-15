@@ -55,15 +55,9 @@ impl LlmOrchestrator {
         self
     }
 
-    /// The planning instruction block describing the output contract. Kept
-    /// public so tests can assert the prompt stays consistent with the real
-    /// `PmAction` serde shape (the "missing field" drift guard).
-    pub fn planning_instructions(&self) -> String {
-        // Enumerate the valid action vocabulary the model may emit, WITH the
-        // exact required fields — the model must emit valid typed commands or
-        // the parse fails. The gate is the hard authority; this is the legible
-        // contract that makes the model's output parse.
-        let actions = r#"- create_task:      {"action":"create_task","id":str,"title":str,"kind":str}
+    /// The full action vocabulary for PM/owner actors.
+    fn full_action_vocab() -> &'static str {
+        r#"- create_task:      {"action":"create_task","id":str,"title":str,"kind":str}
 - assign_task:      {"action":"assign_task","task_id":str,"assignee":str,"merge_authority":"self"|"pm"}
 - set_merge_authority: {"action":"set_merge_authority","task_id":str,"merge_authority":"self"|"pm"}
 - start_task:       {"action":"start_task","task_id":str}
@@ -86,7 +80,34 @@ impl LlmOrchestrator {
 - block_task_on:    {"action":"block_task_on","task_id":str,"blocking_task_id":str,"required_state":"backlog"|"working"|"in_review"|"blocked"|"done"}
 - propose_consultant: {"action":"propose_consultant","id":str,"subject":str,"role_id":str,"involvement":"pm"|"ask"|"never"}
 - no_op:            {"action":"no_op"}
-"#;
+"#
+    }
+
+    /// The subset of actions visible to assignable consultants.
+    fn consultant_action_vocab() -> &'static str {
+        r#"- start_task:       {"action":"start_task","task_id":str}
+- complete_task:    {"action":"complete_task","task_id":str,"result":str}
+- request_review:   {"action":"request_review","task_id":str,"reviewer":str}
+- commit_to_change_set: {"action":"commit_to_change_set","task_id":str,"message":str}
+- block_task:       {"action":"block_task","task_id":str,"reason":str}
+- send_message:     {"action":"send_message","to":str,"body":str}
+- create_observation: {"action":"create_observation","id":str,"severity":str,"subject":str,"body":str,"pm_action_required":bool}
+- raise_risk:       {"action":"raise_risk","id":str,"subject":str,"severity":str}
+- resolve_risk:     {"action":"resolve_risk","risk_id":str,"status":"open"|"materialized"|"resolved"}
+- record_opinion:   {"action":"record_opinion","id":str,"subject":str,"category":str,"statement":str,"supersedes":str|null}
+- record_constraint: {"action":"record_constraint","id":str,"body":str}
+- record_assumption: {"action":"record_assumption","id":str,"body":str}
+- record_fact:      {"action":"record_fact","id":str,"kind":str,"statement":str}
+- no_op:            {"action":"no_op"}
+"#
+    }
+
+    pub fn planning_instructions(&self, actor: &str) -> String {
+        let actions = if matches!(actor, "pm" | "owner" | "system") {
+            Self::full_action_vocab()
+        } else {
+            Self::consultant_action_vocab()
+        };
 
         format!(
             "You are a Casting agent in an autonomous software company.\n\
@@ -103,18 +124,18 @@ impl LlmOrchestrator {
             - Include EVERY required field from the shape above; a missing field \
               (e.g. send_message without \"to\") is a hard error.\n\
             - Only emit actions that are legal in the current state (do not complete \
-                          an unstarted task, do not use an id that already exists).\n\
-                        - Prefer a small, decisive set of actions.\n\
-                        - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
-                        - Never invent actions outside the list above.\n\
-                        - ANTI-THRASH: the operating context lists the decisions already open \
-                          (open_decisions). Do NOT re-propose a decision whose subject is already \
-                          open — it would be rejected. Instead, leave it, or supersede a STALE \
-                          decision you are genuinely replacing via supersede_decision.\n\
-                        \n\
-                        Your identity, role, and task-specific workflow are defined in your \
-                        system persona above. Follow your persona's instructions for what actions \
-                        to take and how to communicate with the PM/owner.\n\
+              an unstarted task, do not use an id that already exists).\n\
+            - Prefer a small, decisive set of actions.\n\
+            - If there is genuinely nothing to do, emit {{\"actions\": []}}.\n\
+            - Never invent actions outside the list above.\n\
+            - ANTI-THRASH: the operating context lists the decisions already open \
+              (open_decisions). Do NOT re-propose a decision whose subject is already \
+              open — it would be rejected. Instead, leave it, or supersede a STALE \
+              decision you are genuinely replacing via supersede_decision.\n\
+            \n\
+            Your identity, role, and task-specific workflow are defined in your \
+            persona above. Follow your persona's instructions for what actions \
+            to take and how to communicate with the PM/owner.\n\
             \n\
             IMPORTANT: output ONLY the JSON object, no prose, no markdown fences."
         )
@@ -177,7 +198,7 @@ impl Orchestrator for LlmOrchestrator {
                     content: format!(
                         "{}\n\n{}",
                         resolved.system_prompt,
-                        self.planning_instructions()
+                        self.planning_instructions(&context.actor)
                     ),
                 },
                 ChatMessage {

@@ -184,7 +184,7 @@ fn orch_for(base_url: String, with_prices: bool) -> LlmOrchestrator {
 fn prompt_contract_matches_serde_shape() {
     use casting::actions::PmAction;
     let orch = orch_for("http://stub".into(), false);
-    let prompt = orch.planning_instructions();
+    let prompt = orch.planning_instructions("pm");
 
     // A representative probe covering every action the model may emit, with the
     // exact fields the serde type requires. Serializing each gives the field
@@ -367,7 +367,7 @@ fn prompt_contract_matches_serde_shape() {
 #[test]
 fn prompt_enum_values_match_serde() {
     let orch = orch_for("http://stub".into(), false);
-    let prompt = orch.planning_instructions();
+    let prompt = orch.planning_instructions("pm");
 
     use casting::plan::Priority;
     use casting::policy::OwnerInvolvement;
