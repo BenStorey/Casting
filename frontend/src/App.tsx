@@ -3,6 +3,7 @@ import SetupWizard from "./SetupWizard";
 import { useCastStore } from "./store";
 import Health from "./Health";
 import ActivityView from "./ActivityView";
+import DebugView from "./DebugView";
 import TaskDrawer from "./TaskDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,7 @@ import {
 import { TASK_COLUMNS } from "./boardColumns";
 import TelegramConnect from "./TelegramConnect";
 
-type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "advisor" | "sketch" | "settings";
+type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "debug" | "advisor" | "sketch" | "settings";
 
 // Lazy: Excalidraw is ~1MB — never load it unless the owner opens Sketch.
 const Whiteboard = lazy(() => import("./Whiteboard"));
@@ -126,6 +127,7 @@ export default function App() {
                 )}
               </TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
+              <TabsTrigger value="debug">Debug</TabsTrigger>
               <TabsTrigger value="advisor">Advisor</TabsTrigger>
               <TabsTrigger value="sketch">Sketch</TabsTrigger>
               <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -140,6 +142,7 @@ export default function App() {
             )}
             {tab === "inbox" && <InboxView inbox={inbox} observations={state.observations} onDecide={refresh} />}
             {tab === "activity" && <ActivityView />}
+            {tab === "debug" && <DebugView />}
             {tab === "sketch" && (
               <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
                 <Whiteboard onSaved={refresh} />
