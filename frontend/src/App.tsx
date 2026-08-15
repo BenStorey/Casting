@@ -68,6 +68,7 @@ export default function App() {
   const inbox = useCastStore((s) => s.inbox);
   const errors = useCastStore((s) => s.errors);
   const refresh = useCastStore((s) => s.refresh);
+  const refreshLazy = useCastStore((s) => s.refreshLazy);
   const start = useCastStore((s) => s.start);
 
   useEffect(() => {
@@ -107,7 +108,14 @@ export default function App() {
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+      <Tabs value={tab} onValueChange={(v) => {
+            const newTab = v as Tab;
+            setTab(newTab);
+            // Lazy-refresh the data this tab needs.
+            if (newTab === "overview") refreshLazy("model");
+            if (newTab === "graph") refreshLazy("graph");
+            if (newTab === "inbox") refreshLazy("inbox");
+          }}>
             <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5 md:grid-cols-10">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="graph">Graph</TabsTrigger>

@@ -1,15 +1,3 @@
-// Central client-side state (Zustand).
-//
-// Design: the RUST backend is the single source of truth (it owns the event
-// log + projection). This store holds the *snapshot* it serves (`/api/state`)
-// and treats the SSE stream as "something changed → refresh". We deliberately
-// do NOT re-derive the projection in TypeScript — that would create two
-// authorities. Components just subscribe to the slices they need.
-//
-// Diagnostics (2026-08): the store also tracks connection/liveness health
-// (stream up/down, last event + last refresh age) and per-resource fetch
-// errors, so a silently-stale UI (backend wedge, stream drop) is visible
-// instead of masquerading as "all quiet".
 import { create } from "zustand";
 import {
   ActorRouting,
@@ -39,29 +27,23 @@ export interface ResourceError {
 
 interface CastStore {
   state: Projection | null;
-  /** The operating picture (`/api/model`) — the owner's curated dashboard. */
   model: OperatingModel | null;
-  /** The derived graph view (`/api/graph`) — nodes + groups + tokens. */
   graph: GraphView | null;
-  /** The consultant registry (`/api/consultants`) — identity/meta for every
-   *  available (default + user-added) consultant. Configuration, not authority. */
   consultants: ConsultantConfig[];
-  /** Per-actor model routing (`/api/routing`) — what each actor runs on. */
   routing: ActorRouting[];
   inbox: Inbox | null;
   events: EventEnvelope[];
-  /** Per-resource fetch errors from the last refresh (empty = all good). */
   errors: ResourceError[];
-  /** Whether the SSE stream is currently connected (healthy). */
   streamConnected: boolean;
-  /** Monotonic counter of stream reconnects — bump = a drop happened. */
   reconnects: number;
-  /** Epoch-ms of the last SSE event received (0 = none yet). */
   lastEventAt: number;
-  /** Epoch-ms of the last successful refresh. */
   lastRefreshAt: number;
-  /** Fetch the current snapshot (state + model + graph + inbox + recent events). */
+  /** Fetch the full snapshot (state + model + graph + inbox + recent events). */
   refresh: () => Promise<void>;
+  /** Fetch only the projection — called on every SSE event. Much cheaper. */
+  refreshState: () => Promise<void>;
+  /** Fetch a single resource lazily (e.g. when switching tabs). */
+  refreshLazy: (resource: string) => Promise<void>;
   /** Hydrate once, then keep in sync with the live event stream. Returns an
    *  unsubscribe function. Safe to call multiple times (guarded). */
   start: () => () => void;
@@ -94,9 +76,58 @@ export const useCastStore = create<CastStore>((set, get) => ({
   lastEventAt: 0,
   lastRefreshAt: 0,
 
+  // Fast path: only re-fetch the projection on SSE events. The other endpoints
+  // (model, graph, inbox) change less frequently and are fetched on initial load
+  // and lazy refreshes.
+  refreshState: async () => {
+    const errors: ResourceError[] = [];
+    try {
+      const s = await fetchWithError("state", fetchState).catch((err) => {
+        errors.push({ resource: "state", message: String(err), at: Date.now() });
+        return null;
+      });
+      set((cur) => ({
+        state: s ?? cur.state,
+        errors: errors.length > 0 ? errors : [],
+        lastRefreshAt: Date.now(),
+      }));
+    } catch (e) {
+      set((cur) => ({
+        errors: [{ resource: "refresh", message: String(e), at: Date.now() }, ...cur.errors.slice(0, 4)],
+      }));
+    }
+  },
+
+  refreshLazy: async (resource: string) => {
+    try {
+      switch (resource) {
+        case "model": {
+          const m = await fetchWithError("model", fetchModel);
+          set({ model: m });
+          break;
+        }
+        case "graph": {
+          const g = await fetchWithError("graph", fetchGraph);
+          set({ graph: g });
+          break;
+        }
+        case "inbox": {
+          const i = await fetchWithError("inbox", fetchInbox);
+          set({ inbox: i });
+          break;
+        }
+        case "events": {
+          const e = await fetchWithError("events", fetchEvents);
+          set({ events: e.map((x) => ({ ...x, actor: actorName(x.actor) })) });
+          break;
+        }
+      }
+    } catch {
+      // Silent — individual errors are visible via the refresh() error mechanism.
+    }
+  },
+
   refresh: async () => {
-    // Per-resource errors, so a single broken endpoint doesn't take down the
-    // whole snapshot silently and isn't reported as an opaque "Error".
     const errors: ResourceError[] = [];
     try {
       const [s, m, g, c, r, i, e] = await Promise.all([
@@ -137,13 +168,10 @@ export const useCastStore = create<CastStore>((set, get) => ({
         routing: r,
         inbox: i ?? cur.inbox,
         events: e.map((x) => ({ ...x, actor: actorName(x.actor) })),
-        // Auto-clear errors that recovered; keep only still-failing resources.
         errors: errors.length > 0 ? errors : [],
         lastRefreshAt: Date.now(),
       }));
     } catch (e) {
-      // Promise.all only rejects if a fetchWithError threw outside its own
-      // catch — treat as a global error but keep the last known snapshot.
       set((cur) => ({
         errors: [
           { resource: "refresh", message: String(e), at: Date.now() },
@@ -156,16 +184,15 @@ export const useCastStore = create<CastStore>((set, get) => ({
   start: () => {
     const unsub = subscribe(
       (seqBump) => {
-        // An SSE event arrived: mark the stream live + note event recency, then
-        // refetch (idempotent snapshot). seqBump true = a NEW event (not just a
-        // heartbeat), so we can show "last event Ns ago".
+        // SSE event arrived: mark stream live, then do a FAST refresh
+        // (only the projection, not the full 7-endpoint blast).
         if (seqBump) {
           set({ lastEventAt: Date.now(), streamConnected: true });
         }
-        void get().refresh();
+        // Only re-fetch the projection — cheap and sufficient for live updates.
+        void get().refreshState();
       },
       (connected) => {
-        // Reflect stream health immediately (a drop shows as stale in the UI).
         set((cur) => ({
           streamConnected: connected,
           reconnects: connected ? cur.reconnects + 1 : cur.reconnects,
@@ -173,6 +200,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
       }
     );
     set({ streamConnected: true });
+    // Initial full load: fetch everything once.
     void get().refresh();
     return () => {
       set({ streamConnected: false });
