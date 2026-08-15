@@ -73,8 +73,8 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       {/* Brand hero — the first thing an owner sees on first run. */}
       <div className="mb-6 text-center">
         <div className="logo mx-auto mb-2">🎬</div>
-        <h1 className="text-3xl font-bold leading-tight">You direct. The cast delivers.</h1>
-        <p className="text-muted-foreground mt-2">Every great build starts with a great cast.</p>
+        <h1 className="text-3xl font-bold leading-tight">You Direct. The cast brings it to life.</h1>
+        <p className="text-muted-foreground mt-2">Every great production starts with a great cast.</p>
       </div>
 
       <div className="flex items-start gap-4">
