@@ -22,6 +22,7 @@ import {
   Decision,
   Inbox,
   Message,
+  Observation,
   Projection,
   Task,
   TaskStatus,
@@ -137,7 +138,7 @@ export default function App() {
             {tab === "decisions" && (
               <Decisions decisions={state.decisions} onDecide={refresh} />
             )}
-            {tab === "inbox" && <InboxView inbox={inbox} onDecide={refresh} />}
+            {tab === "inbox" && <InboxView inbox={inbox} observations={state.observations} onDecide={refresh} />}
             {tab === "activity" && <ActivityView />}
             {tab === "sketch" && (
               <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
@@ -182,20 +183,50 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
     }
   };
 
+  const agentLabel = (id: string) => {
+    if (id === "owner") return "Owner (You)";
+    if (id === "pm") return "Project Manager";
+    // A consultant id from the assignable cast, or unknown actor
+    return id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const agentBadge = (id: string) => {
+    if (id === "owner") return <Badge variant="default">You</Badge>;
+    if (id === "pm") return <Badge variant="secondary">PM</Badge>;
+    return <Badge variant="outline">Consultant</Badge>;
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Chat with your Project Manager</CardTitle>
-        <CardDescription>The owner ↔ PM channel. Tell it what to build.</CardDescription>
+        <CardTitle>Team Chat</CardTitle>
+        <CardDescription>
+          Messages between the owner, PM, and the cast. Owner sends commands;
+          consultants surface findings, flag concerns, and request decisions.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="thread">
           {state.messages.length === 0 && (
-            <div className="muted small">Say hello and tell the PM what you want to build.</div>
+            <div className="muted small">Tell the PM what you want to build.</div>
           )}
           {state.messages.map((m: Message) => (
-            <div key={m.id} className={`bubble ${m.from === "owner" ? "owner" : "pm"}`}>
-              <div className="from">{m.from === "owner" ? "You" : agentLabel(m.from)}</div>
+            <div
+              key={m.id}
+              className={`bubble ${
+                m.from === "owner"
+                  ? "owner"
+                  : m.from === "pm"
+                  ? "pm"
+                  : "consultant"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                {agentBadge(m.from)}
+                <span className="text-xs font-medium text-muted-foreground">
+                  {agentLabel(m.from)}
+                </span>
+              </div>
               {m.body}
             </div>
           ))}
@@ -397,36 +428,95 @@ function Decisions({
 
 function InboxView({
   inbox,
+  observations,
   onDecide,
 }: {
   inbox: Inbox | null;
+  observations: Observation[];
   onDecide: () => void;
 }) {
   const items = inbox?.items ?? [];
+  const flagged = observations.filter((o) => o.pm_action_required);
   return (
-    <div className="flex flex-col gap-3">
-      {items.length === 0 && <Card className="muted"><CardContent className="py-6">🟢 Nothing needs your attention right now.</CardContent></Card>}
-      {items.map((it) => (
-        <Card key={it.id} className="border-primary/40">
-          <CardContent className="pt-6">
-            <Badge variant="outline" className="mb-2">awaiting your decision</Badge>
-            <div className="font-semibold">{it.subject}</div>
-            {Object.entries(it.options).length > 0 && (
-              <ul className="mt-2 list-disc pl-5 text-sm">
-                {Object.entries(it.options).map(([k, v]) => (
-                  <li key={k}>
-                    <strong>{k}:</strong> {v}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex gap-2 mt-3">
-              <Button size="sm" onClick={() => void decide(it.id, it.subject, true).then(onDecide)}>Approve</Button>
-              <Button size="sm" variant="outline" onClick={() => void decide(it.id, it.subject, false).then(onDecide)}>Reject</Button>
+    <div className="flex flex-col gap-6">
+      {/* ---- Pending decisions ---- */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Pending decisions</CardTitle>
+          <CardDescription>Items awaiting your approval or rejection.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {items.length === 0 ? (
+            <div className="muted text-sm">🟢 Nothing needs your attention right now.</div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {items.map((it) => (
+                <Card key={it.id} className="border-primary/40">
+                  <CardContent className="pt-6">
+                    <Badge variant="outline" className="mb-2">awaiting your decision</Badge>
+                    <div className="font-semibold">{it.subject}</div>
+                    {Object.entries(it.options).length > 0 && (
+                      <ul className="mt-2 list-disc pl-5 text-sm">
+                        {Object.entries(it.options).map(([k, v]) => (
+                          <li key={k}><strong>{k}:</strong> {v}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <Button size="sm" onClick={() => void decide(it.id, it.subject, true).then(onDecide)}>Approve</Button>
+                      <Button size="sm" variant="outline" onClick={() => void decide(it.id, it.subject, false).then(onDecide)}>Reject</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </CardContent>
-        </Card>
-      ))}
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Observations from the cast ---- */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            Observations from the cast
+            {flagged.length > 0 && (
+              <Badge variant="destructive" className="text-xs">{flagged.length} need action</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Findings and flags raised by consultants. Items marked "needs action" require your attention.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {observations.length === 0 ? (
+            <div className="muted text-sm">No observations yet.</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {observations.map((o) => (
+                <Card key={o.id} className={`border-l-4 ${o.pm_action_required ? "border-l-destructive/60" : "border-l-muted"}`}>
+                  <CardContent className="py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={o.pm_action_required ? "destructive" : "secondary"} className="text-[10px]">
+                          {o.severity}
+                        </Badge>
+                        {o.pm_action_required && (
+                          <Badge variant="outline" className="text-[10px] border-destructive/40 text-destructive">
+                            Needs action
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">from {o.from}</span>
+                    </div>
+                    <div className="font-medium text-sm mt-1">{o.subject}</div>
+                    {o.body && <div className="text-sm text-muted-foreground mt-0.5">{o.body}</div>}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

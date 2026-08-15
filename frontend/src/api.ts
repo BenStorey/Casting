@@ -44,6 +44,7 @@ export interface Observation {
   severity: string;
   subject: string;
   body: string;
+  pm_action_required: boolean;
 }
 
 export interface Branch {
