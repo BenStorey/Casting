@@ -1,21 +1,23 @@
 //! Simulated Project Manager — the vertical slice's "company" control loop.
 //!
-//! Per docs/ADDENDUM.md the PM is a control loop over the event stream, not a
-//! chatbot (§1), holds a durable cursor (§2), and turns owner input into
-//! organizational work. This slice uses a deterministic *scripted* PM (D2:
-//! scripted-first) that reacts to owner messages/decisions by producing the
-//! SAME typed `PmAction`s an LLM will later emit (docs/ADDENDUM.md §16), which
-//! are then passed through the policy gate in `actions.rs` before they become
-//! domain events. That gate is the seam: swap the scripted planner below for a
-//! real provider client later and the loop stays identical.
+//! The PM is a control loop over the event stream, not a chatbot, holds a
+//! durable cursor, and turns owner input into organizational work. This slice
+//! uses a deterministic *scripted* PM (scripted-first) that reacts to owner
+//! messages/decisions by producing the SAME typed `PmAction`s an LLM will later
+//! emit, which are then passed through the policy gate in `actions.rs` before
+//! they become domain events. That gate is the seam: swap the scripted planner
+//! below for a real provider client later and the loop stays identical.
 //!
 //! Wake vs act: the loop wakes on a cheap notification (a broadcast of newly
 //! appended events) and drains EVERYTHING since its cursor in one pass, then
-//! advances the cursor — it never reasons per-event (docs/PM_INVOCATION_TRIGGERS.md).
+//! advances the cursor — it never reasons per-event.
 
 use crate::actions::{self, PmAction};
 use crate::event::{Actor, Event, EventType};
-use crate::pm::planning::{plan_acknowledge, plan_onboard, plan_owner_decision};
+use crate::pm::planning::{
+    plan_acknowledge, plan_onboard, plan_owner_decision, actors_with_work,
+    orchestration_run_event, insert_worktree_provisions,
+};
 use crate::projection::Projection;
 use crate::store::EventStore;
 use anyhow::Result;
@@ -414,9 +416,19 @@ async fn drain(state: &AppState) -> Result<u32> {
 /// The scripted policy: look at the events since the cursor and decide what the
 /// PM "company" plans next. Deterministic for this slice. Returns the planned
 /// actions, which `run_planned` validates and executes.
+///
+/// Design: per-actor turns (the review's "one orchestrator call site per actor
+/// that has work"). Phase 1 processes PM trigger events (owner messages and
+/// decisions). Phase 2 iterates over every actor with actionable work and lets
+/// each plan their own turn — the PM no longer impersonates consultants.
+/// The multi-pass loop continues until no actor has further work, so that
+/// completed tasks can cascade into reviews, etc.
 async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]) -> Result<u32> {
     let mut authored = 0u32;
 
+    // ========================================================================
+    // Phase 1: PM trigger processing (owner messages and decisions)
+    // ========================================================================
     for e in new_events {
         let (is_owner_message, body) = match e.event_type {
             EventType::MessageSent if e.actor == Actor::Owner => (
@@ -426,8 +438,16 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             _ => (false, ""),
         };
 
-        // D2/orchestrator path returns actions + optional cost metering; the
-        // scripted paths return actions only. Normalize to (actions, metering).
+        let is_owner_decision =
+            e.event_type == EventType::DecisionMade && e.actor == Actor::Owner;
+
+        // Only process PM-level triggers; the actor turn loop below handles
+        // consultant work (start/complete/review).
+        let is_pm_trigger = is_owner_message || is_owner_decision;
+        if !is_pm_trigger {
+            continue;
+        }
+
         let (planned, metering): (
             Vec<PlannedAction>,
             Option<crate::runtime::orchestrator::CostMetering>,
@@ -436,29 +456,20 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             // response (the LLM, or the mock in tests). Otherwise use the
             // scripted plans.
             if let Some(orch) = &state.orchestrator {
-                // Hard harness gate (2026-08-13, guard.rs): the circuit breaker
-                // sits OUTSIDE the PM. If work is paused or the budget is
-                // exhausted, do NOT issue the provider call (no spend) and skip
-                // planning entirely.
+                // Hard harness gate (2026-08-13, guard.rs)
                 if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(projection) {
                     log::warn!("[pm] guard blocked LLM dispatch: {reason}");
                     (Vec::new(), None)
                 } else {
                     let context = projection.context_for("pm");
                     let correlation = format!("run-{}", e.sequence);
-                    // The orchestrator is async + fallible now (a real provider
-                    // call). On an LLM/provider error, record the failed pass in
-                    // the diagnostics audit trail and produce no actions — no
-                    // spend beyond the failed call, no panics. A flag keeps the
-                    // error audit from being followed by an empty success audit
-                    // (ONE OrchestrationRun per pass).
                     let mut planning_failed = false;
                     let out = match orch.plan(&context, e).await {
                         Ok(out) => out,
                         Err(err) => {
                             log::error!("[pm] orchestrator error: {err:#}");
                             planning_failed = true;
-                            let _ = state.append(crate::pm::planning::orchestration_run_event(
+                            let _ = state.append(orchestration_run_event(
                                 &state.project,
                                 &correlation,
                                 serde_json::json!({
@@ -473,8 +484,6 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                             crate::runtime::orchestrator::PlanOutput::default()
                         }
                     };
-                    // Audit the planning pass ONLY if it didn't already emit the
-                    // error record above: what the model saw + decided.
                     if !planning_failed {
                         let planned_strs = out
                             .actions
@@ -484,7 +493,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                             })
                             .collect::<Vec<_>>();
                         let m = out.metering.as_ref();
-                        let _ = state.append(crate::pm::planning::orchestration_run_event(
+                        let _ = state.append(orchestration_run_event(
                             &state.project,
                             &correlation,
                             serde_json::json!({
@@ -511,17 +520,12 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             } else {
                 (plan_acknowledge(e), None)
             }
-        } else if e.event_type == EventType::DecisionMade && e.actor == Actor::Owner {
-            // Only an OWNER's decision needs a PM reaction. A PM-authored
-            // DecisionMade (a delegated Pm/Never decision) was already handled
-            // inline by the plan that made it — reacting again would duplicate.
-            (plan_owner_decision(state, e), None)
         } else {
-            (Vec::new(), None)
+            // is_owner_decision
+            (plan_owner_decision(state, e), None)
         };
 
-        // HARNESS #6: land the provider cost in the event log so spend is
-        // attributable per agent/task (the PM's budget concern reads it).
+        // Record provider cost in the event log
         if let Some(m) = metering {
             state.append(crate::event::Event::new(
                 &state.project,
@@ -534,6 +538,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 serde_json::json!({
                     "agent_id": m.agent_id,
                     "task_id": m.task_id,
+                    "cost_class": m.cost_class,
                     "model_tier": m.model_tier,
                     "model": m.model,
                     "provider": m.provider,
@@ -550,6 +555,159 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
         }
 
         authored += run_planned(state, e, planned).await?;
+    }
+
+    // ========================================================================
+    // Phase 2: Actor turns — for each actor with actionable work, let them
+    // plan their own turn. Runs until no actor has further work (stable state).
+    // ========================================================================
+    if state.orchestrator.is_some() {
+        // Orchestrator path: per-actor turns, multi-pass until stable
+        authored += run_actor_turns(state, new_events).await?;
+    }
+
+    Ok(authored)
+}
+
+/// Run actor turns for all non-PM actors with actionable work.
+/// Only runs when an orchestrator is present — the scripted path handles
+/// everything through plan_onboard in one pass.
+/// Multi-pass: continues until no actor has further work, so cascading
+/// actions (e.g. CompleteTask → InReview → ReviewTask) resolve in one drain.
+async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> {
+    let mut authored = 0u32;
+    // Use the last trigger event as the correlation cause for actor turns.
+    let cause = new_events
+        .iter()
+        .find(|e| {
+            matches!(&e.event_type, EventType::MessageSent if e.actor == Actor::Owner)
+                || matches!(&e.event_type, EventType::DecisionMade if e.actor == Actor::Owner)
+        })
+        .or_else(|| new_events.last());
+
+    let Some(cause) = cause else {
+        return Ok(0); // no trigger event to correlate with
+    };
+
+    loop {
+        let proj = state.projection()?;
+        let actors = actors_with_work(&proj);
+        if actors.is_empty() {
+            break;
+        }
+
+        let mut made_progress = false;
+
+        for actor in &actors {
+            let context = proj.context_for(actor);
+
+            // Hard harness gate: block LLM calls when paused or budget-exhausted
+            if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(&proj) {
+                log::warn!("[pm] guard blocked actor {actor} LLM dispatch: {reason}");
+                continue;
+            }
+
+            let Some(orch) = &state.orchestrator else {
+                continue;
+            };
+
+            let correlation = format!("actor-{actor}-{}", cause.sequence);
+            let out = match orch.plan(&context, cause).await {
+                Ok(out) => out,
+                Err(err) => {
+                    log::error!("[pm] actor {actor} orchestrator error: {err:#}");
+                    let _ = state.append(orchestration_run_event(
+                        &state.project,
+                        &correlation,
+                        serde_json::json!({
+                            "trigger": format!("actor_turn:{actor}"),
+                            "actor": actor,
+                            "correlation": correlation.clone(),
+                            "context_summary": crate::runtime::context::summary(&context),
+                            "error": format!("{err:#}"),
+                            "metered": false,
+                        }),
+                    ));
+                    continue;
+                }
+            };
+
+            if out.actions.is_empty() {
+                continue;
+            }
+
+            // Audit the planning pass
+            let planned_strs = out
+                .actions
+                .iter()
+                .map(|(who, a)| {
+                    format!("{who} -> {}", serde_json::to_string(a).unwrap_or_default())
+                })
+                .collect::<Vec<_>>();
+            let m = out.metering.as_ref();
+            let _ = state.append(orchestration_run_event(
+                &state.project,
+                &correlation,
+                serde_json::json!({
+                    "trigger": format!("actor_turn:{actor}"),
+                    "actor": actor,
+                    "correlation": correlation.clone(),
+                    "context_summary": crate::runtime::context::summary(&context),
+                    "planned": planned_strs,
+                    "metered": m.is_some(),
+                    "metering_agent": m.map(|x| x.agent_id.clone()),
+                    "provider": m.and_then(|x| x.provider.clone()),
+                    "model": m.and_then(|x| x.model.clone()),
+                    "prompt_tokens": m.map(|x| x.prompt_tokens).unwrap_or(0),
+                    "completion_tokens": m.map(|x| x.completion_tokens).unwrap_or(0),
+                    "latency_ms": m.map(|x| x.latency_ms).unwrap_or(0),
+                    "estimated_usd": m.map(|x| x.estimated_usd).unwrap_or(0.0),
+                }),
+            ));
+
+            // Record provider cost
+            if let Some(m) = &out.metering {
+                let _ = state.append(crate::event::Event::new(
+                    &state.project,
+                    Actor::System,
+                    EventType::CostIncurred,
+                    crate::event::Aggregate {
+                        kind: "cost".into(),
+                        id: uuid::Uuid::new_v4().to_string(),
+                    },
+                    serde_json::json!({
+                        "agent_id": m.agent_id,
+                        "task_id": m.task_id,
+                        "cost_class": m.cost_class,
+                        "model_tier": m.model_tier,
+                        "model": m.model,
+                        "provider": m.provider,
+                        "prompt_tokens": m.prompt_tokens,
+                        "completion_tokens": m.completion_tokens,
+                        "cache_read_input_tokens": m.cache_read_input_tokens,
+                        "cache_creation_input_tokens": m.cache_creation_input_tokens,
+                        "latency_ms": m.latency_ms,
+                        "input_price_per_mtok": m.input_price_per_mtok,
+                        "output_price_per_mtok": m.output_price_per_mtok,
+                        "estimated_usd": m.estimated_usd,
+                    }),
+                ))?;
+            }
+
+            // Apply worktree elaborator: insert ProvisionWorktree before
+            // each StartTask so the platform's structural isolation
+            // guarantee applies to LLM-produced plans too.
+            let mut claimed_ports = std::collections::HashSet::new();
+            let mut actions = out.actions;
+            insert_worktree_provisions(state, &mut actions, &mut claimed_ports);
+
+            authored += run_planned(state, cause, actions).await?;
+            made_progress = true;
+        }
+
+        if !made_progress {
+            break; // stable — no actor could act
+        }
     }
 
     Ok(authored)

@@ -18,6 +18,7 @@
 use crate::actions::{PmAction, OWNER};
 use crate::event::{Actor, Event};
 use crate::pm::AppState;
+use crate::pm::PM_CONSUMER;
 use crate::pm::DecisionClass;
 
 /// Stable agent roster the simulated company uses (moved here with the plan
@@ -675,4 +676,186 @@ fn approved_consultant_role(state: &AppState, decision_id: &str) -> Option<Strin
         .get("role_id")?
         .as_str()
         .map(str::to_string)
+}
+
+/// Deterministic scripted planning for an ASSIGNEE (consultant) turn.
+/// Looks at the assignee's non-done tasks and produces actions they should
+/// take: start unstarted tasks, complete working tasks, request review.
+/// Part of the per-actor-turn respond() refactor — consultant actions are
+/// attributed to the consultant, not impersonated by the PM.
+///
+/// Currently unused in the scripted path (plan_onboard covers the demo in one
+/// pass); kept as the intentional API surface for per-actor-turn wiring.
+#[allow(dead_code)]
+pub(crate) fn plan_assignee_task(
+    projection: &crate::projection::Projection,
+    actor: &str,
+) -> Vec<crate::pm::PlannedAction> {
+    use crate::projection::TaskStatus;
+    let mut out: Vec<crate::pm::PlannedAction> = Vec::new();
+
+    for task in &projection.tasks {
+        if task.assignee.as_deref() != Some(actor) {
+            continue;
+        }
+        match task.status {
+            TaskStatus::Backlog => {
+                // Task is assigned but not started — the assignee should start it.
+                out.push((actor.into(), PmAction::StartTask { task_id: task.id.clone() }));
+            }
+            TaskStatus::Working => {
+                // Task is being worked on — mark it complete and request review.
+                out.push((
+                    actor.into(),
+                    PmAction::CompleteTask {
+                        task_id: task.id.clone(),
+                        result: format!("{} — completed by {actor}", task.title),
+                    },
+                ));
+                // Request review from the PM (default reviewer for scripted path).
+                out.push((
+                    actor.into(),
+                    PmAction::RequestReview {
+                        task_id: task.id.clone(),
+                        reviewer: PM_CONSUMER.into(),
+                    },
+                ));
+            }
+            _ => {} // Blocked, InReview, Done — no scripted action for the assignee
+        }
+    }
+    out
+}
+
+/// Deterministic scripted planning for a REVIEWER turn.
+/// Looks at tasks in InReview and produces review actions.
+///
+/// Currently unused in the scripted path (plan_onboard covers the demo in one
+/// pass); kept as the intentional API surface for per-actor-turn wiring.
+#[allow(dead_code)]
+pub(crate) fn plan_reviewer_task(
+    projection: &crate::projection::Projection,
+    actor: &str,
+) -> Vec<crate::pm::PlannedAction> {
+    let mut out: Vec<crate::pm::PlannedAction> = Vec::new();
+
+    for task in &projection.tasks {
+        if task.status != crate::projection::TaskStatus::InReview {
+            continue;
+        }
+        // In the scripted path, the PM reviews all tasks. Other reviewers
+        // are handled when their orchestrator is called.
+        if actor != PM_CONSUMER {
+            continue;
+        }
+        out.push((
+            actor.into(),
+            PmAction::ReviewTask {
+                task_id: task.id.clone(),
+                approved: true,
+                note: Some("Approved — looks good.".into()),
+            },
+        ));
+    }
+    out
+}
+
+/// Insert `ProvisionWorktree` actions before each `StartTask` in a plan,
+/// unless the task is assigned to the owner or system. This is the
+/// deterministic worktree elaborator — the platform's structural isolation
+/// guarantee, kept as a deterministic rewriter so both scripted and LLM
+/// plans automatically get worktree provisioning without each producer
+/// having to reason about ports.
+pub(crate) fn insert_worktree_provisions(
+    state: &AppState,
+    plan: &mut Vec<crate::pm::PlannedAction>,
+    claimed_ports: &mut std::collections::HashSet<u16>,
+) {
+    let projection = state
+        .projection()
+        .unwrap_or_else(|_| crate::projection::Projection::default());
+    let mut i = 0;
+    while i < plan.len() {
+        if let (_, PmAction::StartTask { task_id }) = &plan[i] {
+            let assignee = plan.iter().find_map(|(_, a)| {
+                if let PmAction::AssignTask { task_id: tid, assignee, .. } = a {
+                    if tid == task_id && assignee != OWNER {
+                        Some(assignee.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+            // Also check projection for already-assigned tasks.
+            let assignee = assignee.or_else(|| {
+                projection
+                    .tasks
+                    .iter()
+                    .find(|t| t.id == *task_id)
+                    .and_then(|t| t.assignee.clone())
+                    .filter(|a| a != OWNER)
+            });
+            if let Some(ref who) = assignee {
+                let port = find_free_port(&projection, claimed_ports);
+                claimed_ports.insert(port);
+                let cargo_target_dir = format!(".casting/worktrees/{who}-0/target");
+                let prov = (
+                    PM_CONSUMER.into(),
+                    PmAction::ProvisionWorktree {
+                        task_id: task_id.clone(),
+                        assignee: who.clone(),
+                        slug: String::new(),
+                        cargo_target_dir,
+                        slot: 0,
+                        port,
+                    },
+                );
+                plan.insert(i, prov);
+                i += 1; // skip the just-inserted provision
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Find a free port from the worktree port pool, not already claimed in
+/// `claimed_in_plan` or used by an existing provisioned worktree.
+fn find_free_port(
+    projection: &crate::projection::Projection,
+    claimed_in_plan: &std::collections::HashSet<u16>,
+) -> u16 {
+    let used_in_projection: std::collections::HashSet<u16> =
+        projection.worktrees.iter().map(|w| w.port).collect();
+    let base = crate::projection::port::worktree_base_port();
+    let span = crate::projection::port::WORKTREE_PORT_POOL;
+    (base..base.saturating_add(span))
+        .find(|p| !used_in_projection.contains(p) && !claimed_in_plan.contains(p))
+        .unwrap_or(crate::projection::port::DEFAULT_WORKTREE_BASE_PORT)
+}
+
+/// Actors who have actionable work in the current projection: assignee
+/// consultants with non-done tasks, plus the PM (who reviews and manages).
+/// Returns actor ids (strings) in a deterministic order.
+pub(crate) fn actors_with_work(
+    projection: &crate::projection::Projection,
+) -> Vec<String> {
+    use crate::projection::TaskStatus;
+    let mut actors: Vec<String> = Vec::new();
+
+    for task in &projection.tasks {
+        if task.status == TaskStatus::Done {
+            continue;
+        }
+        if let Some(ref assignee) = task.assignee {
+            if assignee == OWNER {
+                continue;
+            }
+            if !actors.contains(assignee) {
+                actors.push(assignee.clone());
+            }
+        }
+    }
+    actors
 }

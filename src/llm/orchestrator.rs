@@ -10,6 +10,16 @@ use crate::runtime::context::AgentContext;
 use crate::runtime::orchestrator::{CostMetering, Orchestrator, PlanOutput};
 use anyhow::Result;
 
+/// Classify a cost entry by actor role. PM calls are overhead; consultant
+/// calls are implementation work by default.
+fn classify_cost(actor: &str) -> String {
+    if actor == "pm" || actor == "owner" || actor == "system" {
+        "pm_overhead".into()
+    } else {
+        "implementation".into()
+    }
+}
+
 /// The real provider orchestrator.
 ///
 /// One `Orchestrator` wrapping one provider endpoint. Build a system prompt
@@ -56,51 +66,91 @@ impl LlmOrchestrator {
     }
 
     /// The full action vocabulary for PM/owner actors.
-    fn full_action_vocab() -> &'static str {
-        r#"- create_task:      {"action":"create_task","id":str,"title":str,"kind":str}
-- assign_task:      {"action":"assign_task","task_id":str,"assignee":str,"merge_authority":"self"|"pm"}
-- set_merge_authority: {"action":"set_merge_authority","task_id":str,"merge_authority":"self"|"pm"}
-- start_task:       {"action":"start_task","task_id":str}
-- complete_task:    {"action":"complete_task","task_id":str,"result":str}
-- request_review:   {"action":"request_review","task_id":str,"reviewer":str}
-- review_task:      {"action":"review_task","task_id":str,"approved":bool,"note":str|null}
-- commit_to_change_set: {"action":"commit_to_change_set","task_id":str,"message":str}
-- raise_risk:       {"action":"raise_risk","id":str,"subject":str,"severity":str}
-- resolve_risk:     {"action":"resolve_risk","risk_id":str,"status":"open"|"materialized"|"resolved"}
-- record_assumption: {"action":"record_assumption","id":str,"body":str}
-- record_constraint: {"action":"record_constraint","id":str,"body":str}
-- record_opinion:   {"action":"record_opinion","id":str,"subject":str,"category":str,"statement":str,"supersedes":str|null}
-- record_fact:      {"action":"record_fact","id":str,"kind":str,"statement":str}
-- propose_decision: {"action":"propose_decision","id":str,"subject":str,"options":{...},"recommendation":str,"class":"internal_implementation"|"internal_refactor"|"add_consultant"|"testing_library"|"security_critical"|"production_deployment"|"product_requirement","involvement":"pm"|"ask"|"never"|"notify"}
-- make_decision:    {"action":"make_decision","decision_id":str,"approved":bool,"note":str|null}
-- send_message:     {"action":"send_message","to":str,"body":str}
-- create_observation: {"action":"create_observation","id":str,"severity":str,"subject":str,"body":str,"pm_action_required":bool}
-- block_task:       {"action":"block_task","task_id":str,"reason":str}
-- set_task_priority: {"action":"set_task_priority","task_id":str,"priority":"low"|"medium"|"high"|"critical"}
-- block_task_on:    {"action":"block_task_on","task_id":str,"blocking_task_id":str,"required_state":"backlog"|"working"|"in_review"|"blocked"|"done"}
-- propose_consultant: {"action":"propose_consultant","id":str,"subject":str,"role_id":str,"involvement":"pm"|"ask"|"never"}
-- no_op:            {"action":"no_op"}
-"#
-    }
+        /// Includes organizational actions (hire, create requirements, provision
+        /// worktrees, governance) that only the PM/owner can perform.
+        fn full_action_vocab() -> &'static str {
+            r#"--- ORGANISATIONAL ACTIONS ---
+    - hire_agent:        {"action":"hire_agent","agent_id":str,"role":str}
+    - create_requirement: {"action":"create_requirement","id":str,"title":str,"description":str}
+    - create_task:       {"action":"create_task","id":str,"title":str,"kind":str}
+    - assign_task:       {"action":"assign_task","task_id":str,"assignee":str,"merge_authority":"self"|"pm"}
+    - set_merge_authority: {"action":"set_merge_authority","task_id":str,"merge_authority":"self"|"pm"}
+    - decompose_task:    {"action":"decompose_task","parent":str,"children":[{"id":str,"title":str,"kind":str}]}
+    - block_task_on:     {"action":"block_task_on","task_id":str,"blocking_task_id":str,"required_state":"backlog"|"working"|"in_review"|"blocked"|"done"}
+    - provision_worktree: {"action":"provision_worktree","task_id":str,"assignee":str,"slug":str,"cargo_target_dir":str,"slot":0,"port":u16}
 
-    /// The subset of actions visible to assignable consultants.
-    fn consultant_action_vocab() -> &'static str {
-        r#"- start_task:       {"action":"start_task","task_id":str}
-- complete_task:    {"action":"complete_task","task_id":str,"result":str}
-- request_review:   {"action":"request_review","task_id":str,"reviewer":str}
-- commit_to_change_set: {"action":"commit_to_change_set","task_id":str,"message":str}
-- block_task:       {"action":"block_task","task_id":str,"reason":str}
-- send_message:     {"action":"send_message","to":str,"body":str}
-- create_observation: {"action":"create_observation","id":str,"severity":str,"subject":str,"body":str,"pm_action_required":bool}
-- raise_risk:       {"action":"raise_risk","id":str,"subject":str,"severity":str}
-- resolve_risk:     {"action":"resolve_risk","risk_id":str,"status":"open"|"materialized"|"resolved"}
-- record_opinion:   {"action":"record_opinion","id":str,"subject":str,"category":str,"statement":str,"supersedes":str|null}
-- record_constraint: {"action":"record_constraint","id":str,"body":str}
-- record_assumption: {"action":"record_assumption","id":str,"body":str}
-- record_fact:      {"action":"record_fact","id":str,"kind":str,"statement":str}
-- no_op:            {"action":"no_op"}
-"#
-    }
+    --- TASK ACTIONS ---
+    - start_task:        {"action":"start_task","task_id":str}
+    - complete_task:     {"action":"complete_task","task_id":str,"result":str}
+    - request_review:    {"action":"request_review","task_id":str,"reviewer":str}
+    - review_task:       {"action":"review_task","task_id":str,"approved":bool,"note":str|null}
+    - block_task:        {"action":"block_task","task_id":str,"reason":str}
+    - commit_to_change_set: {"action":"commit_to_change_set","task_id":str,"message":str}
+    - set_task_priority: {"action":"set_task_priority","task_id":str,"priority":"low"|"medium"|"high"|"critical"}
+
+    --- DECISIONS ---
+    - propose_decision:  {"action":"propose_decision","id":str,"subject":str,"options":{...},"recommendation":str,"class":"internal_implementation"|"internal_refactor"|"add_consultant"|"testing_library"|"security_critical"|"production_deployment"|"product_requirement"|"governance_change"|"database","involvement":"pm"|"ask"|"never"|"notify"}
+    - make_decision:     {"action":"make_decision","decision_id":str,"approved":bool,"note":str|null}
+    - supersede_decision: {"action":"supersede_decision","decision_id":str,"by_decision_id":str}
+    - propose_consultant: {"action":"propose_consultant","id":str,"subject":str,"role_id":str,"involvement":"pm"|"ask"|"never"}
+
+    --- KNOWLEDGE ---
+    - record_opinion:    {"action":"record_opinion","id":str,"subject":str,"category":str,"statement":str,"supersedes":str|null}
+    - supersede_opinion: {"action":"supersede_opinion","opinion_id":str,"by_opinion_id":str}
+    - record_fact:       {"action":"record_fact","id":str,"kind":str,"statement":str}
+    - record_assumption: {"action":"record_assumption","id":str,"body":str}
+    - record_constraint: {"action":"record_constraint","id":str,"body":str}
+    - raise_risk:        {"action":"raise_risk","id":str,"subject":str,"severity":str}
+    - resolve_risk:      {"action":"resolve_risk","risk_id":str,"status":"open"|"materialized"|"resolved"}
+    - create_observation: {"action":"create_observation","id":str,"severity":str,"subject":str,"body":str,"pm_action_required":bool}
+
+    --- GOVERNANCE ---
+    - create_directive:  {"action":"create_directive","id":str,"kind":"constraint"|"standard"|"policy","statement":str,"scope":[str],"strength":"must"|"should"|"may","supersedes":str|null}
+    - suspend_directive: {"action":"suspend_directive","directive_id":str}
+    - resume_directive:  {"action":"resume_directive","directive_id":str}
+    - supersede_directive: {"action":"supersede_directive","directive_id":str,"by_directive_id":str}
+    - expire_directive:  {"action":"expire_directive","directive_id":str}
+    - propose_directive_change: {"action":"propose_directive_change","id":str,"subject":str,"kind":"constraint"|"standard"|"policy","statement":str,"scope":[str],"strength":"must"|"should"|"may","supersedes":str|null}
+
+    --- COMMUNICATION ---
+    - send_message:      {"action":"send_message","to":str,"body":str}
+    - import_briefing:   {"action":"import_briefing","id":str,"source":str,"subject":str,"title":str,"body":str,"assets":[{"caption":str,"location":str}]}
+    - receive_external_request: {"action":"receive_external_request","id":str,"source":str,"external_id":str|null,"title":str,"body":str,"reporter":str,"labels":[str],"url":str|null}
+    - save_diagram:      {"action":"save_diagram","id":str,"title":str,"data":str}
+
+    --- SPECIAL ---
+    - no_op:             {"action":"no_op"}
+    "#
+        }
+
+        /// The subset of actions visible to assignable consultants.
+        /// Consultants can work on their assigned tasks, communicate, and record
+        /// knowledge — but cannot perform organisational or governance actions.
+        fn consultant_action_vocab() -> &'static str {
+            r#"--- TASK ACTIONS (your assigned tasks) ---
+    - start_task:        {"action":"start_task","task_id":str}
+    - complete_task:     {"action":"complete_task","task_id":str,"result":str}
+    - request_review:    {"action":"request_review","task_id":str,"reviewer":str}
+    - review_task:       {"action":"review_task","task_id":str,"approved":bool,"note":str|null}
+    - block_task:        {"action":"block_task","task_id":str,"reason":str}
+    - commit_to_change_set: {"action":"commit_to_change_set","task_id":str,"message":str}
+
+    --- KNOWLEDGE ---
+    - record_opinion:    {"action":"record_opinion","id":str,"subject":str,"category":str,"statement":str,"supersedes":str|null}
+    - record_assumption: {"action":"record_assumption","id":str,"body":str}
+    - record_constraint: {"action":"record_constraint","id":str,"body":str}
+    - record_fact:       {"action":"record_fact","id":str,"kind":str,"statement":str}
+    - raise_risk:        {"action":"raise_risk","id":str,"subject":str,"severity":str}
+    - resolve_risk:      {"action":"resolve_risk","risk_id":str,"status":"open"|"materialized"|"resolved"}
+    - create_observation: {"action":"create_observation","id":str,"severity":str,"subject":str,"body":str,"pm_action_required":bool}
+
+    --- COMMUNICATION ---
+    - send_message:      {"action":"send_message","to":str,"body":str}
+
+    --- SPECIAL ---
+    - no_op:             {"action":"no_op"}
+    "#
+        }
 
     pub fn planning_instructions(&self, actor: &str) -> String {
         let actions = if matches!(actor, "pm" | "owner" | "system") {
@@ -236,7 +286,8 @@ impl Orchestrator for LlmOrchestrator {
 
         let metering = CostMetering {
             agent_id: context.actor.clone(),
-            task_id: None,
+            task_id: context.my_tasks.first().cloned(),
+            cost_class: classify_cost(&context.actor),
             model_tier: "standard".into(),
             model: Some(resolved.config.model.clone()),
             provider: Some(resolved.config.provider.clone()),

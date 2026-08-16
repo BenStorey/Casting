@@ -104,6 +104,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
                     serde_json::json!({
                         "agent_id": m.agent_id,
                         "task_id": m.task_id,
+                        "cost_class": m.cost_class,
                         "model_tier": m.model_tier,
                         "model": m.model,
                         "provider": m.provider,

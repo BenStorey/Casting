@@ -1,11 +1,15 @@
-//! The Ownership Boundary (docs/OWNERSHIP_BOUNDARY.md, D5).
+//! The Ownership Boundary (D5).
 //!
 //! Casting operates on exactly one repo — the one it is explicitly handed at
-//! startup — and keeps its internal state (the `--state-dir`) permanently
-//! separate from that artifact repo. By construction it never conducts on the
-//! repo that built it (the self-identity guard), and all Git runs through a
-//! single pinned runner so a bare `git` call can never resolve to the wrong
-//! repo.
+//! startup — and keeps its internal state collocated in `<repo>/.casting/`
+//! (gitignored, so it never pollutes the user's git history). All Git runs
+//! through a single pinned runner so a bare `git` call can never resolve to
+//! the wrong repo.
+//!
+//! Self-hosting (Casting building Casting) requires an explicit opt-in via
+//! `Selfhost::Enabled` (the `CAST_SELFHOST=1` env var or `--selfhost` flag).
+//! Without this opt-in, the boundary refuses to operate on the Casting source
+//! repo itself.
 //!
 //! This is the foundation the Git slice builds on (§9 of that doc). Git
 //! *semantics* (branches, ChangeSets, provenance) are deliberately out of scope
@@ -52,9 +56,10 @@ impl Workspace {
             .with_context(|| format!("canonicalize artifact repo {}", repo.display()))?;
 
         if selfhost == Selfhost::Disabled && is_casting_source(&repo) {
-            log::info!(
-                "operating in the Casting source repo. This is fine for testing; \
-                 use --selfhost for explicit self-hosting acknowledgement."
+            bail!(
+                "refusing to operate on the Casting source repo without an explicit \
+                 self-host acknowledgement. Set CAST_SELFHOST=1 or pass --selfhost \
+                 to enable self-hosting."
             );
         }
 

@@ -49,38 +49,37 @@ fn state_is_collocated_in_a_gitignored_casting_dir_under_the_repo() {
 }
 
 #[test]
-fn tolerates_the_repo_that_built_it() {
+fn refuses_the_repo_that_built_it_without_selfhost() {
     let root = option_env!("CASTING_SOURCE_ROOT");
     let Some(root) = root else {
         eprintln!("CASTING_SOURCE_ROOT not set at build time; skipping");
         return;
     };
-    // Operating in the source repo is fine — user discipline prevents
-    // accidental self-hosting. Just verify it opens without error.
-    Workspace::open(Path::new(root), Selfhost::Disabled)
-        .expect("source repo should be allowed (no guard)");
-    // Selfhost::Enabled also works trivially.
+    // Selfhost::Disabled must refuse the Casting source repo.
+    let err = Workspace::open(Path::new(root), Selfhost::Disabled)
+        .expect_err("source repo should be refused without Selfhost::Enabled");
+    assert!(
+        err.to_string().contains("self-host"),
+        "error must mention self-hosting: {err}"
+    );
+    // Selfhost::Enabled works trivially.
     Workspace::open(Path::new(root), Selfhost::Enabled)
         .expect("source repo with Selfhost::Enabled should work");
 }
 
 #[test]
-fn tolerates_a_repo_with_casting_identity() {
-    let (retain, repo) = repo_dir();
-    let _ = retain;
-    // This repo is NOT the source root, but names the Casting crate.
-    std::fs::write(repo.join("Cargo.toml"), "name = \"casting\"\n").unwrap();
-    // The guard was removed — this is now allowed.
-    Workspace::open(&repo, Selfhost::Disabled)
-        .expect("a repo naming the Casting crate should be allowed (guard removed)");
-}
-
-#[test]
-fn selfhost_explicitly_enables_operating_on_a_casting_repo() {
+fn refuses_a_repo_with_casting_identity_without_selfhost() {
     let (retain, repo) = repo_dir();
     let _ = retain;
     std::fs::write(repo.join("Cargo.toml"), "name = \"casting\"\n").unwrap();
-
+    // Selfhost::Disabled must refuse a repo with Casting identity.
+    let err = Workspace::open(&repo, Selfhost::Disabled)
+        .expect_err("a repo naming Casting should be refused without Selfhost::Enabled");
+    assert!(
+        err.to_string().contains("self-host"),
+        "error must mention self-hosting: {err}"
+    );
+    // Selfhost::Enabled allows it.
     let ws = Workspace::open(&repo, Selfhost::Enabled).unwrap();
     assert_eq!(ws.selfhost(), Selfhost::Enabled);
 }

@@ -28,6 +28,9 @@ pub struct CostMetering {
     pub agent_id: String,
     /// The task this call is attributed to, if any.
     pub task_id: Option<String>,
+    /// Cost classification: "pm_overhead" | "implementation" | "review" |
+    /// "research" | "tooling". Lets the owner answer "where did the money go?"
+    pub cost_class: String,
     /// Model tier, e.g. "flash" | "pro" (from the provider).
     pub model_tier: String,
     /// Exact model id that ran (e.g. "deepseek/deepseek-v4-flash-0731").
@@ -137,6 +140,7 @@ impl Orchestrator for MockOrchestrator {
             metering: Some(CostMetering {
                 agent_id: "pm".into(),
                 task_id: None,
+                cost_class: "pm_overhead".into(),
                 model_tier: "flash".into(),
                 model: Some("deepseek/deepseek-v4-flash-0731".into()),
                 provider: Some("openrouter".into()),

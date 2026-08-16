@@ -1,7 +1,6 @@
 //! Git observer — turns raw repo state into semantic domain events.
 //!
-//! Per docs/ADDENDUM.md §23: "Semantic events, not plumbing events." The
-//! observer watches the artifact repo through the pinned git runner
+//! The observer watches the artifact repo through the pinned git runner
 //! (`Workspace::git_command()`) and emits `BranchCreated`, `CommitObserved`,
 //! and `MergeCompleted` events into the event store. It holds a durable
 //! cursor (same shape as the PM loop) so it only processes what's new since

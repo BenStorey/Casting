@@ -1,15 +1,13 @@
 //! Typed domain events — the append-only history is the source of truth.
 //!
-//! Mirrors the event anatomy in docs/CASTING_PROJECT_BRIEF.md §11 and the
-//! domain-vs-runtime separation in §12. DOMAIN events live here — and that
-//! deliberately includes FIRST-CLASS audit / diagnostic records that are
-//! event-sourced state we must persist and re-derive (spend via `CostIncurred`,
-//! the guard rails `BudgetSet`/`WorkPaused`/`WorkResumed`, and the governance
-//! audit `OrchestrationRun` / `PlanActionRejected` that make a misbehaving LLM
-//! or a refused plan visible in the log and UI). What stays OUT is low-level
-//! runtime telemetry that is noise, not truth — raw token streams, shell
-//! command output, git plumbing — which lives elsewhere and never enters this
-//! store's history.
+//! DOMAIN events live here — including first-class audit / diagnostic records
+//! that are event-sourced state we must persist and re-derive (spend via
+//! `CostIncurred`, the guard rails `BudgetSet`/`WorkPaused`/`WorkResumed`, and
+//! the governance audit `OrchestrationRun` / `PlanActionRejected` that make a
+//! misbehaving LLM or a refused plan visible in the log and UI). What stays OUT
+//! is low-level runtime telemetry that is noise, not truth — raw token streams,
+//! shell command output, git plumbing — which lives elsewhere and never enters
+//! this store's history.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

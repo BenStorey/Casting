@@ -101,6 +101,7 @@ impl CastRole {
     }
 
     /// Parse from a snake_case string as used in TOML.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "project_manager" => Some(Self::ProjectManager),

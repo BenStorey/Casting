@@ -352,11 +352,14 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             // Tiered merge gate (2026-08-14): a `pm`-merge task cannot be
             // completed straight to Done by a consultant — it must pass
             // through the PM's review (RequestReview → ReviewTask). `self`-merge
-            // tasks and owner-delivered tasks may complete directly (the fast
-            // path).
+            // tasks, owner-delivered tasks, and system tasks may complete
+            // directly (the fast path).
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
-            let is_owner_task = task.assignee.as_deref() == Some(OWNER);
-            if task.merge_authority == crate::types::MergeAuthority::PmMerge && !is_owner_task {
+            let is_owner_or_system =
+                task.assignee.as_deref() == Some(OWNER) || who == "system";
+            if task.merge_authority == crate::types::MergeAuthority::PmMerge
+                && !is_owner_or_system
+            {
                 return Err(PolicyError::PmMergeRequiresReview(task_id.clone()));
             }
             Ok(())

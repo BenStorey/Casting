@@ -91,16 +91,18 @@ pub struct Task {
 }
 
 /// How a task's completed work is merged into main (the tiered merge policy).
+/// Defaults to PmMerge — fail-closed: work that omits the field (from an LLM
+/// or scripted plan) requires a review gate, not silent self-merge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeAuthority {
     /// The assignee merges directly to Done after CI — the fast/trivial path
     /// (small, peripheral, low blast radius). No PM review layer.
-    #[default]
     SelfMerge,
     /// The work must pass through the PM's review before Done — the default and
     /// the path for anything substantial, architectural, or shared-contract /
     /// schema / dependency-affecting.
+    #[default]
     PmMerge,
 }
 
@@ -265,6 +267,10 @@ pub struct CostEntry {
     /// The task this spend is attributed to, if any.
     #[serde(default)]
     pub task_id: Option<String>,
+    /// Cost classification: "pm_overhead" | "implementation" | "review" |
+    /// "research" | "tooling". Lets the owner answer "where did the money go?"
+    #[serde(default)]
+    pub cost_class: String,
     /// Model tier, e.g. "flash" | "pro" (free string from the provider).
     pub model_tier: String,
     /// Exact model id as reported by the provider (e.g.

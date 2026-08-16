@@ -1,5 +1,4 @@
-//! PM wake≠act tiering (docs/PM_INVOCATION_TRIGGERS.md, implemented per
-//! docs/plans/2026-08-14_pm-wakeact-tiering.md).
+//! PM wake≠act tiering.
 //!
 //! The expensive PM path (git-observe + drain + respond + reconciler) must NOT
 //! run on every low-value event. Tier classification tells the loop whether a
@@ -20,8 +19,7 @@ pub enum WakeTier {
     Batch,
 }
 
-/// Classify an event type into its wake tier (the table from
-/// docs/PM_INVOCATION_TRIGGERS.md §Tier 0/1/2). Events not explicitly listed
+/// Classify an event type into its wake tier. Events not explicitly listed
 /// default to `Batch` (the safe, cost-conservative default — batching progress
 /// is almost always fine; a wrongly-batched high-value event still flushes on
 /// the quiet window).

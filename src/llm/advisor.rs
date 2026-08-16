@@ -94,6 +94,7 @@ pub async fn advisor_reply(
     let metering = Some(crate::runtime::orchestrator::CostMetering {
         agent_id: "advisor".into(),
         task_id: None,
+        cost_class: "research".into(),
         model_tier: "premium".into(),
         model: Some(resolved.config.model.clone()),
         provider: Some(resolved.config.provider.clone()),
