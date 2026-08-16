@@ -58,6 +58,7 @@ fn assign_task_to_owner_is_valid() {
         },
         "pm",
         &proj,
+        None,
     );
     assert!(ok.is_ok(), "owner should be a valid assignee: {ok:?}");
 
@@ -70,6 +71,7 @@ fn assign_task_to_owner_is_valid() {
         },
         "pm",
         &proj,
+        None,
     );
     assert!(bad.is_err(), "unhired agent must still be rejected");
 }
@@ -99,7 +101,8 @@ fn owner_can_start_and_complete_their_own_task() {
             task_id: "task-1".into()
         },
         casting::actions::OWNER,
-        &proj
+        &proj,
+        None
     )
     .is_ok());
 
@@ -122,7 +125,8 @@ fn owner_can_start_and_complete_their_own_task() {
             result: "done".into()
         },
         casting::actions::OWNER,
-        &proj
+        &proj,
+        None
     )
     .is_ok());
 
@@ -135,7 +139,8 @@ fn owner_can_start_and_complete_their_own_task() {
                 task_id: "task-1".into()
             },
             "marcus-reed",
-            &proj2
+            &proj2,
+            None
         )
         .is_err(),
         "an agent must not act on the owner's task"

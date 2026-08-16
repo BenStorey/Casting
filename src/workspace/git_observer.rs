@@ -222,7 +222,8 @@ pub fn observe<S: EventStore>(
     cursors: &dyn crate::store::CursorStore,
     project: &str,
 ) -> Result<u32> {
-    let (count, _merge_sha, _did_work) = observe_internal(ws, store, cursors, project, |ev| store.append(ev))?;
+    let (count, _merge_sha, _did_work) =
+        observe_internal(ws, store, cursors, project, |ev| store.append(ev))?;
     Ok(count)
 }
 

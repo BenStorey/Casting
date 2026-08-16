@@ -88,6 +88,16 @@ pub struct Task {
     /// children into the parent's resolution. `None` for top-level tasks.
     #[serde(default)]
     pub parent_id: Option<String>,
+    /// If this task was created as a step of a playbook, the playbook's id.
+    /// Set by the ApplyPlaybook → TaskCreated chain.
+    #[serde(default)]
+    pub playbook_id: Option<String>,
+    /// The version of the playbook applied (0 for ad-hoc, non-0 for packaged).
+    #[serde(default)]
+    pub playbook_version: Option<u32>,
+    /// Which step within the playbook this task represents (e.g. "survey").
+    #[serde(default)]
+    pub playbook_step: Option<String>,
 }
 
 /// How a task's completed work is merged into main (the tiered merge policy).
@@ -626,4 +636,18 @@ pub struct CoverageInfo {
     /// Where it came from: a file path (e.g. "lcov.info", "coverage.xml"), the
     /// literal "command" (from CAST_COVERAGE_CMD), or "none".
     pub source: String,
+}
+
+/// A record of a playbook application — pure audit, stored in the projection
+/// so the PM can see what playbooks were applied and to which parent tasks.
+/// The full task structure (steps) comes from TaskCreated events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlaybookRecord {
+    pub playbook_id: String,
+    pub version: Option<u32>,
+    pub source: String,
+    pub cost_band: String,
+    pub parent_task_id: String,
+    pub steps: Vec<serde_json::Value>,
+    pub applied_at: String,
 }

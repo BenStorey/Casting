@@ -1,6 +1,7 @@
 //! The policy gate: validation of a proposed action against the projection, and
 //! the `PolicyError` rejection vocabulary.
 use super::action::{is_valid_assignee, PmAction, OWNER, SPECIAL_ACTORS};
+use crate::consultants::ConsultantRegistry;
 use crate::pm::policy;
 use crate::projection::Projection;
 
@@ -86,6 +87,8 @@ pub enum PolicyError {
         task_id: String,
         blockers: Vec<String>,
     },
+    /// Referencing a playbook that doesn't exist in any consultant's catalog.
+    PlaybookNotFound(String),
 }
 
 impl std::fmt::Display for PolicyError {
@@ -185,6 +188,9 @@ impl std::fmt::Display for PolicyError {
                 "cannot start task {task_id}: waiting on unsatisfied dependency/dependencies [{}]",
                 blockers.join(", ")
             ),
+            PolicyError::PlaybookNotFound(id) => {
+                write!(f, "playbook '{id}' not found in any consultant's catalog")
+            }
         }
     }
 }
@@ -199,7 +205,12 @@ impl std::error::Error for PolicyError {}
 /// id). StartTask/CompleteTask/BlockTask additionally require that `who` IS
 /// the task's assignee — the gate stops the wrong agent (or an LLM mistake)
 /// from mutating someone else's task.
-pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), PolicyError> {
+pub fn validate(
+    action: &PmAction,
+    who: &str,
+    state: &Projection,
+    registry: Option<&ConsultantRegistry>,
+) -> Result<(), PolicyError> {
     match action {
         PmAction::HireAgent { agent_id, .. } => {
             // The special roles (PM/Advisor) can never be hired as task-doers;
@@ -262,6 +273,85 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
                 return Err(PolicyError::DuplicateEntity(task_id.clone()));
             }
             Ok(())
+        }
+        // Apply a playbook: PM-only authority, parent task must exist and not
+        // be Done, parent must not already have a playbook applied, the
+        // packaged playbook must exist in the consultant registry, and the
+        // cost band's involvement must satisfy the decision policy.
+        PmAction::ApplyPlaybook {
+            playbook_id,
+            parent_task_id,
+            version: _,
+            recipe,
+        } => {
+            check_pm_authority(who)?;
+            // Parent must exist
+            let parent = state
+                .tasks
+                .iter()
+                .find(|t| t.id == *parent_task_id)
+                .ok_or_else(|| PolicyError::TaskNotFound(parent_task_id.clone()))?;
+            // Parent must not already be Done
+            if parent.status == crate::projection::TaskStatus::Done {
+                return Err(PolicyError::TaskStatusError(format!(
+                    "cannot apply playbook to task {parent_task_id}: task is already Done"
+                )));
+            }
+            // Parent must not already have a playbook applied
+            if parent.playbook_id.is_some() {
+                return Err(PolicyError::DuplicateEntity(format!(
+                    "task {parent_task_id} already has a playbook applied"
+                )));
+            }
+            // Determine cost band and validate
+            let cost_band = if let Some(r) = recipe {
+                // Ad-hoc recipe: validate basic structure
+                if r.title.is_empty() {
+                    return Err(PolicyError::TaskStatusError(
+                        "ad-hoc recipe title may not be empty".into(),
+                    ));
+                }
+                if r.steps.is_empty() {
+                    return Err(PolicyError::TaskStatusError(
+                        "ad-hoc recipe has no steps".into(),
+                    ));
+                }
+                r.cost_band
+            } else {
+                // Packaged playbook: must exist in consultant registry
+                if let Some(reg) = registry {
+                    if reg.playbook(playbook_id).is_none() {
+                        return Err(PolicyError::PlaybookNotFound(playbook_id.clone()));
+                    }
+                    // Get cost band from the resolved playbook
+                    let (_, pb) = reg.playbook(playbook_id).unwrap();
+                    pb.cost_band
+                } else {
+                    return Err(PolicyError::PlaybookNotFound(playbook_id.clone()));
+                }
+            };
+            // Check cost-band involvement against policy
+            use crate::pm::policy::OwnerInvolvement;
+            let involvement = match cost_band {
+                crate::consultants::playbook::CostBand::Cheap => OwnerInvolvement::Pm,
+                crate::consultants::playbook::CostBand::Medium => OwnerInvolvement::Pm,
+                crate::consultants::playbook::CostBand::Expensive => OwnerInvolvement::Ask,
+            };
+            policy::check_proposal(
+                match cost_band {
+                    crate::consultants::playbook::CostBand::Cheap => {
+                        crate::pm::policy::DecisionClass::PlaybookCheap
+                    }
+                    crate::consultants::playbook::CostBand::Medium => {
+                        crate::pm::policy::DecisionClass::PlaybookMedium
+                    }
+                    crate::consultants::playbook::CostBand::Expensive => {
+                        crate::pm::policy::DecisionClass::PlaybookExpensive
+                    }
+                },
+                involvement,
+                &state.policy,
+            )
         }
         PmAction::AssignTask {
             task_id, assignee, ..

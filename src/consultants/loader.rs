@@ -3,14 +3,16 @@
 //! from `<project>/.casting/consultants/` (user-dropped or id-replacing packages).
 //!
 //! Every consultant TOML file is self-contained — the `system_prompt` field
-//! carries the prompt text inline (not a file path). This keeps each consultant
-//! fully self-contained and makes it easy to swap different consultants into
-//! the same role later.
+//! carries the prompt text inline (not a file path). Playbooks are also inline
+//! as `[[consultant.playbooks]]` tables with `[[consultant.playbooks.steps]]`.
+//! This keeps each consultant fully self-contained.
 //!
 //! Validation is strict and fail-closed: a package with an unknown cast_role,
-//! an empty id/name, or an out-of-range temperature is rejected loudly.
+//! an empty id/name, an out-of-range temperature, or invalid playbook data is
+//! rejected loudly.
 
 use super::cast_role::CastRole;
+use super::playbook::validate_playbook;
 use super::{ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig, VerificationConfig};
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
@@ -67,6 +69,9 @@ struct RawConsultant {
     /// worktree slots). Defaults to 1.
     #[serde(default = "default_max_concurrent")]
     max_concurrent: usize,
+    /// Playbooks this consultant offers (inline TOML tables).
+    #[serde(default)]
+    playbooks: Vec<super::playbook::Playbook>,
 }
 
 fn default_assignable() -> bool {
@@ -226,6 +231,13 @@ fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
     // system_prompt is inline text — use it directly.
     let system_prompt = raw.system_prompt.filter(|s| !s.is_empty());
 
+    // Validate playbooks
+    let playbooks = raw.playbooks;
+    for pb in &playbooks {
+        validate_playbook(pb, &id)
+            .map_err(|e| anyhow::anyhow!("playbook '{}' in consultant '{id}': {e}", pb.id))?;
+    }
+
     Ok(ConsultantConfig {
         id,
         name: raw.name,
@@ -243,5 +255,6 @@ fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
         assignable: raw.assignable,
         max_concurrent: raw.max_concurrent.max(1),
         verification: raw.verification,
+        playbooks,
     })
 }

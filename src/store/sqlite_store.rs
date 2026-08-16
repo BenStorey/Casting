@@ -179,11 +179,21 @@ impl EventStore for SqliteEventStore {
 
         let mut events = Vec::with_capacity(raw.len());
         for (
-            event_id_str, project_id, sequence, timestamp_str,
-            actor_type, actor_id, event_type_str,
-            agg_kind, agg_id, data_str,
-            correlation_id, causation_id, agent_run_id,
-        ) in raw {
+            event_id_str,
+            project_id,
+            sequence,
+            timestamp_str,
+            actor_type,
+            actor_id,
+            event_type_str,
+            agg_kind,
+            agg_id,
+            data_str,
+            correlation_id,
+            causation_id,
+            agent_run_id,
+        ) in raw
+        {
             let event_id = uuid::Uuid::parse_str(&event_id_str)
                 .with_context(|| format!("invalid uuid in event_id column: {event_id_str:?}"))?;
             let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
@@ -204,8 +214,7 @@ impl EventStore for SqliteEventStore {
             };
             let data: serde_json::Value = serde_json::from_str(&data_str)
                 .with_context(|| format!("invalid data json for event {event_id}"))?;
-            let causation = causation_id
-                .and_then(|s| uuid::Uuid::parse_str(&s).ok());
+            let causation = causation_id.and_then(|s| uuid::Uuid::parse_str(&s).ok());
             events.push(Event {
                 event_id,
                 project_id,

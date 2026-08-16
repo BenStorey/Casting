@@ -41,6 +41,32 @@ pub struct TaskAssignment {
     pub status: String,
 }
 
+/// A compact card summarising a playbook a consultant offers, suitable for
+/// routing decisions by the PM / orchestrator. Derived from the consultant
+/// registry, not the event log.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaybookCard {
+    pub id: String,
+    pub title: String,
+    pub problem: String,
+    pub cost_band: String,
+    pub consultant_id: String,
+}
+
+/// Runtime state of the currently-executing step within a playbook. Populated
+/// by the step executor when a playbook's step is dispatched, and cleared
+/// when the step completes.
+#[derive(Debug, Clone, Serialize)]
+pub struct ActiveStepContext {
+    pub playbook_id: String,
+    pub step_title: String,
+    pub step_prompt: String,
+    pub model_tier: String,
+    pub reads_artifact_paths: Vec<String>,
+    pub produces_artifact: String,
+    pub worktree_path: Option<String>,
+}
+
 /// A targeted operating context for a single actor (an agent, the PM, or the
 /// owner). Surfaces what is *relevant to them*, filtered by governance scope.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -78,6 +104,13 @@ pub struct AgentContext {
     /// summoned consultant — path, own branch, private build target, and API
     /// port. The agent works HERE, never in the shared checkout.
     pub worktree: Option<WorktreeInfo>,
+    /// Playbooks available to this actor — the full set of step recipes their
+    /// consultant offers. Populated from the consultant registry at context
+    /// assembly time.
+    pub available_playbooks: Vec<PlaybookCard>,
+    /// The step currently being executed within an active playbook, if any.
+    /// Set by the step executor at dispatch; cleared on step completion.
+    pub active_step: Option<ActiveStepContext>,
 }
 
 /// The isolated workspace a consultant is handed (subset of `Worktree`,
@@ -124,7 +157,7 @@ pub fn summary(ctx: &AgentContext) -> String {
         })
         .unwrap_or_else(|| "<no objective>".to_string());
     format!(
-        "objective=\"{obj}\"; priorities={} my_tasks={} agents={} task_assignments={} directives={} risks={} decisions={} briefings={}",
+        "objective=\"{obj}\"; priorities={} my_tasks={} agents={} task_assignments={} directives={} risks={} decisions={} briefings={} playbooks={} active_step={}",
         ctx.priorities.len(),
         ctx.my_tasks.len(),
         ctx.agents.len(),
@@ -133,6 +166,8 @@ pub fn summary(ctx: &AgentContext) -> String {
         ctx.open_risks.len(),
         ctx.open_decisions.len(),
         ctx.advisory_briefings.len(),
+        ctx.available_playbooks.len(),
+        ctx.active_step.is_some(),
     )
 }
 
@@ -263,6 +298,8 @@ impl crate::projection::Projection {
             advisory_briefings,
             external_requests,
             worktree,
+            available_playbooks: Vec::new(),
+            active_step: None,
         }
     }
 

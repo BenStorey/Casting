@@ -91,7 +91,7 @@ pub(crate) async fn brief_handler(
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::actions::validate(&action, "owner", &proj)
+    crate::actions::validate(&action, "owner", &proj, None)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let cause = Event::new(
@@ -179,7 +179,7 @@ pub(crate) async fn request_handler(
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::actions::validate(&action, "pm", &proj)
+    crate::actions::validate(&action, "pm", &proj, None)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let cause = Event::new(
@@ -232,7 +232,7 @@ pub(crate) async fn diagram_handler(
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::actions::validate(&action, "pm", &proj)
+    crate::actions::validate(&action, "pm", &proj, None)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let cause = Event::new(

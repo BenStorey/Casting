@@ -168,7 +168,7 @@ fn request_review_requires_working_task_and_hired_reviewer() {
         task_id: task_id.clone(),
         reviewer: "maya-patel".into(),
     };
-    let err = validate(&act, "marcus-reed", &proj).expect_err("must be working to review");
+    let err = validate(&act, "marcus-reed", &proj, None).expect_err("must be working to review");
     assert!(matches!(
         err,
         PolicyError::TaskNotFound(_) | PolicyError::TaskUnassigned(_)
@@ -208,13 +208,13 @@ fn request_review_requires_working_task_and_hired_reviewer() {
     };
     // Assignee (marcus) submitting his own working task is allowed; the gate
     // check is assignee==who && task is Working && reviewer hired.
-    assert!(validate(&act, "marcus-reed", &proj).is_ok());
+    assert!(validate(&act, "marcus-reed", &proj, None).is_ok());
     // Unhired reviewer is rejected.
     let act = PmAction::RequestReview {
         task_id: "task-1".into(),
         reviewer: "ghost".into(),
     };
-    let err = validate(&act, "marcus-reed", &proj).expect_err("unhired reviewer");
+    let err = validate(&act, "marcus-reed", &proj, None).expect_err("unhired reviewer");
     assert!(matches!(err, PolicyError::AgentNotHired(_)));
 }
 
@@ -226,6 +226,6 @@ fn review_task_requires_in_review_status() {
         approved: true,
         note: Some("ok".into()),
     };
-    let err = validate(&act, "maya-patel", &proj).expect_err("cannot review a non-in-review task");
+    let err = validate(&act, "maya-patel", &proj, None).expect_err("cannot review a non-in-review task");
     assert!(matches!(err, PolicyError::TaskNotInReview(_)));
 }

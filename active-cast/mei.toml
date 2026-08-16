@@ -55,3 +55,60 @@ cost_tier = "standard"
 
 [consultant.verification]
 review_required = false
+
+# ── Playbooks ─────────────────────────────────────────────────────────────────
+
+# Quick task routing — cheap, single-step assignment.
+[[consultant.playbooks]]
+id        = "task-routing"
+version   = 1
+title     = "Quick task routing"
+problem   = "routing"
+summary   = "Read an incoming request and route it to the right cast member. Budget model, single step."
+cost_class = "routing"
+cost_band = "cheap"
+
+[[consultant.playbooks.steps]]
+id       = "route"
+title    = "Analyze and route the incoming request"
+model    = "budget"
+prompt   = """
+Given the incoming owner request, analyze the scope, problem class, and required
+role. Select the best matching consultant and write routing_decision.json
+with: request_summary, selected_consultant, rationale, and merge_authority.
+"""
+artifact = "routing_decision.json"
+produces = "route"
+
+# Sprint planning — standard planning with budget context gathering.
+[[consultant.playbooks]]
+id        = "sprint-plan"
+version   = 1
+title     = "Sprint planning"
+problem   = "planning"
+summary   = "Gather current state and produce a prioritized sprint plan. Standard model."
+cost_class = "planning"
+cost_band = "medium"
+
+[[consultant.playbooks.steps]]
+id       = "gather"
+title    = "Gather project state"
+model    = "budget"
+prompt   = """
+Read the current project state: open tasks, active risks, pending decisions,
+and available cast. Summarize in state_snapshot.json.
+"""
+artifact = "state_snapshot.json"
+produces = "gather"
+
+[[consultant.playbooks.steps]]
+id       = "plan"
+title    = "Produce sprint plan"
+model    = "standard"
+prompt   = """
+Read state_snapshot.json. Produce a prioritized sprint plan with task
+assignments, estimated effort, and dependency ordering. Write sprint_plan.json.
+"""
+artifact = "sprint_plan.json"
+produces = "plan"
+reads    = ["gather"]

@@ -29,6 +29,12 @@ fn project(agent_id: &str, authority: MergeAuthority) -> Projection {
             priority: casting::pm::plan::Priority::Medium,
             review: None,
             parent_id: None,
+                        playbook_id: None,
+
+                        playbook_version: None,
+
+                        playbook_step: None,
+
         }],
         ..Default::default()
     }
@@ -45,7 +51,8 @@ fn self_merge_task_can_complete_directly_to_done() {
                 result: "done".into(),
             },
             "lead-programmer",
-            &st
+            &st,
+            None,
         )
         .is_ok(),
         "self-merge task completes directly"
@@ -62,6 +69,7 @@ fn pm_merge_task_cannot_complete_directly_it_must_be_reviewed() {
         },
         "lead-programmer",
         &st,
+        None,
     )
     .expect_err("pm-merge task must not skip the PM's review");
     assert!(matches!(err, PolicyError::PmMergeRequiresReview(_)));
@@ -82,7 +90,8 @@ fn pm_merge_task_still_can_submit_to_a_real_reviewer() {
                 reviewer: "test-engineer".into(),
             },
             "lead-programmer",
-            &st
+            &st,
+            None,
         )
         .is_ok(),
         "pm-merge work submits through RequestReview"
@@ -100,7 +109,8 @@ fn escape_hatch_reclassifies_self_to_pm_by_the_pm() {
                 merge_authority: MergeAuthority::PmMerge,
             },
             "pm",
-            &st
+            &st,
+            None,
         )
         .is_ok(),
         "PM may reclassify merge authority"
@@ -118,6 +128,7 @@ fn only_pm_owner_may_reclassify_merge_authority() {
         },
         "lead-programmer",
         &st,
+        None,
     )
     .expect_err("a consultant must not set merge authority");
     assert!(matches!(err, PolicyError::ActionNotAuthorized(_)));

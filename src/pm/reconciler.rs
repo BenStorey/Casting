@@ -176,7 +176,7 @@ fn opinion_drift(state: &AppState) -> Result<u32> {
         // visible); skip if the gate rejects.
         let projection = state.projection()?;
         let who = "system"; // reconciler acts as the system, not a human/agent
-        if let Err(e) = crate::actions::validate(&action, who, &projection) {
+        if let Err(e) = crate::actions::validate(&action, who, &projection, None) {
             eprintln!("[reconciler] gate rejected {action:?}: {e}");
             continue;
         }

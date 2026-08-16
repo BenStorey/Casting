@@ -284,7 +284,7 @@ fn owner_can_create_and_suspend_directives() {
         strength: DirectiveStrength::Strong,
         supersedes: None,
     };
-    assert!(validate(&create, "owner", &proj).is_ok());
+    assert!(validate(&create, "owner", &proj, None).is_ok());
 }
 
 #[test]
@@ -300,14 +300,14 @@ fn plain_agent_cannot_change_governance() {
         strength: DirectiveStrength::Recommended,
         supersedes: None,
     };
-    let err = validate(&create, "marcus-reed", &proj)
+    let err = validate(&create, "marcus-reed", &proj, None)
         .expect_err("a plain engineer agent must not change governance");
     assert!(matches!(err, PolicyError::DirectiveAuthority(_)));
 
     let suspend = PmAction::SuspendDirective {
         directive_id: "d-tdd".into(),
     };
-    let err = validate(&suspend, "maya-patel", &proj)
+    let err = validate(&suspend, "maya-patel", &proj, None)
         .expect_err("a plain QA agent must not change governance");
     assert!(matches!(err, PolicyError::DirectiveAuthority(_)));
 }
@@ -327,7 +327,7 @@ fn pm_and_system_cannot_change_governance_now() {
             strength: DirectiveStrength::Strong,
             supersedes: None,
         };
-        let err = validate(&create, who, &proj).expect_err("pm/system cannot set governance");
+        let err = validate(&create, who, &proj, None).expect_err("pm/system cannot set governance");
         assert!(
             matches!(err, PolicyError::DirectiveAuthority(_)),
             "by {who}"
@@ -345,6 +345,7 @@ fn suspending_a_missing_directive_is_rejected() {
         },
         "owner",
         &proj,
+        None,
     )
     .expect_err("suspending a missing directive must be rejected");
     assert!(matches!(err, PolicyError::DirectiveNotFound(_)));
@@ -364,6 +365,7 @@ fn supersede_requires_an_existing_active_target() {
         },
         "owner",
         &proj,
+        None,
     );
     assert!(ok.is_ok());
 
@@ -375,6 +377,7 @@ fn supersede_requires_an_existing_active_target() {
         },
         "owner",
         &proj,
+        None,
     )
     .expect_err("superseding onto a missing directive must be rejected");
     assert!(matches!(err, PolicyError::DirectiveNotFound(_)));

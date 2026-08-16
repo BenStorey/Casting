@@ -72,7 +72,11 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    pub fn new(client: reqwest::Client, base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(
+        client: reqwest::Client,
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
         OpenAiClient {
             http: client,
             base_url: base_url.into().trim_end_matches('/').to_string(),

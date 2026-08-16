@@ -170,7 +170,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
     };
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     assert!(
-        validate(&proposal, "pm", &proj).is_ok(),
+        validate(&proposal, "pm", &proj, None).is_ok(),
         "PM may propose a hire"
     );
     for e in proposal.to_events("proj-cast", "pm", &cause, "corr-1") {
@@ -248,6 +248,7 @@ async fn unknown_role_proposal_is_rejected() {
         },
         "pm",
         &proj,
+        None,
     )
     .expect_err("unknown role must be rejected");
     assert!(matches!(err, PolicyError::UnknownRole(_)));
@@ -294,6 +295,7 @@ fn special_roles_cannot_be_assigned_tasks() {
             },
             "pm",
             &proj,
+            None,
         )
         .expect_err("assigning to a special role must be rejected");
         assert!(
@@ -325,6 +327,7 @@ fn special_roles_cannot_be_hired_as_agents() {
             },
             "owner",
             &proj,
+            None,
         )
         .expect_err("hiring a special role must be rejected");
         assert!(matches!(err, PolicyError::SpecialRoleNotAssignable(_)));

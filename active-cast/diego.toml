@@ -54,3 +54,62 @@ cost_tier = "budget"
 
 [consultant.verification]
 review_required = true
+
+# ── Playbooks ─────────────────────────────────────────────────────────────────
+
+# Quick bug fix — budget only, cheapest path.
+[[consultant.playbooks]]
+id        = "bug-fix"
+version   = 1
+title     = "Bug fix"
+problem   = "bug"
+summary   = "Quick targeted fix for a known bug. Budget model only, single-step."
+cost_class = "bug-fix"
+cost_band = "cheap"
+
+[[consultant.playbooks.steps]]
+id       = "fix"
+title    = "Identify root cause and apply fix"
+model    = "budget"
+prompt   = """
+Given the bug description and reproduction steps, identify the root cause in
+the codebase and apply the minimal targeted fix. Add a regression test. Keep
+the change small and scoped.
+"""
+artifact = "fix.diff"
+produces = "fix"
+
+# Feature implementation — survey then standard implementation.
+[[consultant.playbooks]]
+id        = "feature-implement"
+version   = 1
+title     = "Feature implementation"
+problem   = "feature"
+summary   = "Survey requirements and implement a new feature. Budget survey then standard implement."
+cost_class = "feature-implement"
+cost_band = "medium"
+
+[[consultant.playbooks.steps]]
+id       = "survey"
+title    = "Survey requirements and design"
+model    = "budget"
+prompt   = """
+Given the feature request, survey the existing codebase for integration points.
+Produce a brief design doc covering: files to change, new types needed, data
+flow, and test strategy. Cite file paths.
+"""
+artifact = "DESIGN.md"
+produces = "survey"
+
+[[consultant.playbooks.steps]]
+id       = "implement"
+title    = "Implement the feature per design"
+model    = "standard"
+prompt   = """
+Implement the feature following DESIGN.md. Write unit/integration tests. Keep
+changes focused on the declared scope. Flag any surprises uncovered during
+implementation.
+"""
+artifact = "changes.diff"
+produces = "implementation"
+reads    = ["survey"]

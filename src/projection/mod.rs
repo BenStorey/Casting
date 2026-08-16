@@ -14,8 +14,8 @@ pub use crate::types::{
     ActionRejection, Agent, Assumption, Branch, Briefing, BriefingAsset, BriefingStatus, ChangeSet,
     ChangeSetStatus, Commit, Constraint, CostEntry, CoverageInfo, Decision, DecisionStatus,
     Diagram, ExternalRequest, ExternalRequestStatus, Fact, LanguageLines, Merge, Message,
-    Observation, Opinion, OpinionStatus, OrchestrationRun, RepoMetrics, Requirement, Risk,
-    RiskStatus, Task, TaskDependency, TaskReview, TaskStatus, Worktree,
+    Observation, Opinion, OpinionStatus, OrchestrationRun, PlaybookRecord, RepoMetrics,
+    Requirement, Risk, RiskStatus, Task, TaskDependency, TaskReview, TaskStatus, Worktree,
 };
 
 /// The full current-state projection for a project.
@@ -93,6 +93,10 @@ pub struct Projection {
     /// just printed to a server log.
     pub rejections: Vec<ActionRejection>,
     pub orchestration: Vec<OrchestrationRun>,
+    /// Audit records of playbook applications — which playbook was applied
+    /// to which parent task. Pure read-side state derived from PlaybookApplied events.
+    #[serde(default)]
+    pub playbook_applications: Vec<PlaybookRecord>,
 }
 
 /// Current version of the snapshot serialization format. Increment when the
@@ -210,6 +214,13 @@ impl Projection {
                 priority: crate::pm::plan::Priority::default(),
                 review: None,
                 parent_id: string_field(e, "parent_id"),
+                playbook_id: string_field(e, "playbook_id"),
+                playbook_version: e
+                    .data
+                    .get("playbook_version")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32),
+                playbook_step: string_field(e, "playbook_step"),
             }),
             EventType::TaskAssigned => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
@@ -957,6 +968,27 @@ impl Projection {
                     });
                 }
             }
+            EventType::PlaybookApplied => {
+                let pb_id = string_field(e, "playbook_id").unwrap_or_default();
+                let version = string_field(e, "version").and_then(|v| v.parse::<u32>().ok());
+                let source = string_field(e, "source").unwrap_or_else(|| "packaged".into());
+                let cost_band = string_field(e, "cost_band").unwrap_or_default();
+                let parent = string_field(e, "parent").unwrap_or_default();
+                let steps: Vec<serde_json::Value> = e
+                    .data
+                    .get("steps")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                self.playbook_applications.push(PlaybookRecord {
+                    playbook_id: pb_id,
+                    version,
+                    source,
+                    cost_band,
+                    parent_task_id: parent,
+                    steps,
+                    applied_at: e.timestamp.to_string(),
+                });
+            }
         }
     }
 }
@@ -966,6 +998,22 @@ impl Projection {
 /// deprioritized, and decisions awaiting the owner. Recomputed from the
 /// projection; never stored authoritative.
 impl Projection {
+    /// Child tasks of a playbook parent — the step tasks created by
+    /// ApplyPlaybook → DecomposeTask.
+    pub fn playbook_steps_of(&self, parent_id: &str) -> Vec<&Task> {
+        self.tasks
+            .iter()
+            .filter(|t| t.parent_id.as_deref() == Some(parent_id))
+            .collect()
+    }
+
+    /// The parent task of a playbook step, if any.
+    pub fn parent_of(&self, task_id: &str) -> Option<&Task> {
+        let task = self.tasks.iter().find(|t| t.id == task_id)?;
+        let parent_id = task.parent_id.as_ref()?;
+        self.tasks.iter().find(|t| t.id == parent_id.as_str())
+    }
+
     pub fn plan(&self) -> crate::pm::plan::ProjectPlan {
         use crate::pm::plan::{PlannedItem, Priority};
 

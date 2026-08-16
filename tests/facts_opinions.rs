@@ -206,6 +206,7 @@ fn supersede_opinion_action_through_gate_and_events() {
         },
         "owner",
         &proj,
+        None,
     )
     .unwrap();
 
@@ -218,6 +219,7 @@ fn supersede_opinion_action_through_gate_and_events() {
             },
             "owner",
             &proj,
+        None,
         ),
         Err(casting::actions::PolicyError::OpinionNotFound(_))
     ));
@@ -229,6 +231,7 @@ fn supersede_opinion_action_through_gate_and_events() {
             },
             "owner",
             &proj,
+        None,
         ),
         Err(casting::actions::PolicyError::OpinionNotFound(_))
     ));
@@ -285,6 +288,7 @@ fn record_opinion_and_fact_pass_the_gate() {
         },
         "owner",
         &Projection::default(),
+        None,
     )
     .unwrap();
     actions::validate(
@@ -295,6 +299,7 @@ fn record_opinion_and_fact_pass_the_gate() {
         },
         "owner",
         &Projection::default(),
+        None,
     )
     .unwrap();
 }

@@ -303,6 +303,16 @@ pub enum PmAction {
         parent: String,
         children: Vec<TaskSpec>,
     },
+    /// Apply a named playbook from a consultant's catalog (or an ad-hoc
+    /// inline recipe) to decompose a parent task into step-tasks. `version`
+    /// is Some for packaged playbooks, None for ad-hoc. `recipe` is None
+    /// when referencing a packaged playbook in the consultant's registry.
+    ApplyPlaybook {
+        playbook_id: String,
+        parent_task_id: String,
+        version: Option<u32>,
+        recipe: Option<AdHocRecipe>,
+    },
     /// Create a hard dependency edge: `task_id` cannot START until
     /// `blocking_task_id` reaches `required_state` (the Blocker Test's "No:
     /// hard dependency" outcome). Event-sourced — derived to
@@ -339,6 +349,16 @@ pub struct TaskSpec {
     pub id: String,
     pub title: String,
     pub kind: String,
+}
+
+/// An ad-hoc recipe provided inline (not from the consultant's packaged
+/// playbook catalog). The PM may author a one-off recipe at apply time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdHocRecipe {
+    pub title: String,
+    pub problem: String,
+    pub cost_band: crate::consultants::playbook::CostBand,
+    pub steps: Vec<crate::consultants::playbook::PlaybookStep>,
 }
 
 /// A single action vocabulary entry: its name, section header, PM-only flag,
@@ -414,6 +434,17 @@ const ACTION_VOCAB: &[ActionVocabEntry] = &[
                 "required_state",
                 "\"backlog\"|\"working\"|\"in_review\"|\"blocked\"|\"done\"",
             ),
+        ],
+    },
+    ActionVocabEntry {
+        name: "apply_playbook",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[
+            ("playbook_id", "str"),
+            ("parent_task_id", "str"),
+            ("version", "u32|null"),
+            ("recipe", "{\"title\":str,\"problem\":str,\"cost_band\":\"cheap\"|\"medium\"|\"expensive\",\"steps\":[{\"id\":str,\"title\":str,\"model\":str,\"prompt\":str,\"artifact\":str,\"produces\":str,\"reads\":[str]}]}|null"),
         ],
     },
     ActionVocabEntry {

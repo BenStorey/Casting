@@ -65,6 +65,7 @@ fn risk_raises_and_resolves_via_the_gate() {
         }),
         "pm",
         &proj,
+        None,
     );
     assert!(ok.is_ok());
 
@@ -92,6 +93,7 @@ fn cannot_resolve_a_risk_that_does_not_exist() {
         }),
         "pm",
         &proj,
+        None,
     )
     .expect_err("resolving a missing risk must be rejected");
     assert!(matches!(err, PolicyError::RiskNotFound(_)));

@@ -124,6 +124,7 @@ fn owner_override_to_ask_blocks_a_pm_claim_via_the_gate() {
         },
         "pm",
         &proj,
+        None,
     )
     .expect_err("claiming Pm for an Ask-configured class must be rejected");
     assert!(matches!(
@@ -161,6 +162,7 @@ fn matching_claim_passes_under_overridden_policy() {
         },
         "pm",
         &proj,
+        None,
     );
     assert!(
         res.is_ok(),

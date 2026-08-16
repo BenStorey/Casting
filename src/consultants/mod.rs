@@ -10,7 +10,7 @@
 //! so a fresh `cast run` works with zero setup. A user/technical power user can
 //! **drop additional TOML files** (or override a default by id) into
 //! `<project>/.casting/consultants/` — the loader overlays them on top of the
-//! embedded defaults. This is the "drop a config file to add a consultant"
+//! embedded defaults. This is the \"drop a config file to add a consultant\"
 //! story, and because every package is self-contained + id-namespaced, the same
 //! files are what a sharing/marketplace layer would later distribute.
 //!
@@ -27,6 +27,10 @@
 //!   `CostMetering` / `CostIncurred` path), consistent with per-role model tiers.
 //! - `review_required` maps onto the existing InReview gate (a task does not
 //!   reach Done on faith).
+//! - **Playbooks** are named step recipes a consultant offers for solving a
+//!   problem class. They compile onto the existing task graph (no second
+//!   workflow engine). See `playbook.rs` and the plan at
+//!   `.hermes/plans/2026-08-16_130752-consultant-playbooks.md`.
 
 use crate::consultants::cast_role::CastRole;
 use serde::{Deserialize, Serialize};
@@ -35,6 +39,7 @@ use std::sync::Arc;
 
 pub mod cast_role;
 pub mod loader;
+pub mod playbook;
 
 /// The consultant's model tier. Drives how D2 meters a call (the `cost_tier`
 /// is a config-sourced hint; actual spend lands via `CostIncurred`).
@@ -57,7 +62,7 @@ pub struct RoutingConfig {
     #[serde(default)]
     pub trigger_patterns: Vec<String>,
     /// `true` = part of the default cast (hired by default). Mirrors how
-    /// `AgentHired` / `DEFAULT_CAST` model "always on" vs. "summoned".
+    /// `AgentHired` / `DEFAULT_CAST` model \"always on\" vs. \"summoned\".
     #[serde(default)]
     pub auto_join: bool,
 }
@@ -65,10 +70,10 @@ pub struct RoutingConfig {
 /// The model binding for this consultant (D2). Provider/model feed metering.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelConfig {
-    /// e.g. "openrouter".
+    /// e.g. \"openrouter\".
     #[serde(default)]
     pub provider: Option<String>,
-    /// e.g. "anthropic/claude-sonnet-5". **D2 wiring sets the real id.**
+    /// e.g. \"anthropic/claude-sonnet-5\". **D2 wiring sets the real id.**
     #[serde(default)]
     pub model_id: Option<String>,
     /// Optional per-consultant endpoint override (e.g. a package that must hit
@@ -132,7 +137,7 @@ pub struct ConsultantConfig {
     /// The ordered model chain: `models[0]` is the PREFERRED model, each
     /// subsequent entry is a fallback tried in order when the previous is
     /// unavailable (region block, rate limit, outage). An arbitrarily long
-    /// list collapses to "first is priority, walk the rest". Empty = no
+    /// list collapses to \"first is priority, walk the rest\". Empty = no
     /// binding (the env base config is used).
     pub models: Vec<ModelConfig>,
     /// Whether this consultant can be ASSIGNED implementation work. `false`
@@ -145,6 +150,11 @@ pub struct ConsultantConfig {
     /// gives them that many persistent worktrees (slots). Defaults to 1.
     pub max_concurrent: usize,
     pub verification: VerificationConfig,
+    /// Playbooks this consultant offers — named step recipes for a problem
+    /// class. Multiple playbooks may share a `problem` at different cost bands.
+    /// Validated at load time; bad playbooks reject the whole package.
+    #[serde(default)]
+    pub playbooks: Vec<playbook::Playbook>,
 }
 
 impl ConsultantConfig {
@@ -181,8 +191,8 @@ impl ConsultantConfig {
 /// The in-memory registry of available consultants, keyed by `id` and by role.
 ///
 /// Not authoritative state — it's loaded **configuration**. Who is *actually*
-/// on the team remains the event log (`AgentHired`); this answers "what
-/// consultants exist and what are they configured to do".
+/// on the team remains the event log (`AgentHired`); this answers \"what
+/// consultants exist and what are they configured to do\".
 #[derive(Debug, Clone, Default)]
 pub struct ConsultantRegistry {
     by_id: HashMap<String, Arc<ConsultantConfig>>,
@@ -311,5 +321,40 @@ impl ConsultantRegistry {
     /// Resolve a role by its exact title (catalog OR package-defined).
     pub fn resolve_role_by_title(&self, title: &str) -> Option<RoleInfo> {
         self.known_roles().into_iter().find(|r| r.title == title)
+    }
+
+    // ── Playbook lookups ────────────────────────────────────────────────
+
+    /// All playbooks offered by consultants with the given CastRole.
+    pub fn playbooks_for(&self, role: CastRole) -> Vec<&playbook::Playbook> {
+        self.for_cast_role(role)
+            .map(|c| c.playbooks.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// All playbooks across all consultants matching a problem class.
+    pub fn playbooks_for_problem(
+        &self,
+        problem: &str,
+    ) -> Vec<(&ConsultantConfig, &playbook::Playbook)> {
+        let mut results = Vec::new();
+        for c in self.all() {
+            for pb in &c.playbooks {
+                if pb.problem == problem {
+                    results.push((c, pb));
+                }
+            }
+        }
+        results
+    }
+
+    /// Look up a playbook by its qualified id (`"{consultant_id}/{playbook.id}"`).
+    pub fn playbook(&self, qualified_id: &str) -> Option<(&ConsultantConfig, &playbook::Playbook)> {
+        let (consultant_id, pb_id) = qualified_id.split_once('/')?;
+        let c = self.by_id(consultant_id)?;
+        c.playbooks
+            .iter()
+            .find(|pb| pb.id == pb_id)
+            .map(|pb| (c, pb))
     }
 }

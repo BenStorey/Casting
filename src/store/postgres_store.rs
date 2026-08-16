@@ -453,8 +453,9 @@ impl EventStore for PostgresBackend {
                             kind: r.get(7),
                             id: r.get(8),
                         },
-                        data: serde_json::from_str(&r.get::<_, String>(9))
-                            .map_err(|e| anyhow!("invalid data json for event {}: {e}", r.get::<_, String>(0)))?,
+                        data: serde_json::from_str(&r.get::<_, String>(9)).map_err(|e| {
+                            anyhow!("invalid data json for event {}: {e}", r.get::<_, String>(0))
+                        })?,
                         metadata: Metadata {
                             correlation_id: r.get(10),
                             causation_id: r

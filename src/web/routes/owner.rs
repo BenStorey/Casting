@@ -143,7 +143,7 @@ pub(crate) async fn hire_handler(
         agent_id: agent_id.clone(),
         role: role.title.to_string(),
     };
-    if let Err(e) = crate::actions::validate(&action, "owner", &proj) {
+    if let Err(e) = crate::actions::validate(&action, "owner", &proj, None) {
         return Err((StatusCode::CONFLICT, e.to_string()));
     }
     let cause = Event::new(

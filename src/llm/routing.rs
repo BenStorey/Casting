@@ -97,9 +97,18 @@ impl ModelResolver {
     ///    env, base_url defaults via the provider map.
     /// 2. Otherwise the env base config.
     ///
+    /// When `step_tier` is provided, the method walks the consultant's model
+    /// chain to find the first model whose `cost_tier` matches. If no matching
+    /// model is found, the cheapest available model in the chain is used as a
+    /// fallback to avoid crashing at runtime.
+    ///
     /// Persona: the consultant's system_prompt, else `default_persona` (else a
     /// generic `"You are {actor}."`).
-    pub fn resolve(&self, actor: &str) -> ResolvedModel {
+    pub fn resolve(
+        &self,
+        actor: &str,
+        step_tier: Option<crate::consultants::CostTier>,
+    ) -> ResolvedModel {
         let generic = format!("You are {actor}.");
         let fallback = if self.default_persona.is_empty() {
             generic
@@ -109,12 +118,35 @@ impl ModelResolver {
         match self.consultants.by_id(actor) {
             Some(consultant) => {
                 let persona = consultant.system_prompt.clone().unwrap_or(fallback);
-                let primary = consultant.primary_model();
-                let temp = primary.and_then(|m| m.temperature);
-                let max = primary.and_then(|m| m.max_tokens);
+                // Pick the model: walk the chain for the matching tier, or fall
+                // back to the primary model when no tier is requested.
+                let selected = match step_tier {
+                    Some(tier) => {
+                        // Walk the full model chain, preferring the first match.
+                        let matched = consultant
+                            .model_chain()
+                            .iter()
+                            .find(|m| m.cost_tier == tier);
+                        match matched {
+                            Some(m) => Some(m),
+                            None => {
+                                // No model matches the requested tier — fall back
+                                // to the cheapest model in the chain (Budget <
+                                // Standard < Premium) so the step doesn't fail.
+                                consultant
+                                    .model_chain()
+                                    .iter()
+                                    .min_by_key(|m| m.cost_tier as u8)
+                            }
+                        }
+                    }
+                    None => consultant.primary_model(),
+                };
+                let temp = selected.and_then(|m| m.temperature);
+                let max = selected.and_then(|m| m.max_tokens);
                 let (in_price, out_price) =
-                    tier_prices(primary.map(|m| m.cost_tier).unwrap_or_default());
-                match primary.and_then(|m| model_from_consultant(m, &self.base)) {
+                    tier_prices(selected.map(|m| m.cost_tier).unwrap_or_default());
+                match selected.and_then(|m| model_from_consultant(m, &self.base)) {
                     Some(config) => ResolvedModel {
                         config,
                         system_prompt: persona,
@@ -122,7 +154,7 @@ impl ModelResolver {
                         max_tokens: max,
                         input_price_per_mtok: in_price,
                         output_price_per_mtok: out_price,
-                        cost_tier: primary.map(|m| m.cost_tier).unwrap_or_default(),
+                        cost_tier: selected.map(|m| m.cost_tier).unwrap_or_default(),
                     },
                     None => ResolvedModel {
                         config: self.base.clone(),
@@ -131,7 +163,7 @@ impl ModelResolver {
                         max_tokens: max,
                         input_price_per_mtok: in_price,
                         output_price_per_mtok: out_price,
-                        cost_tier: primary.map(|m| m.cost_tier).unwrap_or_default(),
+                        cost_tier: selected.map(|m| m.cost_tier).unwrap_or_default(),
                     },
                 }
             }

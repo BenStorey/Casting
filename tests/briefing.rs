@@ -61,7 +61,7 @@ fn import_briefing_action_through_gate_and_to_events() {
         assets: vec![],
     };
     // Not authoritative — passes the gate (no cross-entity invariant).
-    casting::actions::validate(&action, "owner", &Projection::default()).unwrap();
+    casting::actions::validate(&action, "owner", &Projection::default(), None).unwrap();
 
     let cause = Event::new(
         &st.project,

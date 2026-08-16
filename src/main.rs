@@ -240,7 +240,7 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
             assets: Vec::new(),
         };
         let proj = state.projection()?;
-        casting::actions::validate(&action, "owner", &proj)?;
+        casting::actions::validate(&action, "owner", &proj, None)?;
 
         // Build the event through the action, then append it (advisory, never
         // authoritative — recorded with its `source` so provenance is explicit).
@@ -329,7 +329,7 @@ fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
             labels,
             url: None,
         };
-        casting::actions::validate(&action, "pm", &proj)?;
+        casting::actions::validate(&action, "pm", &proj, None)?;
 
         {
             use casting::event::{Actor, Aggregate, Event, EventType};

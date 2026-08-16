@@ -240,17 +240,18 @@ fn only_owner_can_set_budget_or_resume() {
                 warn_at: None
             },
             "pm",
-            &p
+            &p,
+            None
         ),
         Err(PolicyError::GuardAuthority(_))
     ));
     assert!(matches!(
-        validate(&PmAction::ResumeWork, "marcus-reed", &p),
+        validate(&PmAction::ResumeWork, "marcus-reed", &p, None),
         Err(PolicyError::GuardAuthority(_))
     ));
     // PM may not pause work either.
     assert!(matches!(
-        validate(&PmAction::PauseWork { reason: "r".into() }, "pm", &p),
+        validate(&PmAction::PauseWork { reason: "r".into() }, "pm", &p, None),
         Err(PolicyError::GuardAuthority(_))
     ));
     // Owner may do all three; system may pause (watchdog) but not set budget.
@@ -260,10 +261,11 @@ fn only_owner_can_set_budget_or_resume() {
             warn_at: None
         },
         "owner",
-        &p
+        &p,
+        None
     )
     .is_ok());
-    assert!(validate(&PmAction::PauseWork { reason: "r".into() }, "system", &p).is_ok());
+    assert!(validate(&PmAction::PauseWork { reason: "r".into() }, "system", &p, None).is_ok());
     assert!(matches!(
         validate(
             &PmAction::SetBudget {
@@ -271,7 +273,8 @@ fn only_owner_can_set_budget_or_resume() {
                 warn_at: None
             },
             "system",
-            &p
+            &p,
+            None
         ),
         Err(PolicyError::GuardAuthority(_))
     ));

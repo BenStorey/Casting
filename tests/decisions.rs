@@ -89,6 +89,7 @@ fn gate_requires_both_decisions_to_exist_to_supersede() {
         },
         "pm",
         &proj,
+        None,
     )
     .expect_err("superseding onto a missing decision must be rejected");
     assert!(matches!(err, PolicyError::DecisionNotFound(_)));
@@ -101,6 +102,7 @@ fn gate_requires_both_decisions_to_exist_to_supersede() {
         },
         "pm",
         &proj,
+        None,
     )
     .expect_err("superseding a missing decision must be rejected");
     assert!(matches!(err, PolicyError::DecisionNotFound(_)));

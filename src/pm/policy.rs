@@ -35,10 +35,11 @@ use std::collections::HashMap;
 /// a producer must never claim *less* restrictive involvement than the policy
 /// requires of a class (e.g. it cannot claim `Pm` for a class whose policy
 /// says `Ask`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub enum OwnerInvolvement {
     /// The organization may act; the owner is never consulted.
     #[serde(rename = "never")]
+    #[default]
     Never,
     /// The PM may decide on its own; the owner is not asked.
     #[serde(rename = "pm")]
@@ -58,6 +59,23 @@ pub enum Decider {
     Owner,
     /// A PM/agent decides on the organization's behalf.
     Agent,
+}
+
+impl OwnerInvolvement {
+    /// Whether this level requires the owner to give an explicit verdict before
+    /// the organization acts. Only `Ask` blocks; `Notify` informs but proceeds.
+    pub fn requires_owner_verdict(self) -> bool {
+        self == OwnerInvolvement::Ask
+    }
+
+    /// The delegated decision-maker for this level.
+    pub fn decider(self) -> Decider {
+        if self.requires_owner_verdict() {
+            Decider::Owner
+        } else {
+            Decider::Agent
+        }
+    }
 }
 
 /// The stable taxonomy of decision kinds. Mirrors the default table in
@@ -96,6 +114,16 @@ pub enum DecisionClass {
     /// owner-only, so the PM proposing a directive change must route to the
     /// owner for approval before it can be applied.
     GovernanceChange,
+    /// Applying a CHEAP-cost-band playbook. Default: Pm so the PM can fire
+    /// inexpensive, everyday recipes without the owner. Owner can tighten to
+    /// Ask if desired.
+    PlaybookCheap,
+    /// Applying a MEDIUM-cost-band playbook. Default: Pm.
+    PlaybookMedium,
+    /// Applying an EXPENSIVE-cost-band playbook. Default: Ask so the owner
+    /// must approve expensive scans and full-repo operations. Owner can loosen
+    /// to Pm if they trust the PM's judgment on cost.
+    PlaybookExpensive,
 }
 
 /// The built-in default involvement for each class (brief §5). These are
@@ -110,6 +138,9 @@ pub fn builtin_involvement(class: DecisionClass) -> OwnerInvolvement {
         Database | Architecture | ProductRequirement | SpendingThreshold | ProductionDeployment
         | Irreversible | GovernanceChange => OwnerInvolvement::Ask,
         SecurityCritical => OwnerInvolvement::Notify,
+        // Playbook cost-band involvement
+        PlaybookCheap | PlaybookMedium => OwnerInvolvement::Pm,
+        PlaybookExpensive => OwnerInvolvement::Ask,
     }
 }
 
@@ -118,93 +149,18 @@ pub fn builtin_involvement(class: DecisionClass) -> OwnerInvolvement {
 ///
 /// This is the owner's "autonomy knobs." It is immutable-on-construction in
 /// this slice (built from [`DecisionPolicy::defaults`] or custom overrides);
-/// persisting per-project policy changes as domain events is round two.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// mutations happen via `DecisionPolicyChanged` events.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DecisionPolicy {
-    /// Fallback involvement for any class with no override and no builtin.
-    /// Defaults to `Ask` (fail safe), but defaults are seeds — overrideable.
-    #[serde(default = "default_involvement")]
-    pub default_involvement: OwnerInvolvement,
-    /// Per-class overrides on top of the builtin table.
-    #[serde(default)]
+    /// Per-class overrides (user-set via DecisionPolicyChanged events).
     overrides: HashMap<DecisionClass, OwnerInvolvement>,
+    /// Default involvement for any unclassified class.
+    default_involvement: OwnerInvolvement,
 }
 
-fn default_involvement() -> OwnerInvolvement {
-    OwnerInvolvement::Ask
-}
-
-impl Default for DecisionPolicy {
-    fn default() -> Self {
-        DecisionPolicy {
-            default_involvement: default_involvement(),
-            overrides: HashMap::new(),
-        }
-    }
-}
-
-impl DecisionPolicy {
-    /// The builtin policy: the brief §5 table, no overrides.
-    pub fn defaults() -> Self {
-        DecisionPolicy::default()
-    }
-
-    /// Resolve the required owner involvement for `class`.
-    /// Precedence: explicit override → builtin table → `default_involvement`.
-    pub fn resolve(&self, class: DecisionClass) -> OwnerInvolvement {
-        self.overrides
-            .get(&class)
-            .copied()
-            .unwrap_or_else(|| builtin_involvement(class))
-    }
-
-    /// Set (or override) the involvement for a class. This is how the owner's
-    /// per-class autonomy is configured (round two persists these as events).
-    pub fn set(&mut self, class: DecisionClass, involvement: OwnerInvolvement) {
-        if involvement == builtin_involvement(class) {
-            // Equal to the builtin: drop the override so `resolve` is stable.
-            self.overrides.remove(&class);
-        } else {
-            self.overrides.insert(class, involvement);
-        }
-    }
-}
-
-impl OwnerInvolvement {
-    /// Whether this level requires the owner to give an explicit verdict before
-    /// the organization acts. Only `Ask` blocks; `Notify` informs but proceeds.
-    pub fn requires_owner_verdict(self) -> bool {
-        self == OwnerInvolvement::Ask
-    }
-
-    /// The delegated decision-maker for this level.
-    pub fn decider(self) -> Decider {
-        if self.requires_owner_verdict() {
-            Decider::Owner
-        } else {
-            Decider::Agent
-        }
-    }
-}
-
-/// Check a proposed decision's involvement claim against the project's policy
-/// (the seam-safety / authority-downgrade guard).
-///
-/// A producer may not claim *less* owner involvement than the policy requires
-/// for a decision's class.
-///
-/// Because `OwnerInvolvement` is ordered `Never < Pm < Notify < Ask`, "at least
-/// as restrictive" means `claimed >= required`. Anything a producer claims that
-/// would hand *more* authority to the organization (a lower involvement) than
-/// the policy grants is rejected — even when the proposer is the owner or
-/// system, we do not allow them to speak for a different class's policy.
-///
-/// Pure and infallible on the store; trivially unit-testable and safe to run in
-/// front of an arbitrary untrusted producer (an LLM once wired in).
-///
-/// The rejection surfaces directly as
-/// [`crate::actions::policy::PolicyError::AuthorityDowngrade`] — the one merged
-/// gate-level error type for the whole policy layer.
+/// Check that a claimed involvement for a class is at least as restrictive
+/// as the policy requires. This is the authority-downgrade guard: an LLM
+/// cannot silently skip the owner by under-claiming involvement.
 pub fn check_proposal(
     class: DecisionClass,
     claimed: OwnerInvolvement,
@@ -219,5 +175,99 @@ pub fn check_proposal(
             required,
             claimed,
         })
+    }
+}
+
+impl DecisionPolicy {
+    /// Default policy with all classes at their builtin involvement.
+    pub fn defaults() -> Self {
+        DecisionPolicy {
+            overrides: HashMap::new(),
+            default_involvement: OwnerInvolvement::Ask,
+        }
+    }
+
+    /// Apply an owner-set override (from a `DecisionPolicyChanged` event).
+    pub fn set(&mut self, class: DecisionClass, involvement: OwnerInvolvement) {
+        self.overrides.insert(class, involvement);
+    }
+
+    /// Resolve the required involvement for a class: override wins, then
+    /// builtin, then default (Ask).
+    pub fn resolve(&self, class: DecisionClass) -> OwnerInvolvement {
+        self.overrides
+            .get(&class)
+            .copied()
+            .unwrap_or_else(|| builtin_involvement(class))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_playbook_bands_builtin() {
+        // Cheap and medium are PM-fireable by default
+        assert_eq!(
+            builtin_involvement(DecisionClass::PlaybookCheap),
+            OwnerInvolvement::Pm
+        );
+        assert_eq!(
+            builtin_involvement(DecisionClass::PlaybookMedium),
+            OwnerInvolvement::Pm
+        );
+        // Expensive requires owner ask
+        assert_eq!(
+            builtin_involvement(DecisionClass::PlaybookExpensive),
+            OwnerInvolvement::Ask
+        );
+    }
+
+    #[test]
+    fn test_playbook_band_policy_resolve() {
+        let policy = DecisionPolicy::defaults();
+        // Default resolves to builtin
+        assert_eq!(
+            policy.resolve(DecisionClass::PlaybookCheap),
+            OwnerInvolvement::Pm
+        );
+        assert_eq!(
+            policy.resolve(DecisionClass::PlaybookExpensive),
+            OwnerInvolvement::Ask
+        );
+    }
+
+    #[test]
+    fn test_playbook_band_override() {
+        let mut policy = DecisionPolicy::defaults();
+        // Owner can loosen expensive to Pm
+        policy.set(DecisionClass::PlaybookExpensive, OwnerInvolvement::Pm);
+        assert_eq!(
+            policy.resolve(DecisionClass::PlaybookExpensive),
+            OwnerInvolvement::Pm
+        );
+        // Owner can tighten cheap to Ask
+        policy.set(DecisionClass::PlaybookCheap, OwnerInvolvement::Ask);
+        assert_eq!(
+            policy.resolve(DecisionClass::PlaybookCheap),
+            OwnerInvolvement::Ask
+        );
+    }
+
+    #[test]
+    fn test_proposal_check() {
+        let policy = DecisionPolicy::defaults();
+        // Claiming Pm for an expensive band is rejected (Pm < Ask)
+        assert!(check_proposal(
+            DecisionClass::PlaybookExpensive,
+            OwnerInvolvement::Pm,
+            &policy
+        )
+        .is_err());
+        // Claiming Ask for cheap is accepted (Ask >= Pm)
+        assert!(
+            check_proposal(DecisionClass::PlaybookCheap, OwnerInvolvement::Ask, &policy).is_ok()
+        );
     }
 }

@@ -53,3 +53,41 @@ cost_tier = "budget"
 
 [consultant.verification]
 review_required = true
+
+# ── Playbooks ─────────────────────────────────────────────────────────────────
+
+# Test audit — survey then premium analysis.
+[[consultant.playbooks]]
+id        = "test-audit"
+version   = 1
+title     = "Test audit"
+problem   = "testing"
+summary   = "Survey test coverage then perform a deep premium analysis of risk gaps."
+cost_class = "testing"
+cost_band = "expensive"
+
+[[consultant.playbooks.steps]]
+id       = "survey"
+title    = "Survey test coverage across the codebase"
+model    = "budget"
+prompt   = """
+Given the scope (module or task), survey the existing test suite. For each
+file or module, report: lines of test code, assertions per test, coverage of
+happy path vs edge cases, and any suspicious skips. Output coverage_report.json.
+"""
+artifact = "coverage_report.json"
+produces = "survey"
+
+[[consultant.playbooks.steps]]
+id       = "analyze"
+title    = "Deep test-gap analysis"
+model    = "premium"
+prompt   = """
+Read coverage_report.json. For each module, identify concrete test gaps: what
+edge cases, failure modes, race conditions, and adversarial inputs are missing.
+For each gap, produce a testable scenario with input and expected output.
+Write test_gaps.json.
+"""
+artifact = "test_gaps.json"
+produces = "analysis"
+reads    = ["survey"]

@@ -33,6 +33,12 @@ fn state_with(agents: &[&str], tasks: &[&str]) -> Projection {
                 priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
+                            playbook_id: None,
+
+                            playbook_version: None,
+
+                            playbook_step: None,
+
             })
             .collect(),
         ..Default::default()
@@ -47,7 +53,7 @@ fn cannot_hire_an_agent_twice() {
         role: "engineer".into(),
     };
     assert_eq!(
-        validate(&act, "system", &st),
+        validate(&act, "system", &st, None),
         Err(PolicyError::AgentAlreadyHired("marcus-reed".into()))
     );
 }
@@ -59,7 +65,7 @@ fn can_hire_a_new_agent() {
         agent_id: "marcus-reed".into(),
         role: "engineer".into(),
     };
-    assert!(validate(&act, "system", &st).is_ok());
+    assert!(validate(&act, "system", &st, None).is_ok());
 }
 
 #[test]
@@ -71,7 +77,7 @@ fn cannot_assign_a_task_that_does_not_exist() {
         merge_authority: casting::types::MergeAuthority::PmMerge,
     };
     assert_eq!(
-        validate(&act, "system", &st),
+        validate(&act, "system", &st, None),
         Err(PolicyError::TaskNotFound("task-nope".into()))
     );
 }
@@ -86,7 +92,7 @@ fn cannot_assign_work_to_an_unhired_agent() {
         merge_authority: casting::types::MergeAuthority::PmMerge,
     };
     assert_eq!(
-        validate(&act, "system", &st),
+        validate(&act, "system", &st, None),
         Err(PolicyError::AgentNotHired("ghost-agent".into()))
     );
 }
@@ -98,7 +104,7 @@ fn cannot_start_a_missing_task() {
         task_id: "nowhere".into(),
     };
     assert_eq!(
-        validate(&act, "marcus-reed", &st),
+        validate(&act, "marcus-reed", &st, None),
         Err(PolicyError::TaskNotFound("nowhere".into()))
     );
 }
@@ -112,7 +118,7 @@ fn cannot_create_duplicate_task_ids() {
         kind: "feature".into(),
     };
     assert_eq!(
-        validate(&act, "system", &st),
+        validate(&act, "system", &st, None),
         Err(PolicyError::TaskAlreadyExists("task-1".into()))
     );
 }
@@ -128,7 +134,8 @@ fn a_full_valid_sequence_passes() {
             role: "engineer".into(),
         },
         "system",
-        &st
+        &st,
+        None,
     )
     .is_ok());
     st.agents.push(Agent {
@@ -142,7 +149,8 @@ fn a_full_valid_sequence_passes() {
             kind: "feature".into(),
         },
         "system",
-        &st
+        &st,
+        None,
     )
     .is_ok());
     st.tasks.push(casting::projection::Task {
@@ -155,6 +163,12 @@ fn a_full_valid_sequence_passes() {
         priority: casting::pm::plan::Priority::default(),
         review: None,
         parent_id: None,
+                    playbook_id: None,
+
+                    playbook_version: None,
+
+                    playbook_step: None,
+
     });
     assert!(validate(
         &casting::actions::PmAction::AssignTask {
@@ -163,7 +177,8 @@ fn a_full_valid_sequence_passes() {
             merge_authority: casting::types::MergeAuthority::PmMerge,
         },
         "system",
-        &st
+        &st,
+        None,
     )
     .is_ok());
 }
@@ -177,7 +192,7 @@ fn cannot_start_a_task_you_dont_own() {
         task_id: "task-1".into(),
     };
     assert_eq!(
-        validate(&act, "maya-patel", &st),
+        validate(&act, "maya-patel", &st, None),
         Err(PolicyError::NotAssignee {
             task_id: "task-1".into(),
             actor: "maya-patel".into(),
@@ -198,7 +213,10 @@ fn assignee_can_start_their_own_task() {
                 task_id: "task-1".into()
             },
             "marcus-reed",
-            &st
+            &st,
+
+                None
+
         ),
         Err(PolicyError::TaskHasNoWorktree("task-1".into()))
     );
@@ -216,7 +234,10 @@ fn assignee_can_start_their_own_task() {
             task_id: "task-1".into()
         },
         "marcus-reed",
-        &st
+        &st,
+
+            None
+
     )
     .is_ok());
 }
@@ -234,20 +255,20 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
         port: 8090,
     };
     // Valid: task exists, assigned to a hired consultant, no worktree yet.
-    assert!(validate(&act, "pm", &st).is_ok());
+    assert!(validate(&act, "pm", &st, None).is_ok());
 
     // Reject: owner-assigned tasks never get a Casting worktree (the human
     // works through their own harness).
     st.tasks[0].assignee = Some("owner".into());
     assert_eq!(
-        validate(&act, "pm", &st),
+        validate(&act, "pm", &st, None),
         Err(PolicyError::WorktreeForOwner("task-1".into()))
     );
     st.tasks[0].assignee = Some("marcus-reed".into());
 
     // Reject: a task with no assignee.
     st.tasks[0].assignee = None;
-    assert!(validate(&act, "pm", &st).is_err());
+    assert!(validate(&act, "pm", &st, None).is_err());
 
     // Reject: assigning to an agent who isn't hired.
     let st2 = state_with(&["marcus-reed"], &["task-1"]);
@@ -255,7 +276,7 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
     let mut st3 = state_with(&["marcus-reed"], &["task-1"]);
     st3.tasks[0].assignee = Some("nobody".into());
     assert_eq!(
-        validate(&act, "pm", &st3),
+        validate(&act, "pm", &st3, None),
         Err(PolicyError::AgentNotHired("nobody".into()))
     );
     let _ = st2;
@@ -283,7 +304,7 @@ fn provision_worktree_rejects_duplicate() {
         port: 8090,
     };
     assert_eq!(
-        validate(&act, "pm", &st),
+        validate(&act, "pm", &st, None),
         Err(PolicyError::WorktreeAlreadyProvisioned("task-1".into()))
     );
 }
@@ -300,7 +321,7 @@ fn provision_worktree_requires_existing_task() {
         port: 8090,
     };
     assert_eq!(
-        validate(&act, "pm", &st),
+        validate(&act, "pm", &st, None),
         Err(PolicyError::TaskNotFound("task-999".into()))
     );
 }
@@ -314,7 +335,7 @@ fn cannot_complete_an_unassigned_task() {
         result: "done".into(),
     };
     assert_eq!(
-        validate(&act, "marcus-reed", &st),
+        validate(&act, "marcus-reed", &st, None),
         Err(PolicyError::TaskUnassigned("task-1".into()))
     );
 }
@@ -329,7 +350,10 @@ fn system_can_act_on_any_task() {
             task_id: "task-1".into(),
         },
         "system",
-        &st
+        &st,
+
+            None
+
     )
     .is_ok());
     assert!(validate(
@@ -338,7 +362,8 @@ fn system_can_act_on_any_task() {
             result: "done".into(),
         },
         "system",
-        &st
+        &st,
+        None,
     )
     .is_ok());
 }
@@ -381,7 +406,7 @@ fn record_actions_reject_duplicate_ids() {
         description: "y".into(),
     };
     assert_eq!(
-        validate(&r, "pm", &st),
+        validate(&r, "pm", &st, None),
         Err(PolicyError::DuplicateEntity("dup".into())),
         "duplicate requirement id must be rejected (fail-closed)"
     );
@@ -400,9 +425,9 @@ fn gate_is_fail_closed_not_fail_open() {
         to: "owner".into(),
         body: "hi".into(),
     };
-    assert!(validate(&msg, "pm", &st).is_ok());
+    assert!(validate(&msg, "pm", &st, None).is_ok());
     // A NoOp is always allowed.
-    assert!(validate(&casting::actions::PmAction::NoOp, "pm", &st).is_ok());
+    assert!(validate(&casting::actions::PmAction::NoOp, "pm", &st, None).is_ok());
 }
 
 #[test]
@@ -417,7 +442,7 @@ fn decompose_requires_existing_parent() {
         }],
     };
     assert_eq!(
-        validate(&act, "pm", &st),
+        validate(&act, "pm", &st, None),
         Err(PolicyError::TaskNotFound("nope".into())),
         "decomposing a nonexistent parent must be rejected"
     );
@@ -443,7 +468,7 @@ fn decompose_rejects_duplicate_or_taken_child_ids() {
         ],
     };
     assert_eq!(
-        validate(&dup, "pm", &st),
+        validate(&dup, "pm", &st, None),
         Err(PolicyError::DuplicateEntity("task-3".into()))
     );
     // Child id already an existing task.
@@ -456,7 +481,7 @@ fn decompose_rejects_duplicate_or_taken_child_ids() {
         }],
     };
     assert_eq!(
-        validate(&taken, "pm", &st),
+        validate(&taken, "pm", &st, None),
         Err(PolicyError::DuplicateEntity("task-2".into()))
     );
 }
@@ -472,7 +497,7 @@ fn decompose_valid_when_parent_exists_and_children_fresh() {
             kind: "feature".into(),
         }],
     };
-    assert!(validate(&act, "pm", &st).is_ok());
+    assert!(validate(&act, "pm", &st, None).is_ok());
 }
 
 #[test]
@@ -498,6 +523,12 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
+                            playbook_id: None,
+
+                            playbook_version: None,
+
+                            playbook_step: None,
+
             },
             casting::projection::Task {
                 id: "db".into(),
@@ -509,6 +540,12 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
+                            playbook_id: None,
+
+                            playbook_version: None,
+
+                            playbook_step: None,
+
             },
         ],
         dependencies: vec![TaskDependency {
@@ -531,7 +568,7 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
         task_id: "api".into(),
     };
     assert_eq!(
-        validate(&act, "marcus-reed", &st),
+        validate(&act, "marcus-reed", &st, None),
         Err(PolicyError::BlockedByDependency {
             task_id: "api".into(),
             blockers: vec!["db".into()],

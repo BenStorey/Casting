@@ -35,7 +35,7 @@ pub async fn advisor_reply(
     thread: &[Message],
     owner_msg: &str,
 ) -> Result<AdvisorOutcome> {
-    let resolved = resolver.resolve("advisor");
+    let resolved = resolver.resolve("advisor", None);
 
     // The advisor's memory = the private thread. Include it verbatim so it can
     // continue the strategic conversation.
@@ -191,7 +191,7 @@ pub async fn advisor_summarize(
     resolver: &ModelResolver,
     thread: &[Message],
 ) -> Result<String> {
-    let resolved = resolver.resolve("advisor");
+    let resolved = resolver.resolve("advisor", None);
     let mut messages = vec![ChatMessage {
         role: "system".into(),
         content: format!(

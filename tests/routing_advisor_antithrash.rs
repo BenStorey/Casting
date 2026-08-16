@@ -27,7 +27,7 @@ fn base_cfg() -> ProviderConfig {
 #[test]
 fn resolver_uses_env_base_for_unknown_actor() {
     let resolver = ModelResolver::new(base_cfg(), Default::default());
-    let resolved = resolver.resolve("pm");
+    let resolved = resolver.resolve("pm", None);
     assert_eq!(resolved.config.model, "default-model");
     assert_eq!(resolved.config.api_key, "env-key");
     assert_eq!(resolved.config.provider, "openrouter");
@@ -65,7 +65,7 @@ model_id = "cheap-model"
 "#;
     let registry = registry_with_model(pkg, "You are Custom, an engineer.");
     let resolver = ModelResolver::new(base_cfg(), registry);
-    let resolved = resolver.resolve("custom");
+    let resolved = resolver.resolve("custom", None);
     assert_eq!(
         resolved.config.model, "cheap-model",
         "consultant's model wins"
@@ -100,7 +100,7 @@ model_id = "local-llama"
 "#;
     let registry = registry_with_model(pkg, "You are Local.");
     let resolver = ModelResolver::new(base_cfg(), registry);
-    let resolved = resolver.resolve("local-guy");
+    let resolved = resolver.resolve("local-guy", None);
     assert_eq!(resolved.config.model, "local-llama");
     assert_eq!(resolved.config.base_url, "http://localhost:4000/v1");
     assert_eq!(resolved.config.provider, "litellm");
@@ -136,7 +136,7 @@ cost_tier = "budget"
     let resolver = ModelResolver::new(base_cfg(), registry);
 
     // `resolve` returns the FIRST (preferred) entry.
-    let primary = resolver.resolve("chained");
+    let primary = resolver.resolve("chained", None);
     assert_eq!(primary.config.model, "priority-model");
     assert_eq!(primary.temperature, Some(0.3));
 
@@ -500,17 +500,17 @@ temperature = 0.2
 "#;
     let registry = registry_with_model(pkg, "You are Marcus.");
     let resolver = ModelResolver::new(base_cfg(), registry);
-    let r = resolver.resolve("marcus-reed");
+    let r = resolver.resolve("marcus-reed", None);
     assert_eq!(r.config.provider, "openrouter");
     assert_eq!(r.config.model, "cheap-model");
     assert_eq!(r.temperature, Some(0.2));
     // An actor with NO consultant binding → env base, no temp/max.
-    let nobody = resolver.resolve("nobody-bound");
+    let nobody = resolver.resolve("nobody-bound", None);
     assert_eq!(nobody.config.model, "default-model");
     assert_eq!(nobody.temperature, None);
 
     // The embedded PM package now binds pm to its own model (2026-08-14 cast).
-    let pm = resolver.resolve("pm");
+    let pm = resolver.resolve("pm", None);
     assert_ne!(
         pm.config.model, "default-model",
         "pm ships a consultant binding"
@@ -571,7 +571,8 @@ fn gate_rejects_reproposing_an_open_subject() {
     assert!(actions::validate(
         &propose_decision("Pick a DB"),
         "pm",
-        &st.projection().unwrap()
+        &st.projection().unwrap(),
+        None,
     )
     .is_ok());
     for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "pm", &cause(), "run-1") {
@@ -583,6 +584,7 @@ fn gate_rejects_reproposing_an_open_subject() {
         &propose_decision("Pick a DB"),
         "pm",
         &st.projection().unwrap(),
+        None,
     )
     .unwrap_err();
     assert!(
@@ -602,7 +604,8 @@ fn gate_allows_different_subject_after_one_is_open() {
     assert!(actions::validate(
         &propose_decision("Choose language"),
         "pm",
-        &st.projection().unwrap()
+        &st.projection().unwrap(),
+        None,
     )
     .is_ok());
 }
@@ -792,12 +795,12 @@ cost_tier = "premium"
 "#;
     let registry = registry_with_model(pkg, "You are Prem.");
     let resolver = ModelResolver::new(base_cfg(), registry);
-    let prem = resolver.resolve("prem-guy");
+    let prem = resolver.resolve("prem-guy", None);
     assert!(
         prem.input_price_per_mtok > 1.0,
         "premium input price elevated"
     );
-    let pm = resolver.resolve("pm");
+    let pm = resolver.resolve("pm", None);
     assert!(
         (pm.input_price_per_mtok - 1.0).abs() < 1e-9,
         "unbound actor defaults to Standard input price"

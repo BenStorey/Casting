@@ -217,6 +217,12 @@ pub enum EventType {
     /// "what did the model see & decide on this trigger" trace for testing the
     /// LLM seam end-to-end.
     OrchestrationRun,
+    /// A playbook was applied: a consultant was dispatched with a named recipe
+    /// (packaged or ad-hoc) to solve a problem class. Carries playbook_id,
+    /// version, source, cost_band, parent_task_id, and steps — pure audit;
+    /// the actual task structure arrives via TaskCreated / TaskDecomposed events
+    /// generated from the playbook's steps.
+    PlaybookApplied,
     // --- Repository metrics (2026-08-14) ---
     /// A point-in-time snapshot of repository metrics (file count, lines by
     /// language, test coverage) captured when a PR lands (a `MergeCompleted`).

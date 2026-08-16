@@ -81,7 +81,14 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
     // governance, risks, decisions) — NOT task machinery (the advisor's role
     // operates above task priorities).
     let advisor_context = proj.context_for("advisor");
-    let outcome = crate::llm::advisor_reply(&http_client, &resolver, &advisor_context, &thread, owner_body).await;
+    let outcome = crate::llm::advisor_reply(
+        &http_client,
+        &resolver,
+        &advisor_context,
+        &thread,
+        owner_body,
+    )
+    .await;
     match outcome {
         Ok(outcome) => {
             let reply_ev = Event::new(

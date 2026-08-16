@@ -58,7 +58,7 @@ pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<A
     let rows = actors
         .into_iter()
         .map(|actor| {
-            let r = resolver.resolve(&actor);
+            let r = resolver.resolve(&actor, None);
             ActorRouting {
                 actor,
                 provider: r.config.provider,

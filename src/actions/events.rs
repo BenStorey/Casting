@@ -82,6 +82,45 @@ impl PmAction {
                 }
                 events
             }
+            // Apply a playbook: emit a PlaybookApplied audit event with the
+            // recipe's metadata. For packaged playbooks (recipe is None),
+            // cost_band and steps are empty in the event — the registry holds
+            // the full definition; for ad-hoc the values are in the recipe.
+            PmAction::ApplyPlaybook {
+                playbook_id,
+                parent_task_id,
+                version,
+                recipe,
+            } => {
+                let (source, cost_band, steps) = if let Some(r) = recipe {
+                    (
+                        "ad_hoc".to_string(),
+                        serde_json::to_value(r.cost_band).unwrap_or_default(),
+                        r.steps
+                            .iter()
+                            .map(|s| serde_json::to_value(s).unwrap_or_default())
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    ("packaged".to_string(), serde_json::Value::Null, Vec::new())
+                };
+                vec![ev(
+                    project,
+                    actor,
+                    parent_task_id,
+                    "task",
+                    EventType::PlaybookApplied,
+                    json!({
+                        "playbook_id": playbook_id,
+                        "version": version,
+                        "source": source,
+                        "cost_band": cost_band,
+                        "parent": parent_task_id,
+                        "steps": steps,
+                    }),
+                    meta,
+                )]
+            }
             // A hard dependency edge: `task_id` (the aggregate) waits on
             // `blocking_task_id` until `required_state`. Aggregate = the
             // DEPENDENT task; the blocker is carried in the payload.

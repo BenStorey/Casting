@@ -15,7 +15,9 @@
 
 use crate::actions::{self, PmAction};
 use crate::event::{Actor, Event, EventType};
-use crate::pm::planning::{actors_with_work, insert_worktree_provisions, orchestration_run_event};
+use crate::pm::planning::{
+    actors_with_work, expand_playbooks, insert_worktree_provisions, orchestration_run_event,
+};
 use crate::projection::Projection;
 use crate::store::EventStore;
 use anyhow::Result;
@@ -288,10 +290,11 @@ impl AppState {
                     (*self.consultants).clone(),
                 )
                 .with_default_persona(persona.clone());
-                self.with_http_client(http.clone()).with_orchestrator(Arc::new(
-                    crate::llm::LlmOrchestrator::new(http, cfg, persona)
-                        .with_resolver(resolver),
-                ))
+                self.with_http_client(http.clone())
+                    .with_orchestrator(Arc::new(
+                        crate::llm::LlmOrchestrator::new(http, cfg, persona)
+                            .with_resolver(resolver),
+                    ))
             }
             Ok(None) => self,
             Err(e) => {
@@ -492,7 +495,17 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     log::warn!("[pm] guard blocked LLM dispatch: {reason}");
                     (Vec::new(), None)
                 } else {
-                    let context = projection.context_for("pm");
+                    let mut context = projection.context_for("pm");
+                    // Populate available playbooks from the consultant registry
+                    context.available_playbooks = state.consultants.all().iter().flat_map(|c| {
+                        c.playbooks.iter().map(|pb| crate::runtime::context::PlaybookCard {
+                            id: format!("{}/{}", c.id, pb.id),
+                            title: pb.title.clone(),
+                            problem: pb.problem.clone(),
+                            cost_band: format!("{:?}", pb.cost_band).to_lowercase(),
+                            consultant_id: c.id.clone(),
+                        })
+                    }).collect();
                     let correlation = format!("run-{}", e.sequence);
                     let mut planning_failed = false;
                     let out = match orch.plan(&context, e).await {
@@ -637,7 +650,31 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
         let mut made_progress = false;
 
         for actor in &actors {
-            let context = proj.context_for(actor);
+            let mut context = proj.context_for(actor);
+
+            // Populate active_step if the actor is executing a playbook step.
+            if let Some((_task, _pb, step)) = proj.tasks.iter()
+                .filter(|t| t.assignee.as_deref() == Some(actor))
+                .find_map(|t| {
+                    let pb_id = t.playbook_id.as_ref()?;
+                    let step_id = t.playbook_step.as_ref()?;
+                    let (_consultant, pb) = state.consultants.playbook(pb_id)?;
+                    let step = pb.steps.iter().find(|s| s.id == *step_id)?;
+                    Some((t, pb, step))
+                })
+            {
+                let _wt = proj.worktrees.iter()
+                    .find(|w| w.task_id.as_deref() == Some(&_task.id));
+                context.active_step = Some(crate::runtime::context::ActiveStepContext {
+                    playbook_id: _task.playbook_id.clone().unwrap_or_default(),
+                    step_title: step.title.clone(),
+                    step_prompt: step.prompt.clone(),
+                    model_tier: step.model.clone(),
+                    reads_artifact_paths: step.reads.clone(),
+                    produces_artifact: step.artifact.clone(),
+                    worktree_path: _wt.map(|w| w.path.clone()),
+                });
+            }
 
             // Hard harness gate: block LLM calls when paused or budget-exhausted
             if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(&proj) {
@@ -738,6 +775,12 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
             let mut claimed_ports = std::collections::HashSet::new();
             let mut actions = out.actions;
             insert_worktree_provisions(state, &mut actions, &mut claimed_ports);
+            // Apply playbook elaborator: expand ApplyPlaybook actions onto
+            // the deterministic task-graph primitives (DecomposeTask +
+            // BlockTaskOn chain + AssignTask + ProvisionWorktree). Runs
+            // AFTER worktree provisions so parent worktrees are already
+            // present and children inherit them.
+            expand_playbooks(state, &mut actions, &mut claimed_ports);
 
             let before = authored;
             authored += run_planned(state, cause, actions).await?;
@@ -793,7 +836,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         if action == PmAction::NoOp {
             continue;
         }
-        match actions::validate(&action, &who, &projection) {
+        match actions::validate(&action, &who, &projection, None) {
             Ok(()) => {}
             Err(e) => {
                 log::warn!("[pm] policy gate rejected {who} action: {e}");
@@ -854,8 +897,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                         &runner,
                         crate::event::Actor::System,
                         &activity,
-                    )
-                    {
+                    ) {
                         log::error!("[pm] workspace side-effect failed: {e:#}");
                         // Align the projection with physical reality: a
                         // WorktreeProvisioned whose physical `git worktree`
@@ -953,11 +995,7 @@ fn applied_domain_keys(
     for e in store.read_since(project, from_seq)? {
         if dedup_applies(&e) {
             if let Some(corr) = &e.metadata.correlation_id {
-                keys.insert((
-                    e.event_type,
-                    e.aggregate.id.clone(),
-                    corr.clone(),
-                ));
+                keys.insert((e.event_type, e.aggregate.id.clone(), corr.clone()));
             }
         }
     }

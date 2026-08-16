@@ -233,7 +233,7 @@ fn set_priority_validates_against_existing_task() {
         task_id: "task-a".into(),
         priority: Priority::High,
     };
-    assert!(validate(&action, "pm", &proj).is_ok());
+    assert!(validate(&action, "pm", &proj, None).is_ok());
 
     // On a missing task it's rejected.
     let err = validate(
@@ -243,6 +243,7 @@ fn set_priority_validates_against_existing_task() {
         },
         "pm",
         &proj,
+        None,
     )
     .expect_err("setting priority on a missing task must be rejected");
     assert!(matches!(err, PolicyError::TaskNotFound(_)));

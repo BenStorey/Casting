@@ -50,3 +50,27 @@ cost_tier = "budget"
 
 [consultant.verification]
 review_required = true
+
+# ── Playbooks ─────────────────────────────────────────────────────────────────
+
+# Build health check — cheap single-step pipeline health scan.
+[[consultant.playbooks]]
+id        = "build-health"
+version   = 1
+title     = "Build health check"
+problem   = "build-health"
+summary   = "Quick check of build pipeline health. Budget model, single step."
+cost_class = "build-health"
+cost_band = "cheap"
+
+[[consultant.playbooks.steps]]
+id       = "check"
+title    = "Run build health diagnostics"
+model    = "budget"
+prompt   = """
+Run the full build and test suite. Check for: compile errors, test failures,
+flaky tests (intermittent), warnings, and slow tests. Report findings in
+build_report.json with severity, affected files, and suggested fixes.
+"""
+artifact = "build_report.json"
+produces = "check"

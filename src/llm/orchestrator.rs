@@ -52,11 +52,7 @@ pub struct LlmOrchestrator {
 }
 
 impl LlmOrchestrator {
-    pub fn new(
-        client: reqwest::Client,
-        config: ProviderConfig,
-        system_prompt: String,
-    ) -> Self {
+    pub fn new(client: reqwest::Client, config: ProviderConfig, system_prompt: String) -> Self {
         let resolver = crate::llm::routing::ModelResolver::new(config, Default::default())
             .with_default_persona(system_prompt);
         LlmOrchestrator {
@@ -172,8 +168,109 @@ impl LlmOrchestrator {
 #[async_trait::async_trait]
 impl Orchestrator for LlmOrchestrator {
     async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
+        // ── Step execution mode ──────────────────────────────────────
+        // When the actor is executing a playbook step, narrow everything:
+        // use the step's model tier, the step prompt, and only the step
+        // contract + artifact contents instead of the full company context.
+        if let Some(ref step) = context.active_step {
+            let step_tier: Option<crate::consultants::CostTier> = match step.model_tier.as_str() {
+                "budget" => Some(crate::consultants::CostTier::Budget),
+                "standard" => Some(crate::consultants::CostTier::Standard),
+                "premium" => Some(crate::consultants::CostTier::Premium),
+                _ => None,
+            };
+            let resolved = self.resolver.resolve(&context.actor, step_tier);
+            let client = OpenAiClient::new(
+                self.http.clone(),
+                resolved.config.base_url.clone(),
+                resolved.config.api_key.clone(),
+            );
+
+            // Step system prompt: a compact instruction focusing on the
+            // current step, not the full company context.
+            let step_system = format!(
+                "You are executing step \"{step}\" of playbook \"{pb}\".\n\
+                 \n{st_prompt}\n\n\
+                 Your task: produce the artifact at \"{artifact}\" in your worktree.\n\
+                 Only perform actions relevant to this step. Do NOT plan other work.",
+                step = step.step_title,
+                pb = step.playbook_id,
+                st_prompt = step.step_prompt,
+                artifact = step.produces_artifact,
+            );
+
+            // Narrow user payload: step contract + read artifacts, not the
+            // full AgentContext dump.
+            let mut payload_parts = vec![
+                format!("Step: {}\nContract: produce \"{}\"", step.step_title, step.produces_artifact),
+            ];
+            if let Some(ref wt) = step.worktree_path {
+                payload_parts.push(format!("Worktree path: {wt}"));
+            }
+            if !step.reads_artifact_paths.is_empty() {
+                payload_parts.push(format!(
+                    "Input artifacts to read: {}",
+                    step.reads_artifact_paths.join(", ")
+                ));
+            }
+
+            let req = ChatRequest {
+                model: resolved.config.model.clone(),
+                messages: vec![
+                    ChatMessage {
+                        role: "system".into(),
+                        content: step_system,
+                    },
+                    ChatMessage {
+                        role: "user".into(),
+                        content: payload_parts.join("\n"),
+                    },
+                ],
+                temperature: resolved.temperature,
+                max_tokens: resolved.max_tokens,
+                response_format: Some(serde_json::json!({"type": "json_object"})),
+            };
+
+            let started = std::time::Instant::now();
+            let completion = client.chat(&req).await?;
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let actions = self.parse_actions(&completion.content)?;
+
+            let u = &completion.usage;
+            let input_price = self.input_price_per_mtok.unwrap_or(resolved.input_price_per_mtok);
+            let output_price = self.output_price_per_mtok.unwrap_or(resolved.output_price_per_mtok);
+
+            let metering = CostMetering {
+                agent_id: context.actor.clone(),
+                task_id: context.my_tasks.first().cloned(),
+                cost_class: "playbook".into(),
+                model_tier: match resolved.cost_tier {
+                    crate::consultants::CostTier::Premium => "premium",
+                    crate::consultants::CostTier::Standard => "standard",
+                    crate::consultants::CostTier::Budget => "budget",
+                }.into(),
+                model: Some(resolved.config.model.clone()),
+                provider: Some(resolved.config.provider.clone()),
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                cache_read_input_tokens: u.prompt_tokens_details.as_ref().map(|d| d.cached_tokens).unwrap_or(0),
+                cache_creation_input_tokens: u.prompt_tokens_details.as_ref().map(|d| d.cache_creation_tokens).unwrap_or(0),
+                latency_ms,
+                input_price_per_mtok: Some(input_price),
+                output_price_per_mtok: Some(output_price),
+                estimated_usd: (u.prompt_tokens as f64 * input_price
+                    + u.completion_tokens as f64 * output_price) / 1_000_000.0,
+            };
+
+            return Ok(PlanOutput {
+                actions: actions.into_iter().map(|a| (context.actor.clone(), a)).collect(),
+                metering: Some(metering),
+            });
+        }
+
+        // ── Normal (non-step) planning mode ──────────────────────────
         // Per-actor routing: the actor decides the model + persona.
-        let resolved = self.resolver.resolve(&context.actor);
+        let resolved = self.resolver.resolve(&context.actor, None);
         let client = OpenAiClient::new(
             self.http.clone(),
             resolved.config.base_url.clone(),

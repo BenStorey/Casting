@@ -613,6 +613,9 @@ mod tests {
             priority: crate::pm::plan::Priority::default(),
             review: None,
             parent_id: None,
+            playbook_id: None,
+            playbook_version: None,
+            playbook_step: None,
         }
     }
 
