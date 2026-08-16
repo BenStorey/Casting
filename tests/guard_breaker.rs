@@ -189,6 +189,9 @@ fn budget_halt_is_not_resumable_by_work_resume() {
 #[test]
 fn pause_and_resume_block_and_unblock_dispatch() {
     let state = make_state();
+    // Set a budget so the gate's Disabled check doesn't interfere with the
+    // pause test — budget is orthogonal to pause.
+    set_budget(&state, 100.0, 0.80);
     assert!(guard::llm_dispatch_allowed(&proj(&state)).is_ok());
 
     // Owner pauses.

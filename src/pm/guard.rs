@@ -85,14 +85,10 @@ pub fn budget_fraction(proj: &Projection) -> f64 {
 /// Returns `true` when a budget limit is actually configured and active.
 ///
 /// A budget of `Disabled` (i.e. `proj.budget` is `None` or `limit_usd <= 0.0`)
-/// means **unbounded spend by design** — no automatic spend guard is in effect,
-/// and `llm_dispatch_allowed` silently returns `Ok(unbounded)`. This is
-/// intentional: the guard refuses only when work is paused or the hard
-/// `Halted` threshold is reached, never when the budget is simply absent.
-///
-/// **Owner guidance:** an orchestrator should not be enabled without a
-/// configured budget. Set `limit_usd` to a real positive value via `BudgetSet`
-/// before enabling an orchestrator that can dispatch LLM calls.
+/// means no LLM dispatch is allowed — the gate refuses all calls until a
+/// budget is configured via `BudgetSet`. This is intentional: a developer
+/// installing the tool and wiring up an API key should not be able to
+/// accidentally burn unbounded spend before setting a cap.
 pub fn budget_is_configured(proj: &Projection) -> bool {
     proj.budget.is_some() && proj.budget.as_ref().unwrap().limit_usd > 0.0
 }
@@ -122,18 +118,28 @@ pub fn is_paused(proj: &Projection) -> bool {
 }
 
 /// The gate every LLM/config-dispatch point consults BEFORE doing work.
-/// Refuses when work is paused OR the budget is exhausted (the hard breaker).
-/// `Err` carries a human-readable reason to record/log.
+/// Refuses when work is paused, the budget is not configured, or the budget
+/// is exhausted (the hard breaker). `Err` carries a human-readable reason.
 pub fn llm_dispatch_allowed(proj: &Projection) -> Result<(), String> {
     if let Some(p) = &proj.paused {
         return Err(format!("work paused: {} (by {})", p.reason, p.by));
     }
-    if matches!(budget_status(proj), BudgetStatus::Halted { .. }) {
-        return Err(format!(
-            "budget exhausted: spend ${:.2} >= limit ${:.2}; raise the budget to resume",
-            proj.total_spend_usd(),
-            proj.budget.as_ref().map(|b| b.limit_usd).unwrap_or(0.0),
-        ));
+    match budget_status(proj) {
+        BudgetStatus::Disabled => {
+            return Err(
+                "budget not configured: set a budget via the web UI or POST /api/budget \
+                 before dispatching LLM calls"
+                    .into(),
+            );
+        }
+        BudgetStatus::Halted { .. } => {
+            return Err(format!(
+                "budget exhausted: spend ${:.2} >= limit ${:.2}; raise the budget to resume",
+                proj.total_spend_usd(),
+                proj.budget.as_ref().map(|b| b.limit_usd).unwrap_or(0.0),
+            ));
+        }
+        _ => {}
     }
     Ok(())
 }

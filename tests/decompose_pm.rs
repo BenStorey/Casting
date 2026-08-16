@@ -56,6 +56,23 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         .with_step_delay(Duration::ZERO)
         .with_decompose()
         .with_orchestrator(Arc::new(MockOrchestrator));
+    // Set a budget so the gate's Disabled check doesn't block dispatches
+    // (the MockOrchestrator needs to pass through the gate to drive work).
+    use casting::event::{
+        Actor as EvActor, Aggregate as EvAggregate, Event as EvEvent, EventType as EvEventType,
+    };
+    state
+        .append(EvEvent::new(
+            "proj",
+            EvActor::Owner,
+            EvEventType::BudgetSet,
+            EvAggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
     seed(&state);
 
     // Manually create the requirement and feature task that would otherwise

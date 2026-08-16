@@ -298,3 +298,4 @@ impl Event {
 
 pub mod integrity;
 pub mod replay;
+pub mod scrub;

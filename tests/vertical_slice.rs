@@ -56,6 +56,20 @@ fn seed_company(state: &AppState) {
             serde_json::json!({}),
         ))
         .unwrap();
+    // Set a budget so the gate's Disabled check doesn't block orchestrator
+    // dispatch. Tests using MockOrchestrator need the gate to pass.
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::Owner,
+            EventType::BudgetSet,
+            casting::event::Aggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
     for (id, role) in [("diego", "engineer"), ("tess", "testing_engineer")] {
         state
             .append(Event::new(

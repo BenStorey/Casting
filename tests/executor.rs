@@ -200,6 +200,22 @@ fn failed_activity_is_recorded_and_not_redispatch() {
 #[test]
 fn activity_events_are_durable_and_reconstructible() {
     let fx = RestartFixture::new();
+    // Set a budget so the gate's Disabled check doesn't block LLM-call
+    // activity execution.
+    {
+        let s = fx.open();
+        s.append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::Owner,
+            casting::event::EventType::BudgetSet,
+            casting::event::Aggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
+    }
     let act = Activity {
         id: "task-7-llm-call-3".to_string(),
         target_id: "task-7".to_string(),
@@ -214,19 +230,28 @@ fn activity_events_are_durable_and_reconstructible() {
     }
     let s = fx.open();
     let events = s.store.read_since("proj", 0).unwrap();
-    let types: Vec<EventType> = events.iter().map(|e| e.event_type).collect();
+    let types: Vec<EventType> = events
+        .iter()
+        .filter(|e| e.event_type != EventType::BudgetSet) // test helper artifact
+        .map(|e| e.event_type)
+        .collect();
     assert_eq!(
         types,
         vec![EventType::ActivityScheduled, EventType::ActivityCompleted]
     );
     // The scheduled event carries the full activity (reconstructable for
     // re-dispatch); the completed event carries the marker + result ref.
-    let scheduled = &events[0];
+    // Filter out the BudgetSet helper event so we index the right positions.
+    let filtered: Vec<&casting::event::Event> = events
+        .iter()
+        .filter(|e| e.event_type != EventType::BudgetSet)
+        .collect();
+    let scheduled = filtered[0];
     let reconstructed: Activity =
         serde_json::from_value(scheduled.data["activity"].clone()).unwrap();
     assert_eq!(reconstructed, act);
-    assert_eq!(events[1].data["id"], "task-7-llm-call-3");
-    assert_eq!(events[1].data["result_ref"], "artifact/task-7-llm-call-3");
+    assert_eq!(filtered[1].data["id"], "task-7-llm-call-3");
+    assert_eq!(filtered[1].data["result_ref"], "artifact/task-7-llm-call-3");
 }
 
 #[test]

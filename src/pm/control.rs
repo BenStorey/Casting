@@ -353,7 +353,13 @@ impl AppState {
 
     /// Append an event to the store, assign its sequence, then broadcast it to
     /// subscribers (a wake hint for the PM, a realtime push for the UI).
-    pub fn append(&self, event: Event) -> Result<Event> {
+    ///
+    /// Before the event reaches the store, its `data` payload is scrubbed for
+    /// common secret patterns (API keys, tokens, SSH keys, JWTs) so secrets
+    /// pasted into chat messages, briefing bodies, decision notes, or task
+    /// results are never durably embedded in the event log.
+    pub fn append(&self, mut event: Event) -> Result<Event> {
+        crate::event::scrub::scrub_event(&mut event);
         if self.enforce_integrity {
             let proj = Projection::build(&self.store, &self.project)?;
             crate::event::integrity::check_append(&proj, &event)?;
@@ -534,8 +540,9 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 // configured budget — an unbounded-spend risk by design (guard.rs).
                 if !crate::pm::guard::budget_is_configured(projection) {
                     log::warn!(
-                        "[pm] orchestrator enabled with no budget configured — \
-                         spend is unbounded; set a BudgetSet limit_usd > 0.0"
+                        "[pm] orchestrator enabled but NO budget configured — \
+                         LLM dispatch is blocked until a BudgetSet event is written. \
+                         Set one via the web UI budget panel or POST /api/budget."
                     );
                 }
                 // Hard harness gate (2026-08-13, guard.rs)

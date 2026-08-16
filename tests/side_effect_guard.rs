@@ -189,6 +189,20 @@ fn run_side_effect_refuses_when_budget_halted() {
 #[test]
 fn run_side_effect_runs_when_unguarded() {
     let state = make_state();
+    // Set a budget so the gate's Disabled check doesn't interfere — the
+    // purpose of this test is to verify the run path when nothing is blocked.
+    state
+        .append(Event::new(
+            "proj-se",
+            Actor::Owner,
+            EventType::BudgetSet,
+            Aggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
     let runner = CountingRunner::default();
     run_side_effect(&state, &runner, Actor::System, &provision_activity()).unwrap();
     assert_eq!(runner.0.load(Ordering::SeqCst), 1);
