@@ -457,7 +457,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
     // Phase 1: PM trigger processing (owner messages and decisions)
     // ========================================================================
     for e in new_events {
-        let (is_owner_message, _body) = match e.event_type {
+        let (is_owner_message, body) = match e.event_type {
             EventType::MessageSent if e.actor == Actor::Owner => (
                 true,
                 e.data.get("body").and_then(|b| b.as_str()).unwrap_or(""),
@@ -477,10 +477,58 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
         let (planned, metering): (
             Vec<PlannedAction>,
             Option<crate::runtime::orchestrator::CostMetering>,
-        ) = if is_owner_message || is_owner_decision {
-            // D2 seam: if an orchestrator is enabled, let IT drive the
-            // response (the LLM, or the mock in tests). Without an orchestrator,
-            // the system is properly inert — no scripted fallback, no demo tape.
+        ) = if is_owner_message {
+            // ── Chat messages: NO expensive PM orchestrator call ─────────
+            // Owner chat requests go directly to the chat-interface playbook.
+            // The budget model in Phase 2 handles both implement and escalate
+            // in one cheap call. This is the whole point — skip the Sonnet/Claude
+            // routing step entirely for trivial requests.
+            //
+            // Only works when an orchestrator is attached (Phase 2 needs it).
+            if state.orchestrator.is_some() {
+                let task_id = format!("chat-{}", uuid::Uuid::new_v4());
+                let mut actions: Vec<PlannedAction> = vec![
+                    (
+                        "pm".into(),
+                        PmAction::CreateTask {
+                            id: task_id.clone(),
+                            title: body.to_string(),
+                            kind: "chat".into(),
+                        },
+                    ),
+                    (
+                        "pm".into(),
+                        PmAction::AssignTask {
+                            task_id: task_id.clone(),
+                            assignee: "pm".into(),
+                            merge_authority: crate::types::MergeAuthority::SelfMerge,
+                        },
+                    ),
+                    (
+                        "pm".into(),
+                        PmAction::ApplyPlaybook {
+                            playbook_id: "pm/chat-interface".into(),
+                            parent_task_id: task_id.clone(),
+                            version: Some(1),
+                            recipe: None,
+                        },
+                    ),
+                ];
+                // Run the worktree + playbook elaborators (same as Phase 2)
+                // so the child step, worktree, and dependency chain are set up
+                // before run_planned executes them.
+                let mut claimed_ports = std::collections::HashSet::new();
+                insert_worktree_provisions(state, &mut actions, &mut claimed_ports);
+                expand_playbooks(state, &mut actions, &mut claimed_ports);
+                // No LLM call here — this is deterministic, so no metering.
+                (actions, None)
+            } else {
+                // No orchestrator attached — inert. The message is recorded
+                // but nothing will action it.
+                (Vec::new(), None)
+            }
+        } else if is_owner_decision {
+            // ── Owner decisions: route through the smart PM orchestrator ─
             if let Some(orch) = &state.orchestrator {
                 // Warn at startup if the orchestrator is enabled but there's no
                 // configured budget — an unbounded-spend risk by design (guard.rs).
@@ -497,15 +545,22 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 } else {
                     let mut context = projection.context_for("pm");
                     // Populate available playbooks from the consultant registry
-                    context.available_playbooks = state.consultants.all().iter().flat_map(|c| {
-                        c.playbooks.iter().map(|pb| crate::runtime::context::PlaybookCard {
-                            id: format!("{}/{}", c.id, pb.id),
-                            title: pb.title.clone(),
-                            problem: pb.problem.clone(),
-                            cost_band: format!("{:?}", pb.cost_band).to_lowercase(),
-                            consultant_id: c.id.clone(),
+                    context.available_playbooks = state
+                        .consultants
+                        .all()
+                        .iter()
+                        .flat_map(|c| {
+                            c.playbooks
+                                .iter()
+                                .map(|pb| crate::runtime::context::PlaybookCard {
+                                    id: format!("{}/{}", c.id, pb.id),
+                                    title: pb.title.clone(),
+                                    problem: pb.problem.clone(),
+                                    cost_band: format!("{:?}", pb.cost_band).to_lowercase(),
+                                    consultant_id: c.id.clone(),
+                                })
                         })
-                    }).collect();
+                        .collect();
                     let correlation = format!("run-{}", e.sequence);
                     let mut planning_failed = false;
                     let out = match orch.plan(&context, e).await {
@@ -653,7 +708,9 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
             let mut context = proj.context_for(actor);
 
             // Populate active_step if the actor is executing a playbook step.
-            if let Some((_task, _pb, step)) = proj.tasks.iter()
+            if let Some((_task, _pb, step)) = proj
+                .tasks
+                .iter()
                 .filter(|t| t.assignee.as_deref() == Some(actor))
                 .find_map(|t| {
                     let pb_id = t.playbook_id.as_ref()?;
@@ -663,7 +720,9 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
                     Some((t, pb, step))
                 })
             {
-                let _wt = proj.worktrees.iter()
+                let _wt = proj
+                    .worktrees
+                    .iter()
                     .find(|w| w.task_id.as_deref() == Some(&_task.id));
                 context.active_step = Some(crate::runtime::context::ActiveStepContext {
                     playbook_id: _task.playbook_id.clone().unwrap_or_default(),

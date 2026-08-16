@@ -265,7 +265,13 @@ fn only_owner_can_set_budget_or_resume() {
         None
     )
     .is_ok());
-    assert!(validate(&PmAction::PauseWork { reason: "r".into() }, "system", &p, None).is_ok());
+    assert!(validate(
+        &PmAction::PauseWork { reason: "r".into() },
+        "system",
+        &p,
+        None
+    )
+    .is_ok());
     assert!(matches!(
         validate(
             &PmAction::SetBudget {

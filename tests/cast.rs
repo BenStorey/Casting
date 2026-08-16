@@ -285,24 +285,34 @@ fn special_roles_cannot_be_assigned_tasks() {
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     let _ = proj.tasks.iter().any(|t| t.status == TaskStatus::Backlog);
 
-    // The PM cannot route a task to itself or to the Advisor.
-    for special in ["pm", "advisor"] {
-        let err = validate(
-            &PmAction::AssignTask {
-                task_id: "task-1".into(),
-                assignee: special.into(),
-                merge_authority: casting::types::MergeAuthority::PmMerge,
-            },
-            "pm",
-            &proj,
-            None,
-        )
-        .expect_err("assigning to a special role must be rejected");
-        assert!(
-            matches!(err, PolicyError::SpecialRoleNotAssignable(ref a) if a == special),
-            "expected SpecialRoleNotAssignable for {special}, got {err:?}"
-        );
-    }
+    // The PM may self-assign tasks via the chat-interface playbook.
+    // The Advisor may NOT be assigned tasks.
+    validate(
+        &PmAction::AssignTask {
+            task_id: "task-1".into(),
+            assignee: "pm".into(),
+            merge_authority: casting::types::MergeAuthority::PmMerge,
+        },
+        "pm",
+        &proj,
+        None,
+    )
+    .expect("pm should be able to self-assign tasks via chat-interface playbook");
+    let err = validate(
+        &PmAction::AssignTask {
+            task_id: "task-1".into(),
+            assignee: "advisor".into(),
+            merge_authority: casting::types::MergeAuthority::PmMerge,
+        },
+        "pm",
+        &proj,
+        None,
+    )
+    .expect_err("assigning to advisor must be rejected");
+    assert!(
+        matches!(err, PolicyError::SpecialRoleNotAssignable(_)),
+        "expected SpecialRoleNotAssignable for advisor, got {err:?}"
+    );
 }
 
 #[test]

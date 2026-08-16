@@ -270,9 +270,9 @@ async fn advisor_reply_uses_its_model_and_thread() {
         body: "What should we build?".into(),
     }];
     let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .expect("build reqwest client");
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("build reqwest client");
     let outcome = casting::llm::advisor_reply(
         &http_client,
         &resolver,
@@ -306,18 +306,13 @@ async fn advisor_reply_stays_isolated_from_pm_context() {
         body: "hi".into(),
     }];
     let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .expect("build reqwest client");
-    let outcome = casting::llm::advisor_reply(
-        &http_client,
-        &resolver,
-        &Default::default(),
-        &thread,
-        "hi",
-    )
-        .await
-        .unwrap();
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("build reqwest client");
+    let outcome =
+        casting::llm::advisor_reply(&http_client, &resolver, &Default::default(), &thread, "hi")
+            .await
+            .unwrap();
     assert!(!outcome.reply.is_empty());
 }
 
@@ -384,16 +379,10 @@ async fn advisor_reply_builds_grounding_into_system_prompt() {
         body: "advise me".into(),
     }];
     let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .expect("build reqwest client");
-    casting::llm::advisor_reply(
-        &http_client,
-        &resolver,
-        &ctx,
-        &thread,
-        "advise me",
-    )
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("build reqwest client");
+    casting::llm::advisor_reply(&http_client, &resolver, &ctx, &thread, "advise me")
         .await
         .unwrap();
     let sys = recorded.0.lock().unwrap().join("\n");
@@ -1052,28 +1041,20 @@ async fn advisor_summarize_uses_the_model_but_never_hard_fails() {
         },
     ];
     let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .expect("build reqwest client");
-    let summary = casting::llm::advisor_summarize(
-        &http_client,
-        &resolver,
-        &thread,
-    )
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("build reqwest client");
+    let summary = casting::llm::advisor_summarize(&http_client, &resolver, &thread)
         .await
         .unwrap();
     assert!(summary.contains("Concise"), "uses the model's summary");
 
     // Empty thread → deterministic fallback, no call needed.
     let http_client_empty = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .expect("build reqwest client");
-    let empty = casting::llm::advisor_summarize(
-        &http_client_empty,
-        &resolver,
-        &[],
-    )
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("build reqwest client");
+    let empty = casting::llm::advisor_summarize(&http_client_empty, &resolver, &[])
         .await
         .unwrap();
     assert_eq!(empty, "Advisor conversation handed off to PM.");

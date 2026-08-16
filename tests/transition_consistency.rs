@@ -24,12 +24,11 @@ fn task(id: &str, status: TaskStatus, assignee: Option<&str>) -> Task {
         priority: Priority::Medium,
         review: None,
         parent_id: None,
-                    playbook_id: None,
+        playbook_id: None,
 
-                    playbook_version: None,
+        playbook_version: None,
 
-                    playbook_step: None,
-
+        playbook_step: None,
     }
 }
 
@@ -83,8 +82,7 @@ fn graph_table_and_gate_agree_on_status_legality() {
         },
         "maya-patel",
         &st,
-            None,
-
+        None,
     )
     .expect_err("cannot review a working task");
     assert!(matches!(err, PolicyError::TaskNotInReview(_)));
@@ -103,8 +101,7 @@ fn graph_table_and_gate_agree_on_status_legality() {
         },
         "maya-patel",
         &st,
-            None,
-
+        None,
     )
     .is_ok());
     assert!(valid_from_status(TaskStatus::InReview, "review_task"));
@@ -123,8 +120,7 @@ fn review_missing_task_still_rejected() {
         },
         "maya-patel",
         &st,
-            None,
-
+        None,
     )
     .expect_err("missing task");
     assert!(matches!(err, PolicyError::TaskNotFound(_)));
@@ -148,8 +144,7 @@ fn assignee_lifecycle_gates_unchanged() {
         },
         "marcus-reed",
         &st,
-            None,
-
+        None,
     )
     .is_ok());
 }

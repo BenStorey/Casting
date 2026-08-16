@@ -33,12 +33,11 @@ fn state_with(agents: &[&str], tasks: &[&str]) -> Projection {
                 priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
-                            playbook_id: None,
+                playbook_id: None,
 
-                            playbook_version: None,
+                playbook_version: None,
 
-                            playbook_step: None,
-
+                playbook_step: None,
             })
             .collect(),
         ..Default::default()
@@ -163,12 +162,11 @@ fn a_full_valid_sequence_passes() {
         priority: casting::pm::plan::Priority::default(),
         review: None,
         parent_id: None,
-                    playbook_id: None,
+        playbook_id: None,
 
-                    playbook_version: None,
+        playbook_version: None,
 
-                    playbook_step: None,
-
+        playbook_step: None,
     });
     assert!(validate(
         &casting::actions::PmAction::AssignTask {
@@ -214,9 +212,7 @@ fn assignee_can_start_their_own_task() {
             },
             "marcus-reed",
             &st,
-
-                None
-
+            None
         ),
         Err(PolicyError::TaskHasNoWorktree("task-1".into()))
     );
@@ -235,9 +231,7 @@ fn assignee_can_start_their_own_task() {
         },
         "marcus-reed",
         &st,
-
-            None
-
+        None
     )
     .is_ok());
 }
@@ -351,9 +345,7 @@ fn system_can_act_on_any_task() {
         },
         "system",
         &st,
-
-            None
-
+        None
     )
     .is_ok());
     assert!(validate(
@@ -523,12 +515,11 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
-                            playbook_id: None,
+                playbook_id: None,
 
-                            playbook_version: None,
+                playbook_version: None,
 
-                            playbook_step: None,
-
+                playbook_step: None,
             },
             casting::projection::Task {
                 id: "db".into(),
@@ -540,12 +531,11 @@ fn start_gate_is_fail_closed_on_unsatisfied_hard_dependency() {
                 priority: casting::pm::plan::Priority::default(),
                 review: None,
                 parent_id: None,
-                            playbook_id: None,
+                playbook_id: None,
 
-                            playbook_version: None,
+                playbook_version: None,
 
-                            playbook_step: None,
-
+                playbook_step: None,
             },
         ],
         dependencies: vec![TaskDependency {

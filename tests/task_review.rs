@@ -226,6 +226,7 @@ fn review_task_requires_in_review_status() {
         approved: true,
         note: Some("ok".into()),
     };
-    let err = validate(&act, "maya-patel", &proj, None).expect_err("cannot review a non-in-review task");
+    let err =
+        validate(&act, "maya-patel", &proj, None).expect_err("cannot review a non-in-review task");
     assert!(matches!(err, PolicyError::TaskNotInReview(_)));
 }

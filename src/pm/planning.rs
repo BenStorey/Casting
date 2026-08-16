@@ -392,8 +392,10 @@ pub(crate) fn actors_with_work(projection: &crate::projection::Projection) -> Ve
             if assignee == "owner" {
                 continue;
             }
-            // Only include actors who are actually hired.
-            if !projection.agents.iter().any(|a| a.id == *assignee) {
+            // Only include actors who are actually hired. The PM is a special
+            // case — they can self-assign tasks via the chat-interface playbook
+            // and are never in the agents list (not hirable).
+            if assignee != "pm" && !projection.agents.iter().any(|a| a.id == *assignee) {
                 continue;
             }
             // Skip Backlog tasks that are blocked by unresolved dependencies.

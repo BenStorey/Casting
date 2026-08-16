@@ -29,12 +29,11 @@ fn project(agent_id: &str, authority: MergeAuthority) -> Projection {
             priority: casting::pm::plan::Priority::Medium,
             review: None,
             parent_id: None,
-                        playbook_id: None,
+            playbook_id: None,
 
-                        playbook_version: None,
+            playbook_version: None,
 
-                        playbook_step: None,
-
+            playbook_step: None,
         }],
         ..Default::default()
     }

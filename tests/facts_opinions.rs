@@ -219,7 +219,7 @@ fn supersede_opinion_action_through_gate_and_events() {
             },
             "owner",
             &proj,
-        None,
+            None,
         ),
         Err(casting::actions::PolicyError::OpinionNotFound(_))
     ));
@@ -231,7 +231,7 @@ fn supersede_opinion_action_through_gate_and_events() {
             },
             "owner",
             &proj,
-        None,
+            None,
         ),
         Err(casting::actions::PolicyError::OpinionNotFound(_))
     ));

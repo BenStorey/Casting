@@ -16,8 +16,8 @@ pub enum PolicyError {
     TaskNotFound(String),
     /// Assigning work to an agent who has not been hired.
     AgentNotHired(String),
-    /// Assigning work to a reserved SPECIAL role (PM/Advisor) — they
-    /// coordinate/advise, never take implementation tasks.
+    /// Assigning work to a reserved SPECIAL role (Advisor) — they
+    /// advise, never take implementation tasks.
     SpecialRoleNotAssignable(String),
     /// Reviewing a task that isn't currently in review.
     TaskNotInReview(String),
@@ -213,9 +213,13 @@ pub fn validate(
 ) -> Result<(), PolicyError> {
     match action {
         PmAction::HireAgent { agent_id, .. } => {
-            // The special roles (PM/Advisor) can never be hired as task-doers;
-            // they are fixed co-ordinator / adviser actors.
-            if crate::actions::action::SPECIAL_ACTORS.contains(&agent_id.as_str()) {
+            // The PM/Advisor special roles can never be hired as task-doers;
+            // they are fixed co-ordinator / adviser actors. "pm" is excluded
+            // from SPECIAL_ACTORS to allow self-assignment via the
+            // chat-interface playbook, but it is still not hirable.
+            if agent_id == "pm"
+                || crate::actions::action::SPECIAL_ACTORS.contains(&agent_id.as_str())
+            {
                 return Err(PolicyError::SpecialRoleNotAssignable(agent_id.clone()));
             }
             if state.agents.iter().any(|a| a.id == *agent_id) {
@@ -361,10 +365,11 @@ pub fn validate(
             if !task_exists {
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
             }
-            // The assignee is either a hired agent OR the human owner (owner can
-            // take a task on personally and deliver via their harness). Anything
-            // else is rejected — and a reserved special role (PM/Advisor) is
-            // rejected with a distinct, clearer error.
+            // The assignee is either a hired agent, the PM (for self-assigned
+            // small work via the chat-interface playbook), or the human owner
+            // (owner can take a task on personally and deliver via their harness).
+            // Anything else is rejected — and a reserved special role (Advisor)
+            // is rejected with a distinct, clearer error.
             if SPECIAL_ACTORS.contains(&assignee.as_str()) {
                 return Err(PolicyError::SpecialRoleNotAssignable(assignee.clone()));
             }
@@ -427,7 +432,8 @@ pub fn validate(
         }
         PmAction::ProvisionWorktree { task_id, .. } => {
             check_pm_authority(who)?;
-            // Only hired agents get worktrees; the owner works through their
+            // Only hired agents get worktrees, plus the PM (who can self-assign
+            // via the chat-interface playbook). The owner works through their
             // own harness. The task must exist and be assigned to a consultant.
             let task = state
                 .tasks
@@ -441,7 +447,7 @@ pub fn validate(
             if assignee == OWNER {
                 return Err(PolicyError::WorktreeForOwner(task_id.clone()));
             }
-            if !state.agents.iter().any(|a| a.id == assignee) {
+            if assignee != "pm" && !state.agents.iter().any(|a| a.id == assignee) {
                 return Err(PolicyError::AgentNotHired(assignee.to_string()));
             }
             // One worktree per task (fail-closed id uniqueness).

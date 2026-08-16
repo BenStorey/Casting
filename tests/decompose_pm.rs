@@ -250,9 +250,27 @@ async fn default_onboard_without_decompose_stays_flat() {
         .unwrap();
     casting::pm::drive_pm(&state).await.unwrap();
     let proj = state.projection().unwrap();
-    assert!(
-        proj.tasks.iter().all(|t| t.parent_id.is_none()),
-        "no decomposition when the flag is off"
+    // Owner messages now route through the chat-interface playbook, which
+    // creates a child step task (parent_id is set). This is independent of
+    // the decompose flag. Non-chat tasks (from seed) remain flat.
+    for task in &proj.tasks {
+        if !task.id.starts_with("chat-") {
+            assert!(
+                task.parent_id.is_none(),
+                "non-chat task '{}' should have no parent (decompose=off)",
+                task.id
+            );
+        }
+    }
+    // The chat parent exists and has no parent_id (it's the root)
+    let chat_parent: Vec<_> = proj
+        .tasks
+        .iter()
+        .filter(|t| t.id.starts_with("chat-") && !t.id.contains('/'))
+        .collect();
+    assert_eq!(
+        chat_parent.len(),
+        1,
+        "should have exactly one chat parent task"
     );
-    assert!(proj.children_of("task-feature").is_empty());
 }

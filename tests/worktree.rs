@@ -727,12 +727,11 @@ fn worktree_surfaces_in_context_and_operating_model() {
             priority: casting::pm::plan::Priority::default(),
             review: None,
             parent_id: None,
-                        playbook_id: None,
+            playbook_id: None,
 
-                        playbook_version: None,
+            playbook_version: None,
 
-                        playbook_step: None,
-
+            playbook_step: None,
         }],
         worktrees: vec![casting::projection::Worktree {
             consultant: "diego".into(),

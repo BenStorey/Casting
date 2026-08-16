@@ -6,9 +6,7 @@
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::runtime::executor::{
-    run_side_effect, workspace_activity_for, Activity, ActivityKind,
-};
+use casting::runtime::executor::{run_side_effect, workspace_activity_for, Activity, ActivityKind};
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -197,8 +195,12 @@ fn run_side_effect_runs_when_unguarded() {
     // The domain-side-effect path now records ActivityScheduled + ActivityCompleted
     // lifecycle events (C3 fix), so crash recovery + watchdog RetryLoop work.
     let events = state.store.read_since("proj-se", 0).unwrap();
-    assert!(events.iter().any(|e| e.event_type == EventType::ActivityScheduled));
-    assert!(events.iter().any(|e| e.event_type == EventType::ActivityCompleted));
+    assert!(events
+        .iter()
+        .any(|e| e.event_type == EventType::ActivityScheduled));
+    assert!(events
+        .iter()
+        .any(|e| e.event_type == EventType::ActivityCompleted));
 }
 
 // --- guard's budget status is projected (sanity that halt_budget folded) ---

@@ -18,14 +18,23 @@ pub const OWNER: &str = "owner";
 /// event log. The policy gate (is_valid_assignee + HireAgent) treats these as
 /// not-assignable and not-hirable, so an owner or model cannot accidentally
 /// turn a special role into a task-doer.
-pub const SPECIAL_ACTORS: &[&str] = &["pm", "advisor"];
+///
+/// NOTE: "pm" is NOT in this list because the PM may self-assign tasks
+/// through the `chat-interface` playbook for small direct work. The
+/// policy gate has a dedicated carve-out for PM self-assignment; "advisor"
+/// and future non-implementer roles stay blocked.
+pub const SPECIAL_ACTORS: &[&str] = &["advisor"];
 
-/// True if `candidate` is a valid task assignee: either the human owner or a
-/// hired agent — and never one of the reserved special roles. (owner
+/// True if `candidate` is a valid task assignee: either the human owner, the
+/// PM (for self-assigned small work via the chat-interface playbook), or a
+/// hired agent — and never one of the other reserved special roles. (owner
 /// 2026-08-10 — human-as-consultant delivery.)
 pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
-    if candidate == OWNER || SPECIAL_ACTORS.contains(&candidate) {
-        return candidate == OWNER;
+    if candidate == OWNER || candidate == "pm" {
+        return true;
+    }
+    if SPECIAL_ACTORS.contains(&candidate) {
+        return false;
     }
     state.agents.iter().any(|a| a.id == candidate)
 }

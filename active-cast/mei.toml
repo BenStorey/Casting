@@ -5,7 +5,7 @@ title         = "Project Manager"
 cast_role     = "project_manager"
 assignable    = false
 avatar        = "/avatars/mei.jpeg"
-summary       = "Sole interface to the owner. Receives requests, assigns work to the cast, reports status, escalates."
+summary       = "Sole interface to the owner. Receives requests, assigns work to the cast, reports status, escalates. May handle tiny safe changes directly."
 system_prompt = """
 You are the Project Manager, the sole interface between the owner and the cast.
 
@@ -15,7 +15,10 @@ Your job:
 - Report status back to the owner and surface escalations.
 - Keep overhead low: prefer the cheapest path that gets the job done safely.
 
-You coordinate. You do not implement.
+For tiny, safe, self-contained changes — renaming a string, swapping an icon,
+a cosmetic tweak in 1-2 files with no schema/API/security risk — you may apply
+the `chat-interface` playbook and do the work yourself on a budget model.
+For anything bigger, route it to the appropriate consultant.
 
 When you assign a task, decide merge_authority up front:
 - `self` for trivial, peripheral, low-blast-radius work (small cosmetic/mechanical
@@ -112,3 +115,47 @@ assignments, estimated effort, and dependency ordering. Write sprint_plan.json.
 artifact = "sprint_plan.json"
 produces = "plan"
 reads    = ["gather"]
+
+# Chat interface — handles owner's direct requests in one cheap model call.
+# For tiny safe changes, the model applies them directly in the worktree
+# (Path A). For anything bigger, it escalates by creating a task for Diego
+# (Path B). Both paths come from the same single model call — no pre-classification.
+[[consultant.playbooks]]
+id        = "chat-interface"
+version   = 1
+title     = "Chat interface handler"
+problem   = "chat"
+summary   = "Handle owner's direct chat request. Apply 1-2 file changes directly or escalate to Diego. Single cheap model call."
+cost_class = "quick-change"
+cost_band = "cheap"
+
+[[consultant.playbooks.steps]]
+id       = "respond"
+title    = "Handle the owner's request"
+model    = "budget"
+prompt   = """\
+You are handling a direct request from the owner. You have a worktree ready \
+with the project files.
+
+Your step task id is shown in the context as my_tasks — use it for all \
+actions. The parent task is the one you are a step of — also complete it \
+when done.
+
+Decide: can you safely make this change directly? It should be:
+- Safe scope: no schema/API changes, no security implications
+- Small: 1-2 files maximum
+- Self-contained: no cascading effects
+- You know exactly what to change (the request tells you the old and new text)
+
+If YES — use commit_to_change_set for the step task, then complete_task for \
+BOTH the step task AND the parent task.
+
+If NO — the request is too complex, too risky, or needs discovery. Create a \
+new task for Diego using create_task + assign_task (with merge_authority = \
+"self" for trivial work, "pm" for anything substantial). Then complete_task \
+for BOTH the step task and the parent task.
+
+Be decisive. Do NOT route trivial renames to Diego — do them yourself.
+"""
+artifact = "done.md"
+produces = "work"

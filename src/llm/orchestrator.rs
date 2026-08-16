@@ -186,24 +186,47 @@ impl Orchestrator for LlmOrchestrator {
                 resolved.config.api_key.clone(),
             );
 
-            // Step system prompt: a compact instruction focusing on the
-            // current step, not the full company context.
-            let step_system = format!(
-                "You are executing step \"{step}\" of playbook \"{pb}\".\n\
-                 \n{st_prompt}\n\n\
-                 Your task: produce the artifact at \"{artifact}\" in your worktree.\n\
-                 Only perform actions relevant to this step. Do NOT plan other work.",
-                step = step.step_title,
-                pb = step.playbook_id,
-                st_prompt = step.step_prompt,
-                artifact = step.produces_artifact,
-            );
+            // Step system prompt: for PM-owned playbooks (chat-interface),
+            // use the full planning instruction so the model can either do
+            // the work OR escalate (create_task, assign_task, apply_playbook).
+            // For consultant-owned steps, use the focused step prompt.
+            let step_system = if context.actor == "pm" {
+                format!(
+                    "{}\n\n{}",
+                    resolved.system_prompt,
+                    Self::full_action_vocab()
+                )
+            } else {
+                format!(
+                    "You are executing step \"{step}\" of playbook \"{pb}\".\n\
+                     \n{st_prompt}\n\n\
+                     Your task: produce the artifact at \"{artifact}\" in your worktree.\n\
+                     Only perform actions relevant to this step. Do NOT plan other work.",
+                    step = step.step_title,
+                    pb = step.playbook_id,
+                    st_prompt = step.step_prompt,
+                    artifact = step.produces_artifact,
+                )
+            };
 
             // Narrow user payload: step contract + read artifacts, not the
-            // full AgentContext dump.
-            let mut payload_parts = vec![
-                format!("Step: {}\nContract: produce \"{}\"", step.step_title, step.produces_artifact),
-            ];
+            // full AgentContext dump. For PM-owned steps (chat-interface),
+            // also include the owner's original request from the cause event.
+            let mut payload_parts = vec![format!(
+                "Step: {}\nContract: produce \"{}\"",
+                step.step_title, step.produces_artifact
+            )];
+            if context.actor == "pm" {
+                let ask = cause
+                    .data
+                    .get("body")
+                    .and_then(|b| b.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !ask.is_empty() {
+                    payload_parts.push(format!("Owner request: \"{ask}\""));
+                }
+            }
             if let Some(ref wt) = step.worktree_path {
                 payload_parts.push(format!("Worktree path: {wt}"));
             }
@@ -237,8 +260,12 @@ impl Orchestrator for LlmOrchestrator {
             let actions = self.parse_actions(&completion.content)?;
 
             let u = &completion.usage;
-            let input_price = self.input_price_per_mtok.unwrap_or(resolved.input_price_per_mtok);
-            let output_price = self.output_price_per_mtok.unwrap_or(resolved.output_price_per_mtok);
+            let input_price = self
+                .input_price_per_mtok
+                .unwrap_or(resolved.input_price_per_mtok);
+            let output_price = self
+                .output_price_per_mtok
+                .unwrap_or(resolved.output_price_per_mtok);
 
             let metering = CostMetering {
                 agent_id: context.actor.clone(),
@@ -248,22 +275,35 @@ impl Orchestrator for LlmOrchestrator {
                     crate::consultants::CostTier::Premium => "premium",
                     crate::consultants::CostTier::Standard => "standard",
                     crate::consultants::CostTier::Budget => "budget",
-                }.into(),
+                }
+                .into(),
                 model: Some(resolved.config.model.clone()),
                 provider: Some(resolved.config.provider.clone()),
                 prompt_tokens: u.prompt_tokens,
                 completion_tokens: u.completion_tokens,
-                cache_read_input_tokens: u.prompt_tokens_details.as_ref().map(|d| d.cached_tokens).unwrap_or(0),
-                cache_creation_input_tokens: u.prompt_tokens_details.as_ref().map(|d| d.cache_creation_tokens).unwrap_or(0),
+                cache_read_input_tokens: u
+                    .prompt_tokens_details
+                    .as_ref()
+                    .map(|d| d.cached_tokens)
+                    .unwrap_or(0),
+                cache_creation_input_tokens: u
+                    .prompt_tokens_details
+                    .as_ref()
+                    .map(|d| d.cache_creation_tokens)
+                    .unwrap_or(0),
                 latency_ms,
                 input_price_per_mtok: Some(input_price),
                 output_price_per_mtok: Some(output_price),
                 estimated_usd: (u.prompt_tokens as f64 * input_price
-                    + u.completion_tokens as f64 * output_price) / 1_000_000.0,
+                    + u.completion_tokens as f64 * output_price)
+                    / 1_000_000.0,
             };
 
             return Ok(PlanOutput {
-                actions: actions.into_iter().map(|a| (context.actor.clone(), a)).collect(),
+                actions: actions
+                    .into_iter()
+                    .map(|a| (context.actor.clone(), a))
+                    .collect(),
                 metering: Some(metering),
             });
         }

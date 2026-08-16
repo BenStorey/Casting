@@ -136,7 +136,9 @@ fn concurrent_appends_are_monotonic_and_gap_free() {
                 for i in 0..25 {
                     let ev = Event::new(
                         &project,
-                        Actor::Agent { id: format!("thread-{t}") },
+                        Actor::Agent {
+                            id: format!("thread-{t}"),
+                        },
                         EventType::TaskCreated,
                         Aggregate {
                             kind: "task".into(),
@@ -156,11 +158,19 @@ fn concurrent_appends_are_monotonic_and_gap_free() {
 
     // Read back all events; sequences must be 1..=100 contiguous and monotonic.
     let all = store.read_since(p, 0).unwrap();
-    assert_eq!(all.len(), 100, "expected 100 events from 4×25 concurrent appends");
+    assert_eq!(
+        all.len(),
+        100,
+        "expected 100 events from 4×25 concurrent appends"
+    );
     let seqs: Vec<i64> = all.iter().map(|e| e.sequence).collect();
     for (i, seq) in seqs.iter().enumerate() {
-        assert_eq!(*seq, (i + 1) as i64, "sequence must be {pos} but got {seq}",
-            pos = i + 1);
+        assert_eq!(
+            *seq,
+            (i + 1) as i64,
+            "sequence must be {pos} but got {seq}",
+            pos = i + 1
+        );
     }
     // No duplicate aggregate id.
     let ids: std::collections::HashSet<_> = all.iter().map(|e| e.aggregate.id.clone()).collect();
