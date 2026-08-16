@@ -795,6 +795,9 @@ fn opinion_not_found(opinion_id: &str) -> PolicyError {
 
 /// For Start/Complete/Block: the task must exist, have an assignee, and the
 /// actor must BE that assignee. `system` may always act (it seeds tasks).
+/// The PM may also act on tasks assigned to the owner — the owner is a human
+/// without an agent loop, so the PM acts as their proxy for lifecycle
+/// operations (start/complete/block).
 fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), PolicyError> {
     let Some(task) = state.tasks.iter().find(|t| t.id == task_id) else {
         return Err(PolicyError::TaskNotFound(task_id.to_string()));
@@ -807,6 +810,10 @@ fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), Po
     let Some(assignee) = &task.assignee else {
         return Err(PolicyError::TaskUnassigned(task_id.to_string()));
     };
+    // The PM acts as proxy for the owner (human has no agent loop).
+    if who == "pm" && assignee == "owner" {
+        return Ok(());
+    }
     if who != assignee {
         return Err(PolicyError::NotAssignee {
             task_id: task_id.to_string(),

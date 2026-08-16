@@ -179,3 +179,82 @@ fn owner_delivery_shows_in_projection() {
     assert_eq!(t.assignee.as_deref(), Some("owner"));
     assert_eq!(t.status, TaskStatus::Done);
 }
+
+#[test]
+fn pm_can_act_on_owner_assigned_task() {
+    let st = state();
+    create_task(&st, "task-1", "Build the API");
+    // Assign to the owner directly via the event.
+    st.append(Event::new(
+        &st.project,
+        Actor::System,
+        EventType::TaskAssigned,
+        Aggregate {
+            kind: "task".into(),
+            id: "task-1".into(),
+        },
+        serde_json::json!({ "assignee": casting::actions::OWNER }),
+    ))
+    .unwrap();
+
+    // PM (who == "pm") can start the owner's task (the owner has no agent
+    // loop, so the PM acts as their proxy).
+    let proj = Projection::build(&st.store, &st.project).unwrap();
+    assert!(
+        casting::actions::validate(
+            &casting::actions::PmAction::StartTask {
+                task_id: "task-1".into()
+            },
+            "pm",
+            &proj,
+            None
+        )
+        .is_ok(),
+        "pm should be able to start an owner-assigned task"
+    );
+
+    // Transition the task to Working via a direct event.
+    st.append(Event::new(
+        &st.project,
+        Actor::Owner,
+        EventType::TaskStarted,
+        Aggregate {
+            kind: "task".into(),
+            id: "task-1".into(),
+        },
+        serde_json::json!({}),
+    ))
+    .unwrap();
+
+    // PM can complete the owner's task (when the owner says it's done).
+    let proj = Projection::build(&st.store, &st.project).unwrap();
+    assert!(
+        casting::actions::validate(
+            &casting::actions::PmAction::CompleteTask {
+                task_id: "task-1".into(),
+                result: "done".into()
+            },
+            "pm",
+            &proj,
+            None
+        )
+        .is_ok(),
+        "pm should be able to complete an owner-assigned task"
+    );
+
+    // An agent (marcus-reed) is still NOT allowed to act on the owner's task.
+    hire_engineer(&st);
+    let proj2 = Projection::build(&st.store, &st.project).unwrap();
+    assert!(
+        casting::actions::validate(
+            &casting::actions::PmAction::StartTask {
+                task_id: "task-1".into()
+            },
+            "marcus-reed",
+            &proj2,
+            None
+        )
+        .is_err(),
+        "an agent must not act on the owner's task"
+    );
+}
