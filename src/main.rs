@@ -90,7 +90,8 @@ impl ProjectPaths {
 fn load_consultants(
     ws: &std::sync::Arc<casting::workspace::Workspace>,
 ) -> std::sync::Arc<casting::consultants::ConsultantRegistry> {
-    let mut reg = casting::consultants::ConsultantRegistry::from_embedded().unwrap_or_default();
+    let mut reg = casting::consultants::ConsultantRegistry::from_embedded()
+        .expect("embedded consultant defaults should always load; this is a build bug");
     let dir = ws.casting_dir().join("consultants");
     match reg.overlay_dir(&dir) {
         Ok(n) if n > 0 => {

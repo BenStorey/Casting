@@ -6,7 +6,9 @@
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
-use casting::runtime::executor::{run_side_effect, workspace_activity_for, Activity, ActivityKind};
+use casting::runtime::executor::{
+    run_side_effect, workspace_activity_for, Activity, ActivityKind,
+};
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -163,7 +165,7 @@ fn run_side_effect_refuses_when_paused() {
     let state = make_state();
     pause(&state);
     let runner = CountingRunner::default();
-    let err = run_side_effect(&state, &runner, &provision_activity()).unwrap_err();
+    let err = run_side_effect(&state, &runner, Actor::System, &provision_activity()).unwrap_err();
     assert!(err.to_string().contains("paused"));
     assert_eq!(
         runner.0.load(Ordering::SeqCst),
@@ -177,7 +179,7 @@ fn run_side_effect_refuses_when_budget_halted() {
     let state = make_state();
     halt_budget(&state);
     let runner = CountingRunner::default();
-    let err = run_side_effect(&state, &runner, &provision_activity()).unwrap_err();
+    let err = run_side_effect(&state, &runner, Actor::System, &provision_activity()).unwrap_err();
     assert!(err.to_string().contains("budget"));
     assert_eq!(
         runner.0.load(Ordering::SeqCst),
@@ -190,14 +192,13 @@ fn run_side_effect_refuses_when_budget_halted() {
 fn run_side_effect_runs_when_unguarded() {
     let state = make_state();
     let runner = CountingRunner::default();
-    run_side_effect(&state, &runner, &provision_activity()).unwrap();
+    run_side_effect(&state, &runner, Actor::System, &provision_activity()).unwrap();
     assert_eq!(runner.0.load(Ordering::SeqCst), 1);
-    // The domain-side-effect path appends NO Activity lifecycle events.
+    // The domain-side-effect path now records ActivityScheduled + ActivityCompleted
+    // lifecycle events (C3 fix), so crash recovery + watchdog RetryLoop work.
     let events = state.store.read_since("proj-se", 0).unwrap();
-    assert!(!events.iter().any(|e| matches!(
-        e.event_type,
-        EventType::ActivityScheduled | EventType::ActivityCompleted
-    )));
+    assert!(events.iter().any(|e| e.event_type == EventType::ActivityScheduled));
+    assert!(events.iter().any(|e| e.event_type == EventType::ActivityCompleted));
 }
 
 // --- guard's budget status is projected (sanity that halt_budget folded) ---

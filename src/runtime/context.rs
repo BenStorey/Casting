@@ -25,6 +25,22 @@ pub struct ScoredItem {
     pub relevance: f64,
 }
 
+/// A summary of a hired agent for the LLM's context (C2 fix).
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentSummary {
+    pub id: String,
+    pub role: String,
+}
+
+/// A task with its assignee and status, for the LLM's planning context (C2 fix).
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskAssignment {
+    pub id: String,
+    pub title: String,
+    pub assignee: Option<String>,
+    pub status: String,
+}
+
 /// A targeted operating context for a single actor (an agent, the PM, or the
 /// owner). Surfaces what is *relevant to them*, filtered by governance scope.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -37,6 +53,10 @@ pub struct AgentContext {
     pub scored_priorities: Vec<ScoredItem>,
     /// Open (non-done) tasks assigned to this actor.
     pub my_tasks: Vec<String>,
+    /// The full agent roster — every hired agent with their role (C2 fix).
+    pub agents: Vec<AgentSummary>,
+    /// Task metadata for planning: id, title, assignee, status (C2 fix).
+    pub task_assignments: Vec<TaskAssignment>,
     /// Active governance directives that apply to this actor's scope
     /// (via `directive::relevant`, docs/INTENT.md).
     pub active_directives: Vec<String>,
@@ -76,6 +96,16 @@ pub struct WorktreeInfo {
     pub port: u16,
 }
 
+/// Truncate text to `max` characters at a char boundary (not byte-slicing).
+/// Appends "…" when truncated. Safe for multi-byte text.
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max).collect::<String>())
+    }
+}
+
 /// A compact one-line summary of an assembled context — used by the diagnostic
 /// `OrchestrationRun` record so a reader can see what the model was handed
 /// without re-deriving the whole context.
@@ -84,17 +114,21 @@ pub fn summary(ctx: &AgentContext) -> String {
         .objective
         .as_deref()
         .map(|o| {
-            if o.len() > 80 {
-                format!("{}…", &o[..80])
+            // SAFETY: use char-indexed truncation instead of byte-slicing so
+            // multi-byte characters (emoji, CJK) don't panic (§4.1.1).
+            if o.chars().count() > 80 {
+                format!("{}…", o.chars().take(80).collect::<String>())
             } else {
                 o.to_string()
             }
         })
         .unwrap_or_else(|| "<no objective>".to_string());
     format!(
-        "objective=\"{obj}\"; priorities={} my_tasks={} directives={} risks={} decisions={} briefings={}",
+        "objective=\"{obj}\"; priorities={} my_tasks={} agents={} task_assignments={} directives={} risks={} decisions={} briefings={}",
         ctx.priorities.len(),
         ctx.my_tasks.len(),
+        ctx.agents.len(),
+        ctx.task_assignments.len(),
         ctx.active_directives.len(),
         ctx.open_risks.len(),
         ctx.open_decisions.len(),
@@ -149,25 +183,31 @@ impl crate::projection::Projection {
 
         // External advisory briefings (scoped). Format explicitly marks them
         // advisory + provenance so the reader never conflates advice with rules.
+        // Bodies are truncated to 2000 chars to bound context size (§4.2.9).
         let advisory_briefings = self
             .briefings
             .iter()
             .filter(|b| b.status == crate::types::BriefingStatus::Active)
-            .map(|b| format!("[advisory · {}] {}: {}", b.source, b.title, b.body))
+            .map(|b| {
+                let body = truncate(&b.body, 2000);
+                format!("[advisory · {}] {}: {}", b.source, b.title, body)
+            })
             .collect::<Vec<_>>();
 
         // External intake requests, scoped to this actor's scope areas.
+        // Bodies are truncated to 5000 chars to bound context size (§4.2.9).
         let external_requests = self
             .external_requests
             .iter()
             .filter(|_| actor == "pm" || actor == "owner" || actor == "system")
             .map(|r| {
+                let body = truncate(&r.body, 5000);
                 format!(
                     "[external · {}] {} ({}): {}",
                     r.source,
                     r.title,
                     format!("{:?}", r.status).to_lowercase(),
-                    r.body
+                    body,
                 )
             })
             .collect::<Vec<_>>();
@@ -196,6 +236,25 @@ impl crate::projection::Projection {
             priorities: plan.priorities.clone(),
             scored_priorities,
             my_tasks,
+            agents: self
+                .agents
+                .iter()
+                .map(|a| AgentSummary {
+                    id: a.id.clone(),
+                    role: a.role.clone(),
+                })
+                .collect(),
+            task_assignments: self
+                .tasks
+                .iter()
+                .filter(|t| t.status != crate::projection::TaskStatus::Done)
+                .map(|t| TaskAssignment {
+                    id: t.id.clone(),
+                    title: t.title.clone(),
+                    assignee: t.assignee.clone(),
+                    status: format!("{:?}", t.status).to_lowercase(),
+                })
+                .collect(),
             active_directives,
             open_risks: plan.open_risks.clone(),
             assumptions: self.assumptions.iter().map(|a| a.body.clone()).collect(),

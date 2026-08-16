@@ -92,7 +92,12 @@ pub(crate) async fn brief_handler(
         .to_events(&state.project, "owner", &cause, "brief")
         .into_iter()
         .next()
-        .expect("ImportBriefing produces one event");
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "ImportBriefing produced no events".into(),
+            )
+        })?;
     append_json(&state, ev)
 }
 
@@ -164,7 +169,12 @@ pub(crate) async fn request_handler(
         .to_events(&state.project, "pm", &cause, "request")
         .into_iter()
         .next()
-        .expect("ReceiveExternalRequest produces one event");
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "ReceiveExternalRequest produced no events".into(),
+            )
+        })?;
     append_json(&state, ev)
 }
 
@@ -217,6 +227,11 @@ pub(crate) async fn diagram_handler(
         .to_events(&state.project, "pm", &cause, "diagram")
         .into_iter()
         .next()
-        .expect("SaveDiagram produces one event");
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "SaveDiagram produced no events".into(),
+            )
+        })?;
     append_json(&state, ev)
 }

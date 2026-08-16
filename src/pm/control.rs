@@ -1,12 +1,13 @@
-//! Simulated Project Manager — the vertical slice's "company" control loop.
+//! Project Manager — the control loop that drives the company's event stream.
 //!
-//! The PM is a control loop over the event stream, not a chatbot, holds a
-//! durable cursor, and turns owner input into organizational work. This slice
-//! uses a deterministic *scripted* PM (scripted-first) that reacts to owner
-//! messages/decisions by producing the SAME typed `PmAction`s an LLM will later
-//! emit, which are then passed through the policy gate in `actions.rs` before
-//! they become domain events. That gate is the seam: swap the scripted planner
-//! below for a real provider client later and the loop stays identical.
+//! The PM is a control loop over the event stream that holds a durable cursor
+//! and turns owner input into organizational work. On each drain pass, the loop
+//! checks new events since its cursor, processes PM-level triggers (owner
+//! messages/decisions) through the configured orchestrator
+//! (`crate::runtime::orchestrator::Orchestrator` — either an LLM or test mock),
+//! then runs per-actor turns for consultants with actionable work. All
+//! candidate actions pass through the policy gate in `actions.rs` before they
+//! become domain events.
 //!
 //! Wake vs act: the loop wakes on a cheap notification (a broadcast of newly
 //! appended events) and drains EVERYTHING since its cursor in one pass, then
@@ -134,10 +135,10 @@ impl AppState {
             decompose: false,
             secrets: None,
             // Curated defaults are embedded and always load; a malformed default
-            // would be a bug, so falling back to an empty registry is the safe
-            // degradation (the real defaults are validated by their own test).
+            // would be a build bug that must never degrade silently.
             consultants: Arc::new(
-                crate::consultants::ConsultantRegistry::from_embedded().unwrap_or_default(),
+                crate::consultants::ConsultantRegistry::from_embedded()
+                    .expect("embedded consultant defaults should always load; this is a build bug"),
             ),
             channel: Arc::new(crate::runtime::channel::NoopChannel),
             telegram_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -270,7 +271,7 @@ impl AppState {
                     .for_role("pm")
                     .and_then(|c| c.system_prompt.clone())
                     .unwrap_or_else(|| {
-                        "You are Sarah Chen, the Project Manager. You organize a team of \
+                        "You are mei, the Project Manager. You organize a team of \
                          specialist consultants to turn the owner's intent into a working \
                          plan."
                             .to_string()
@@ -841,8 +842,12 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             if let Some(activity) = crate::runtime::executor::workspace_activity_for(&event) {
                 if let Some(ws) = state.workspace.clone() {
                     let runner = crate::runtime::executor::WorkspaceRunner::new(ws);
-                    if let Err(e) =
-                        crate::runtime::executor::run_side_effect(state, &runner, &activity)
+                    if let Err(e) = crate::runtime::executor::run_side_effect(
+                        state,
+                        &runner,
+                        crate::event::Actor::System,
+                        &activity,
+                    )
                     {
                         log::error!("[pm] workspace side-effect failed: {e:#}");
                         // Align the projection with physical reality: a

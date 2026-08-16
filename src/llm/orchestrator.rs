@@ -10,31 +10,30 @@ use crate::runtime::context::AgentContext;
 use crate::runtime::orchestrator::{CostMetering, Orchestrator, PlanOutput};
 use anyhow::Result;
 
-/// Classify a cost entry by actor role. PM calls are overhead; consultant
-/// calls are implementation work by default.
-fn classify_cost(actor: &str) -> String {
-    if actor == "pm" || actor == "owner" || actor == "system" {
-        "pm_overhead".into()
-    } else {
-        "implementation".into()
+/// Classify a cost entry by actor role. Uses the agent's CastRole-derived
+/// title to classify (C8 fix): pm=overhead, advisor=research, lead=implementation,
+/// testing=testing, architect=architecture, stage=tooling, critic=review.
+fn classify_cost(actor: &str, agents: &[crate::runtime::context::AgentSummary]) -> String {
+    // Look up the actor's role in the agent roster. Fall back to the old
+    // heuristic if not found (e.g. system/owner actions).
+    let role = agents
+        .iter()
+        .find(|a| a.id == actor)
+        .map(|a| a.role.as_str())
+        .unwrap_or("");
+    match role {
+        "Project Manager" => "pm_overhead",
+        "Advisor" => "research",
+        "Lead Developer" => "implementation",
+        "Testing Engineer" => "testing",
+        "Systems Architect" => "architecture",
+        "Stage Manager" => "tooling",
+        "Critic" => "review",
+        // Fallback: old heuristic for owner/system/unknown actors.
+        "pm" | "owner" | "system" => "pm_overhead",
+        _ => "implementation",
     }
-}
-
-/// Derive the model tier string from the per-1M-token prices that were set
-/// by `tier_prices`. This avoids hardcoding "standard" in the orchestrator
-/// (P3.4 fix) and reflects the consultant's actual cost_tier.
-fn derive_tier_from_prices(input_price: f64, output_price: f64) -> String {
-    // The tier_prices function in routing.rs defines these thresholds.
-    // Match from most expensive to cheapest for correctness.
-    if (input_price - 5.00).abs() < 0.01 && (output_price - 15.00).abs() < 0.01 {
-        "premium".into()
-    } else if (input_price - 1.00).abs() < 0.01 && (output_price - 3.00).abs() < 0.01 {
-        "standard".into()
-    } else if (input_price - 0.15).abs() < 0.01 && (output_price - 0.60).abs() < 0.01 {
-        "budget".into()
-    } else {
-        "custom".into()
-    }
+    .into()
 }
 
 /// The real provider orchestrator.
@@ -238,11 +237,13 @@ impl Orchestrator for LlmOrchestrator {
         let metering = CostMetering {
             agent_id: context.actor.clone(),
             task_id: context.my_tasks.first().cloned(),
-            cost_class: classify_cost(&context.actor),
-            model_tier: derive_tier_from_prices(
-                resolved.input_price_per_mtok,
-                resolved.output_price_per_mtok,
-            ),
+            cost_class: classify_cost(&context.actor, &context.agents),
+            model_tier: match resolved.cost_tier {
+                crate::consultants::CostTier::Premium => "premium",
+                crate::consultants::CostTier::Standard => "standard",
+                crate::consultants::CostTier::Budget => "budget",
+            }
+            .into(),
             model: Some(resolved.config.model.clone()),
             provider: Some(resolved.config.provider.clone()),
             prompt_tokens: u.prompt_tokens,

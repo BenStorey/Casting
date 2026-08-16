@@ -210,11 +210,12 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             if state.agents.iter().any(|a| a.id == *agent_id) {
                 Err(PolicyError::AgentAlreadyHired(agent_id.clone()))
             } else {
-                Ok(())
+                check_pm_authority(who)
             }
         }
         // CreateTask and DecomposeTask both guard id freshness.
         PmAction::CreateTask { id, .. } => {
+            check_pm_authority(who)?;
             if state.tasks.iter().any(|t| t.id == *id) {
                 Err(PolicyError::TaskAlreadyExists(id.clone()))
             } else {
@@ -225,6 +226,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // exist, and every child id must be fresh (not an existing task, and not
         // duplicated within this decomposition). The parent is the join point.
         PmAction::DecomposeTask { parent, children } => {
+            check_pm_authority(who)?;
             if !state.tasks.iter().any(|t| t.id == *parent) {
                 return Err(PolicyError::TaskNotFound(parent.clone()));
             }
@@ -264,6 +266,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         PmAction::AssignTask {
             task_id, assignee, ..
         } => {
+            check_pm_authority(who)?;
             let task_exists = state.tasks.iter().any(|t| t.id == *task_id);
             if !task_exists {
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
@@ -333,6 +336,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             Ok(())
         }
         PmAction::ProvisionWorktree { task_id, .. } => {
+            check_pm_authority(who)?;
             // Only hired agents get worktrees; the owner works through their
             // own harness. The task must exist and be assigned to a consultant.
             let task = state
@@ -424,6 +428,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         }
         // Setting a priority is a plan mutation on an existing task.
         PmAction::SetTaskPriority { task_id, .. } => {
+            check_pm_authority(who)?;
             let exists = state.tasks.iter().any(|t| t.id == *task_id);
             if exists {
                 Ok(())
@@ -450,6 +455,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             subject,
             ..
         } => {
+            check_pm_authority(who)?;
             // Reactive anti-thrash: don't accumulate a duplicate OPEN decision
             // on the same subject. The PM must instead supersede a stale one or
             // leave it — never re-propose.
@@ -470,6 +476,13 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             if dec.status != crate::projection::DecisionStatus::Proposed {
                 return Err(PolicyError::DecisionNotOpen(decision_id.clone()));
             }
+            // Authority check: the decider must be authorized for this decision
+            // class's involvement level (C1). Ask-class decisions require owner
+            // or system; Pm/Notify/Never can be decided by pm, owner, or system.
+            use crate::pm::policy::OwnerInvolvement;
+            if dec.involvement == OwnerInvolvement::Ask && !matches!(who, "owner" | "system") {
+                return Err(PolicyError::ActionNotAuthorized(who.to_string()));
+            }
             Ok(())
         }
         // Superseding requires the decision exists and isn't already superseded,
@@ -478,6 +491,7 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             decision_id,
             by_decision_id,
         } => {
+            check_pm_authority(who)?;
             if !state.decisions.iter().any(|d| d.id == *decision_id) {
                 return Err(PolicyError::DecisionNotFound(decision_id.clone()));
             }
@@ -633,6 +647,18 @@ fn check_unique_entity(exists: bool, err: PolicyError) -> Result<(), PolicyError
         Err(err)
     } else {
         Ok(())
+    }
+}
+
+/// PM authority check: only owner, pm, or system may perform organizational
+/// planning actions (HireAgent, CreateTask, AssignTask, DecomposeTask,
+/// ProvisionWorktree, SetTaskPriority, ProposeDecision, SupersedeDecision).
+/// Consultants/agents cannot reorganize the project plan — they execute within
+/// their assigned tasks (C1).
+fn check_pm_authority(who: &str) -> Result<(), PolicyError> {
+    match who {
+        "owner" | "pm" | "system" => Ok(()),
+        other => Err(PolicyError::ActionNotAuthorized(other.to_string())),
     }
 }
 

@@ -152,6 +152,8 @@ pub struct Observation {
     pub severity: String,
     pub subject: String,
     pub body: String,
+    #[serde(default)]
+    pub pm_action_required: bool,
 }
 
 /// Lifecycle of a first-class Risk object (SEMANTIC_EVENTS §8).

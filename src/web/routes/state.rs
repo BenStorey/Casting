@@ -80,10 +80,13 @@ pub(crate) async fn events_stream(
     let after = q.after.unwrap_or(0);
     let rx = state.subscribe();
 
-    let catchup = state
-        .store
-        .read_since(&state.project, after)
-        .unwrap_or_default();
+    let catchup = match state.store.read_since(&state.project, after) {
+        Ok(events) => events,
+        Err(e) => {
+            log::error!("Failed to read events since {after}: {e}");
+            vec![]
+        }
+    };
 
     // Catch-up events first (one-shot), then live broadcasts.
     let catchup_stream = futures::stream::iter(catchup.into_iter().map(|ev| {

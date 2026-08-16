@@ -204,6 +204,11 @@ pub(crate) async fn advisor_summarize_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let thread = proj.advisor_thread.clone();
     let fallback = crate::llm::advisor_summarize_deterministic(&thread);
+    // Harness guard: paused / budget-halted → no provider call, no spend.
+    if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(&proj) {
+        log::info!("[advisor] guard blocked summarize: {reason}");
+        return Ok(Json(serde_json::json!({ "summary": fallback })));
+    }
     let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref())
         .ok()
         .flatten()

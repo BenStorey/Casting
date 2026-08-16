@@ -51,7 +51,13 @@ interface CastStore {
 
 function actorName(a: EventEnvelope["actor"]): string {
   if (typeof a === "string") return a;
-  return a?.id ?? "system";
+  if (!a || typeof a !== "object") return "system";
+  // Rust's serde untagged enum: {"Agent":{"id":"diego"}}, {"Owner":null}, {"System":null}
+  if ("Agent" in a && a.Agent && typeof a.Agent === "object")
+    return ((a.Agent as Record<string, unknown>).id as string) ?? "system";
+  if ("Owner" in a) return "owner";
+  if ("System" in a) return "system";
+  return ((a as Record<string, unknown>).id as string) ?? "system";
 }
 
 async function fetchWithError<T>(resource: string, fn: () => Promise<T>): Promise<T> {

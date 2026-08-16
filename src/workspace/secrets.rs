@@ -24,6 +24,7 @@ use crate::runtime::executor::{Activity, ActivityKind};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 /// Values shorter than this are not scanned for verbatim leaks (a one-char
@@ -74,7 +75,9 @@ impl SecretStore {
             if let Some(dir) = p.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            std::fs::write(p, serde_json::to_string_pretty(&self)?)?;
+            let json = serde_json::to_string_pretty(&self)?;
+            std::fs::write(p, &json)?;
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600))?;
         }
         Ok(())
     }

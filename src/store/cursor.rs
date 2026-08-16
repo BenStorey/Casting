@@ -69,6 +69,7 @@ impl SqliteCursorStore {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(CURSOR_SCHEMA)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         Ok(SqliteCursorStore {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -106,7 +107,7 @@ impl crate::store::CursorStore for SqliteCursorStore {
             "INSERT INTO cursors (project_id, consumer, last_seen)
              VALUES (?1, ?2, ?3)
              ON CONFLICT (project_id, consumer)
-             DO UPDATE SET last_seen = excluded.last_seen",
+             DO UPDATE SET last_seen = MAX(cursors.last_seen, excluded.last_seen)",
             params![project_id, consumer, to],
         )?;
         Ok(())

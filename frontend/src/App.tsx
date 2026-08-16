@@ -8,6 +8,7 @@ import TaskDrawer from "./TaskDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { getAuthToken, setAuthToken, clearAuthToken, hasAuthToken } from "./api";
 import {
   Card,
   CardContent,
@@ -61,6 +62,7 @@ function agentAvatar(id: string): string | undefined {
 export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const [openTask, setOpenTask] = useState<Task | null>(null);
+  const [tokenInput, setTokenInput] = useState("");
   const state = useCastStore((s) => s.state);
   const model = useCastStore((s) => s.model);
   const graph = useCastStore((s) => s.graph);
@@ -92,6 +94,29 @@ export default function App() {
           <p>Every great production starts with a great cast.</p>
         </div>
         <div className="ml-auto">
+          {hasAuthToken() ? (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground mr-2"
+              onClick={() => { clearAuthToken(); refresh(); }}
+              title="Clear auth token"
+            >
+              🔑
+            </button>
+          ) : (
+            <form
+              className="inline-flex items-center gap-1 mr-2"
+              onSubmit={(e) => { e.preventDefault(); if (tokenInput.trim()) { setAuthToken(tokenInput.trim()); setTokenInput(""); refresh(); } }}
+            >
+              <Input
+                type="password"
+                placeholder="owner token…"
+                className="h-6 w-28 text-xs"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+              />
+              <Button type="submit" size="sm" className="h-6 text-xs px-2">Set</Button>
+            </form>
+          )}
           <Health />
         </div>
       </header>

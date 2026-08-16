@@ -78,6 +78,8 @@ pub(crate) fn insert_worktree_provisions(
     let projection = state
         .projection()
         .unwrap_or_else(|_| crate::projection::Projection::default());
+    let mut claimed_slots: std::collections::HashSet<usize> =
+        projection.worktrees.iter().map(|w| w.slot).collect();
     let mut i = 0;
     while i < plan.len() {
         if let (_, PmAction::StartTask { task_id }) = &plan[i] {
@@ -109,7 +111,11 @@ pub(crate) fn insert_worktree_provisions(
             if let Some(ref who) = assignee {
                 let port = find_free_port(&projection, claimed_ports);
                 claimed_ports.insert(port);
-                let cargo_target_dir = format!(".casting/worktrees/{who}-0/target");
+                let slot = (0..)
+                    .find(|s| !claimed_slots.contains(s))
+                    .unwrap_or(0);
+                claimed_slots.insert(slot);
+                let cargo_target_dir = format!(".casting/worktrees/{who}-{slot}/target");
                 let prov = (
                     "pm".into(),
                     PmAction::ProvisionWorktree {
@@ -117,7 +123,7 @@ pub(crate) fn insert_worktree_provisions(
                         assignee: who.clone(),
                         slug: String::new(),
                         cargo_target_dir,
-                        slot: 0,
+                        slot,
                         port,
                     },
                 );

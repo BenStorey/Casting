@@ -95,6 +95,11 @@ pub struct Projection {
     pub orchestration: Vec<OrchestrationRun>,
 }
 
+/// Current version of the snapshot serialization format. Increment when the
+/// `Projection` struct changes in a way that old snapshots cannot be safely
+/// deserialized into the new shape.
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 1;
+
 impl Projection {
     /// Fold the whole event log for `project_id` into current state.
     /// Recomputable and idempotent; called per-request (slice one).
@@ -231,6 +236,7 @@ impl Projection {
             EventType::TaskStarted => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
                     task.status = TaskStatus::Working;
+                    task.review = None; // clear stale rejection from prior review cycle (§4.1.5)
                 }
             }
             EventType::TaskBlocked => {
@@ -246,6 +252,7 @@ impl Projection {
             EventType::TaskReadyForReview => {
                 if let Some(task) = self.tasks.iter_mut().find(|t| t.id == e.aggregate.id) {
                     task.status = TaskStatus::InReview;
+                    task.review = None; // fresh review cycle, discard stale outcome (§4.1.5)
                 }
             }
             EventType::TaskReviewed => {
@@ -301,6 +308,11 @@ impl Projection {
                 severity: string_field(e, "severity").unwrap_or_else(|| "info".into()),
                 subject: string_field(e, "subject").unwrap_or_default(),
                 body: string_field(e, "body").unwrap_or_default(),
+                pm_action_required: e
+                    .data
+                    .get("pm_action_required")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
             }),
             EventType::RiskRaised => self.risks.push(Risk {
                 id: e.aggregate.id.clone(),
@@ -912,12 +924,27 @@ impl Projection {
                 if let (Some(kind), Some(id)) =
                     (string_field(e, "entity_kind"), string_field(e, "entity_id"))
                 {
-                    // Remove from active lists
-                    self.tasks.retain(|t| t.id != id);
-                    self.decisions.retain(|d| d.id != id);
-                    self.observations.retain(|o| o.id != id);
-                    self.opinions.retain(|o| o.id != id);
-                    self.risks.retain(|r| r.id != id);
+                    // Remove from the matching active list only
+                    match kind.as_str() {
+                        "task" => self.tasks.retain(|t| t.id != id),
+                        "agent" => self.agents.retain(|a| a.id != id),
+                        "briefing" => self.briefings.retain(|b| b.id != id),
+                        "external_request" => self.external_requests.retain(|r| r.id != id),
+                        "directive" => self.directives.retain(|d| d.id != id),
+                        "requirement" => self.requirements.retain(|r| r.id != id),
+                        "risk" => self.risks.retain(|r| r.id != id),
+                        "observation" => self.observations.retain(|o| o.id != id),
+                        "decision" => self.decisions.retain(|d| d.id != id),
+                        "opinion" => self.opinions.retain(|o| o.id != id),
+                        // Unknown kind — conservative: clear from all
+                        _ => {
+                            self.tasks.retain(|t| t.id != id);
+                            self.decisions.retain(|d| d.id != id);
+                            self.observations.retain(|o| o.id != id);
+                            self.opinions.retain(|o| o.id != id);
+                            self.risks.retain(|r| r.id != id);
+                        }
+                    }
                     // Add archival record
                     self.archived.push(crate::types::ArchivedRecord {
                         entity_kind: kind,

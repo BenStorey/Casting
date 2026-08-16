@@ -277,20 +277,47 @@ fn secret_preflight(state: &AppState, activity: &Activity) -> Result<()> {
 
 /// Run an event-driven side effect (an `Activity` mapped from an ALREADY-RECORDED
 /// domain event, e.g. `WorktreeProvisioned`/`CommitRequested`). The durable
-/// intent is the domain event itself — so, unlike [`execute`], NO
-/// `ActivityScheduled`/`ActivityCompleted` lifecycle events are appended (no
-/// stream pollution, no re-dispatch semantics). The SAME guard + secret gates
-/// apply, so a paused or budget-exhausted cast refuses these too. This is how
-/// the live loop dispatches real workspace git work through the executor seam
-/// instead of inline hooks.
+/// intent is the domain event itself — but we ALSO record the executor
+/// lifecycle (`ActivityScheduled` before, `ActivityCompleted`/`ActivityFailed`
+/// after) so that (a) a crash between the domain event and the physical work is
+/// recoverable by `redispatch_inflight` at boot, and (b) the watchdog's
+/// RetryLoop signal (which counts `ActivityFailed`) can actually fire in
+/// production (C3 fix). The SAME guard + secret gates apply, so a paused or
+/// budget-exhausted cast refuses these too. This is how the live loop
+/// dispatches real workspace git work through the executor seam instead of
+/// inline hooks.
 pub fn run_side_effect(
     state: &AppState,
     runner: &dyn ActivityRunner,
+    actor: Actor,
     activity: &Activity,
 ) -> Result<ActivityResult> {
     guard_blocked(state, activity)?;
     secret_preflight(state, activity)?;
-    runner.run(activity)
+    // Durable-execution lifecycle (C3 fix): record the schedule BEFORE the
+    // physical work so a crash mid-effect is re-dispatched at boot.
+    schedule(state, actor.clone(), activity)?;
+    let result = match runner.run(activity) {
+        Ok(r) => r,
+        Err(e) => {
+            state.append(build_event(
+                state,
+                actor,
+                EventType::ActivityFailed,
+                activity,
+                json!({ "error": e.to_string() }),
+            ))?;
+            return Err(e);
+        }
+    };
+    state.append(build_event(
+        state,
+        actor,
+        EventType::ActivityCompleted,
+        activity,
+        json!({ "result_ref": result.result_ref }),
+    ))?;
+    Ok(result)
 }
 
 /// Map a domain event that carries a real workspace side effect onto an

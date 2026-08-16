@@ -9,7 +9,13 @@ use serde::Deserialize;
 /// available to hire? The SPA shows a first-run wizard when `configured` is
 /// false (i.e. no cast hired yet, only the seed PM).
 pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let proj = state.projection().unwrap_or_default();
+    let proj = match state.projection() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Failed to get projection: {e}");
+            Default::default()
+        }
+    };
     let has_cast = proj.agents.iter().any(|a| a.id != "pm");
     let roles: Vec<serde_json::Value> = crate::workspace::role_catalog()
         .iter()

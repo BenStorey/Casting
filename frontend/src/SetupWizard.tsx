@@ -53,19 +53,19 @@ const STEPS: { kind: Step["kind"]; label: string }[] = [
 
 // Decision classes and their human-readable labels
 const DECISION_CLASSES: { id: string; label: string; desc: string }[] = [
-  { id: "InternalRename", label: "Internal renames", desc: "Renaming variables or symbols" },
-  { id: "InternalRefactor", label: "Internal refactors", desc: "Code changes with no product-facing effect" },
-  { id: "TestingLibrary", label: "Testing choices", desc: "Choosing test frameworks or tools" },
-  { id: "AddConsultant", label: "Hiring new team members", desc: "Bringing new specialists onto the cast" },
-  { id: "InternalImplementation", label: "Implementation approach", desc: "How to build something internally" },
-  { id: "Database", label: "Database changes", desc: "Choosing or changing the database" },
-  { id: "Architecture", label: "Architecture decisions", desc: "System-level design choices" },
-  { id: "ProductRequirement", label: "Product requirements", desc: "Changes to product scope or specs" },
-  { id: "SpendingThreshold", label: "Spending decisions", desc: "Exceeding configured budget thresholds" },
-  { id: "ProductionDeployment", label: "Production deploys", desc: "When and how to deploy to production" },
-  { id: "SecurityCritical", label: "Security issues", desc: "Security-critical actions" },
-  { id: "Irreversible", label: "Irreversible actions", desc: "Actions that can't be undone" },
-  { id: "GovernanceChange", label: "Governance changes", desc: "Changing project rules or policies" },
+  { id: "internal_rename", label: "Internal renames", desc: "Renaming variables or symbols" },
+  { id: "internal_refactor", label: "Internal refactors", desc: "Code changes with no product-facing effect" },
+  { id: "testing_library", label: "Testing choices", desc: "Choosing test frameworks or tools" },
+  { id: "add_consultant", label: "Hiring new team members", desc: "Bringing new specialists onto the cast" },
+  { id: "internal_implementation", label: "Implementation approach", desc: "How to build something internally" },
+  { id: "database", label: "Database changes", desc: "Choosing or changing the database" },
+  { id: "architecture", label: "Architecture decisions", desc: "System-level design choices" },
+  { id: "product_requirement", label: "Product requirements", desc: "Changes to product scope or specs" },
+  { id: "spending_threshold", label: "Spending decisions", desc: "Exceeding configured budget thresholds" },
+  { id: "production_deployment", label: "Production deploys", desc: "When and how to deploy to production" },
+  { id: "security_critical", label: "Security issues", desc: "Security-critical actions" },
+  { id: "irreversible", label: "Irreversible actions", desc: "Actions that can't be undone" },
+  { id: "governance_change", label: "Governance changes", desc: "Changing project rules or policies" },
 ];
 
 // Policy presets: which classes are "ask owner" vs "pm can decide"
@@ -240,7 +240,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       await submitSetup(
         projectName.trim(),
         objective.trim(),
-        ["engineer", "qa", "devops", "security"],
+        status?.roles?.map((r) => r.id) || ["engineer", "qa", "devops", "security"],
         ownerName.trim() || undefined,
         expLevel ?? undefined,
         apiKey.trim() || undefined

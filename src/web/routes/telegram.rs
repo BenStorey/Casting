@@ -33,7 +33,7 @@ pub(crate) async fn telegram_configure_handler(
     }
 
     // The PM identity (name + description) the bot is branded with.
-    let pm_name = "Sarah Chen";
+    let pm_name = "mei";
     let pm_desc = "Your Casting Project Manager. Tell me what to build and I'll run the company.";
 
     let outcome = crate::runtime::telegram::configure(&token, pm_name, pm_desc, "")

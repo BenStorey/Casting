@@ -20,6 +20,7 @@ use crate::runtime::directive::{DirectiveKind, DirectiveStrength};
 use crate::store::EventStore;
 use crate::store::SqliteEventStore;
 use anyhow::{Context, Result};
+use std::os::unix::fs::PermissionsExt;
 
 /// What the owner wants for a fresh company.
 #[derive(Debug, Clone, Default)]
@@ -269,6 +270,19 @@ fn apply_to_store(
         written += 1;
     }
 
+    // 5. Seed a default budget so the spend breaker is never Disabled (§4.2.8).
+    store.append(Event::new(
+        project,
+        Actor::System,
+        EventType::BudgetSet,
+        Aggregate {
+            kind: "budget".into(),
+            id: "budget".into(),
+        },
+        serde_json::json!({ "limit_usd": 10.0, "warn_at": 0.80 }),
+    ))?;
+    written += 1;
+
     // Rebuild the empty projection once to confirm it folds (cheap sanity).
     Projection::build(store, project)?;
 
@@ -316,7 +330,11 @@ fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
         telegram_chat_id: None,
     };
     let json = serde_json::to_string_pretty(&cfg)?;
-    std::fs::write(dir.join(CONFIG_FILE), json).context("write state-dir config")
+    let path = dir.join(CONFIG_FILE);
+    std::fs::write(&path, json).context("write state-dir config")?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+        .context("set config file permissions to 0600")?;
+    Ok(())
 }
 
 /// Read the persisted runtime config (owner token + name), if present.
@@ -354,7 +372,11 @@ pub fn persist_telegram_config(
         telegram_chat_id: Some(chat_id),
     };
     let json = serde_json::to_string_pretty(&cfg)?;
-    std::fs::write(dir.join(CONFIG_FILE), json).context("write persisted telegram config")
+    let path = dir.join(CONFIG_FILE);
+    std::fs::write(&path, json).context("write persisted telegram config")?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+        .context("set telegram config file permissions to 0600")?;
+    Ok(())
 }
 
 /// Write a NO-SECRETS `casting.example.json` template to `dir` (the repo

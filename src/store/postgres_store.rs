@@ -441,17 +441,20 @@ impl EventStore for PostgresBackend {
                         },
                     };
                     out.push(Event {
-                        event_id: uuid::Uuid::parse_str(&r.get::<_, String>(0)).unwrap(),
+                        event_id: uuid::Uuid::parse_str(&r.get::<_, String>(0))
+                            .map_err(|e| anyhow!("invalid uuid in event_id column: {e}"))?,
                         project_id: r.get(1),
                         sequence: r.get(2),
                         timestamp: r.get(3),
                         actor,
-                        event_type: serde_json::from_str(&r.get::<_, String>(6)).unwrap(),
+                        event_type: serde_json::from_str(&r.get::<_, String>(6))
+                            .map_err(|e| anyhow!("invalid event_type json: {e}"))?,
                         aggregate: Aggregate {
                             kind: r.get(7),
                             id: r.get(8),
                         },
-                        data: serde_json::from_str(&r.get::<_, String>(9)).unwrap(),
+                        data: serde_json::from_str(&r.get::<_, String>(9))
+                            .map_err(|e| anyhow!("invalid data json for event {}: {e}", r.get::<_, String>(0)))?,
                         metadata: Metadata {
                             correlation_id: r.get(10),
                             causation_id: r
@@ -530,7 +533,7 @@ impl crate::store::CursorStore for PostgresBackend {
                         "INSERT INTO cursors (project_id, consumer, last_seen)
                      VALUES ($1, $2, $3)
                      ON CONFLICT (project_id, consumer)
-                     DO UPDATE SET last_seen = EXCLUDED.last_seen",
+                     DO UPDATE SET last_seen = GREATEST(cursors.last_seen, EXCLUDED.last_seen)",
                         &[&project_id, &consumer, &to],
                     )
                     .await
@@ -551,7 +554,7 @@ impl SnapshotStore for PostgresBackend {
                     .execute(
                         "INSERT INTO projections (project_id, sequence, projection)
                      VALUES ($1, $2, $3)
-                     ON CONFLICT (project_id) DO UPDATE SET sequence = EXCLUDED.sequence,
+                     ON CONFLICT (project_id) DO UPDATE SET sequence = GREATEST(projections.sequence, EXCLUDED.sequence),
                                                             projection = EXCLUDED.projection",
                         &[&project_id, &sequence, &json],
                     )

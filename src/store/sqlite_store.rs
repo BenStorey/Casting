@@ -1,10 +1,12 @@
-//! SQLite append-only event store.
+//! SQLite event store, cursor store, and snapshot store.
 //!
 //! Default zero-dependency deployment option (docs/CASTING_PROJECT_BRIEF.md §29):
-//! a single DB file, WAL mode for concurrent readers/writers. Events table is
-//! append-only; sequence is enforced unique per project for monotonic ordering.
+//! three DB files with WAL mode for concurrent readers/writers — one for events
+//! (`events.db`), one for cursors (`cursors.db`), one for projection snapshots
+//! (`snapshots.db`). The events table is append-only; sequence is enforced
+//! unique per project for monotonic ordering.
 
-use crate::event::{Actor, Aggregate, Event, Metadata};
+use crate::event::{Actor, Aggregate, Event, EventType, Metadata};
 use crate::store::EventStore;
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -135,9 +137,55 @@ impl EventStore for SqliteEventStore {
              WHERE project_id = ?1 AND sequence > ?2
              ORDER BY sequence ASC",
         )?;
-        let rows = stmt.query_map(params![project_id, after], |r| {
-            let actor_type: String = r.get(4)?;
-            let actor_id: Option<String> = r.get(5)?;
+        // Collect raw rows first, then parse with proper error handling
+        // (avoiding unwrap() on corrupt data — §4.1.2).
+        type RawEventRow = (
+            String,
+            String,
+            i64,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let raw: Vec<RawEventRow> = stmt
+            .query_map(params![project_id, after], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, String>(8)?,
+                    r.get::<_, String>(9)?,
+                    r.get::<_, Option<String>>(10)?,
+                    r.get::<_, Option<String>>(11)?,
+                    r.get::<_, Option<String>>(12)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut events = Vec::with_capacity(raw.len());
+        for (
+            event_id_str, project_id, sequence, timestamp_str,
+            actor_type, actor_id, event_type_str,
+            agg_kind, agg_id, data_str,
+            correlation_id, causation_id, agent_run_id,
+        ) in raw {
+            let event_id = uuid::Uuid::parse_str(&event_id_str)
+                .with_context(|| format!("invalid uuid in event_id column: {event_id_str:?}"))?;
+            let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
+                .with_context(|| format!("invalid timestamp column: {timestamp_str:?}"))?
+                .with_timezone(&chrono::Utc);
             let actor = match actor_type.as_str() {
                 "owner" => Actor::Owner,
                 "system" => Actor::System,
@@ -145,34 +193,33 @@ impl EventStore for SqliteEventStore {
                     id: actor_id.unwrap_or_default(),
                 },
             };
-            let event_type: String = r.get(6)?;
-            let correlation_id: Option<String> = r.get(10)?;
-            let causation_id: Option<String> = r.get(11)?;
-            let agent_run_id: Option<String> = r.get(12)?;
-            Ok(Event {
-                event_id: uuid::Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
-                project_id: r.get(1)?,
-                sequence: r.get(2)?,
-                timestamp: chrono::DateTime::parse_from_rfc3339(&r.get::<_, String>(3)?)
-                    .unwrap()
-                    .with_timezone(&chrono::Utc),
+            let event_type: EventType = serde_json::from_str(&event_type_str)
+                .with_context(|| format!("invalid event_type json: {event_type_str:?}"))?;
+            let aggregate = Aggregate {
+                kind: agg_kind,
+                id: agg_id,
+            };
+            let data: serde_json::Value = serde_json::from_str(&data_str)
+                .with_context(|| format!("invalid data json for event {event_id}"))?;
+            let causation = causation_id
+                .and_then(|s| uuid::Uuid::parse_str(&s).ok());
+            events.push(Event {
+                event_id,
+                project_id,
+                sequence,
+                timestamp,
                 actor,
-                event_type: serde_json::from_str(&event_type).unwrap(),
-                aggregate: Aggregate {
-                    kind: r.get(7)?,
-                    id: r.get(8)?,
-                },
-                data: serde_json::from_str(&r.get::<_, String>(9)?).unwrap(),
+                event_type,
+                aggregate,
+                data,
                 metadata: Metadata {
                     correlation_id,
-                    causation_id: causation_id.and_then(|s| uuid::Uuid::parse_str(&s).ok()),
+                    causation_id: causation,
                     agent_run_id,
                 },
-            })
-        })?;
-
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
+            });
+        }
+        Ok(events)
     }
 
     fn latest_sequence(&self, project_id: &str) -> Result<i64> {

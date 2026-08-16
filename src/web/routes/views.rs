@@ -201,7 +201,7 @@ pub(crate) async fn full_context_handler(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
-            .expect("build reqwest client"),
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
         base_cfg,
         system_prompt.clone(),
     );

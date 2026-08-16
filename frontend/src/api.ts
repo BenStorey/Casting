@@ -326,11 +326,49 @@ export interface Inbox {
 }
 
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401 && token) {
+    // Token rejected — clear it so the UI shows the login prompt.
+    clearAuthToken();
+    throw new AuthError("token rejected");
+  }
   if (!res.ok) {
     throw new Error(`${res.status} ${await res.text()}`);
   }
   return res.json() as Promise<T>;
+}
+
+// ── Auth helpers ──────────────────────────────────────────────
+const AUTH_STORAGE_KEY = "casting_auth_token";
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(AUTH_STORAGE_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem(AUTH_STORAGE_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+export function hasAuthToken(): boolean {
+  return getAuthToken() !== null;
+}
+
+export class AuthError extends Error {
+  constructor(msg: string) {
+    super(msg);
+    this.name = "AuthError";
+  }
 }
 
 export function fetchState(): Promise<Projection> {

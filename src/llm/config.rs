@@ -18,7 +18,7 @@ const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-flash-0731";
 
 /// Resolved provider configuration. `base_url` already has the provider's
 /// `/v1` prefix (chat/completions is appended by the client).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProviderConfig {
     /// The provider name for metering/audit (free string, e.g. "openrouter").
     pub provider: String,
@@ -28,6 +28,17 @@ pub struct ProviderConfig {
     pub api_key: String,
     /// Model id, e.g. "deepseek/deepseek-v4-flash-0731".
     pub model: String,
+}
+
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("provider", &self.provider)
+            .field("base_url", &self.base_url)
+            .field("api_key", &"***")
+            .field("model", &self.model)
+            .finish()
+    }
 }
 
 /// Provider → default base_url map. `litellm` defaults to the conventional

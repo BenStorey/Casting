@@ -693,25 +693,6 @@ const ACTION_VOCAB: &[ActionVocabEntry] = &[
         pm_only: false,
         fields: &[],
     },
-    // ── HARNESS GUARDS (PM/owner only) ─────────────────────────────────
-    ActionVocabEntry {
-        name: "set_budget",
-        section: "--- HARNESS ---",
-        pm_only: true,
-        fields: &[("limit_usd", "f64"), ("warn_at", "f64|null")],
-    },
-    ActionVocabEntry {
-        name: "pause_work",
-        section: "--- HARNESS ---",
-        pm_only: true,
-        fields: &[("reason", "str")],
-    },
-    ActionVocabEntry {
-        name: "resume_work",
-        section: "--- HARNESS ---",
-        pm_only: true,
-        fields: &[],
-    },
 ];
 
 /// Generate the action vocabulary schema string for a given actor role.

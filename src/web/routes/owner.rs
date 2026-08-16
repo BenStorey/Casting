@@ -153,7 +153,12 @@ pub(crate) async fn hire_handler(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .pop()
-        .expect("HireAgent always produces one event");
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "HireAgent produced no events".into(),
+            )
+        })?;
     Ok(Json(last))
 }
 

@@ -10,7 +10,7 @@ use crate::consultants::{ConsultantRegistry, ModelConfig};
 use crate::llm::config::{default_base_url, ProviderConfig};
 
 /// A resolved model binding + persona for one actor.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ResolvedModel {
     pub config: ProviderConfig,
     /// The actor's persona (system prompt) to seed the call with.
@@ -23,6 +23,23 @@ pub struct ResolvedModel {
     /// actor's cost_tier (Standard default). Used to compute `estimated_usd`.
     pub input_price_per_mtok: f64,
     pub output_price_per_mtok: f64,
+    /// The actor's cost tier, threaded through resolution (C8/P3.4 fix) so
+    /// metering never re-derives the tier name from float prices.
+    pub cost_tier: crate::consultants::CostTier,
+}
+
+impl std::fmt::Debug for ResolvedModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResolvedModel")
+            .field("config", &self.config)
+            .field("system_prompt", &self.system_prompt)
+            .field("temperature", &self.temperature)
+            .field("max_tokens", &self.max_tokens)
+            .field("input_price_per_mtok", &self.input_price_per_mtok)
+            .field("output_price_per_mtok", &self.output_price_per_mtok)
+            .field("cost_tier", &self.cost_tier)
+            .finish()
+    }
 }
 
 /// Default per-1M-token prices for a cost tier. These are CONFIG-SOURCED
@@ -105,6 +122,7 @@ impl ModelResolver {
                         max_tokens: max,
                         input_price_per_mtok: in_price,
                         output_price_per_mtok: out_price,
+                        cost_tier: primary.map(|m| m.cost_tier).unwrap_or_default(),
                     },
                     None => ResolvedModel {
                         config: self.base.clone(),
@@ -113,6 +131,7 @@ impl ModelResolver {
                         max_tokens: max,
                         input_price_per_mtok: in_price,
                         output_price_per_mtok: out_price,
+                        cost_tier: primary.map(|m| m.cost_tier).unwrap_or_default(),
                     },
                 }
             }
@@ -123,6 +142,7 @@ impl ModelResolver {
                 max_tokens: None,
                 input_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).0,
                 output_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).1,
+                cost_tier: crate::consultants::CostTier::Standard,
             },
         }
     }
@@ -162,6 +182,7 @@ impl ModelResolver {
                         max_tokens: m.max_tokens,
                         input_price_per_mtok: in_price,
                         output_price_per_mtok: out_price,
+                        cost_tier: m.cost_tier,
                     }
                 })
             })
@@ -182,6 +203,7 @@ impl ModelResolver {
             max_tokens: None,
             input_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).0,
             output_price_per_mtok: tier_prices(crate::consultants::CostTier::Standard).1,
+            cost_tier: crate::consultants::CostTier::Standard,
         }
     }
 }

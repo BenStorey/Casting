@@ -71,6 +71,7 @@ impl SqliteSnapshotStore {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(SNAPSHOT_SCHEMA)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         Ok(SqliteSnapshotStore {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -87,12 +88,16 @@ impl SqliteSnapshotStore {
 
 impl crate::store::SnapshotStore for SqliteSnapshotStore {
     fn save(&self, project_id: &str, sequence: i64, projection: &Projection) -> Result<()> {
-        let json = serde_json::to_string(projection)?;
+        let wrapper = serde_json::json!({
+            "_format_version": crate::projection::SNAPSHOT_FORMAT_VERSION,
+            "data": projection,
+        });
+        let json = serde_json::to_string(&wrapper)?;
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO projections (project_id, sequence, projection)
              VALUES (?1, ?2, ?3)
-             ON CONFLICT (project_id) DO UPDATE SET sequence = excluded.sequence,
+             ON CONFLICT (project_id) DO UPDATE SET sequence = MAX(projections.sequence, excluded.sequence),
                                                     projection = excluded.projection",
             params![project_id, sequence, json],
         )?;
@@ -110,6 +115,19 @@ impl crate::store::SnapshotStore for SqliteSnapshotStore {
             .optional()
             .ok()?;
         let (seq, json) = row?;
+        // Check snapshot format version — if present and mismatched, trigger rebuild
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json) {
+            if let Some(version) = val.get("_format_version").and_then(|v| v.as_u64()) {
+                if version != crate::projection::SNAPSHOT_FORMAT_VERSION as u64 {
+                    return None; // version mismatch → discard, full rebuild
+                }
+                return val
+                    .get("data")
+                    .and_then(|d| serde_json::from_value(d.clone()).ok())
+                    .map(|p| (seq, p));
+            }
+        }
+        // Old format (no _format_version) — try direct deserialization
         serde_json::from_str(&json).ok().map(|p| (seq, p))
     }
 
@@ -147,12 +165,24 @@ pub fn build_from<S: crate::store::EventStore>(
             for e in &tail {
                 proj.apply(e);
             }
+            // Recompute the plan after applying tail events — the snapshot's
+            // plan may be stale (§4.1.4).
+            proj.plan = proj.plan();
             let folded_through = tail.last().map(|e| e.sequence).unwrap_or(seq);
             Ok((proj, folded_through))
         }
         None => {
-            let proj = Projection::build(store, project_id)?;
-            let folded_through = store.latest_sequence(project_id)?;
+            let events = store.read_since(project_id, 0)?;
+            let mut proj = Projection {
+                project_id: project_id.to_string(),
+                ..Default::default()
+            };
+            let mut folded_through = 0i64;
+            for e in &events {
+                proj.apply(e);
+                folded_through = e.sequence;
+            }
+            proj.plan = proj.plan();
             Ok((proj, folded_through))
         }
     }
