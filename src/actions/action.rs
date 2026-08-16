@@ -340,3 +340,418 @@ pub struct TaskSpec {
     pub title: String,
     pub kind: String,
 }
+
+/// Generate the action vocabulary schema string for a given actor role.
+///
+/// Returns a structured string listing all actions the actor may perform,
+/// with their JSON schema shapes. The provided actor string determines the
+/// set of actions returned:
+/// - `"pm"`, `"owner"`, or `"system"` — ALL actions (org, task, decisions,
+///   knowledge, governance, comms, harness, and special).
+/// - Any other actor (consultant) — only task, knowledge, communication,
+///   and special actions they are permitted to perform.
+pub fn action_vocab_for(actor: &str) -> String {
+    let is_pm = matches!(actor, "pm" | "owner" | "system");
+
+    // Helper: build a colon-separated entry like `field:type` from a name
+    // and a type representation.
+    let f = |name: &str, ty: &str| -> String { format!("  \"{name}\":{ty}") };
+
+    let mut lines: Vec<String> = Vec::new();
+
+    // ── ORGANISATIONAL ACTIONS (PM/owner only) ──────────────────────────
+    if is_pm {
+        lines.push("--- ORGANISATIONAL ACTIONS ---".into());
+        lines.push(format!(
+            "- hire_agent: {}{}{}",
+            "{",
+            [f("agent_id", "str"), f("role", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- create_requirement: {}{}{}",
+            "{",
+            [f("id", "str"), f("title", "str"), f("description", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- create_task: {}{}{}",
+            "{",
+            [f("id", "str"), f("title", "str"), f("kind", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- assign_task: {}{}{}",
+            "{",
+            [
+                f("task_id", "str"),
+                f("assignee", "str"),
+                f("merge_authority", "\"self\"|\"pm\""),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- set_merge_authority: {}{}{}",
+            "{",
+            [f("task_id", "str"), f("merge_authority", "\"self\"|\"pm\"")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- decompose_task: {}{}{}",
+            "{",
+            [
+                f("parent", "str"),
+                f(
+                    "children",
+                    "[{\"id\":str,\"title\":str,\"kind\":str}]",
+                ),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- block_task_on: {}{}{}",
+            "{",
+            [
+                f("task_id", "str"),
+                f("blocking_task_id", "str"),
+                f(
+                    "required_state",
+                    "\"backlog\"|\"working\"|\"in_review\"|\"blocked\"|\"done\"",
+                ),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- provision_worktree: {}{}{}",
+            "{",
+            [
+                f("task_id", "str"),
+                f("assignee", "str"),
+                f("slug", "str"),
+                f("cargo_target_dir", "str"),
+                f("slot", "0"),
+                f("port", "u16"),
+            ]
+            .join(","),
+            "}"
+        ));
+    }
+
+    // ── TASK ACTIONS ────────────────────────────────────────────────────
+    lines.push("--- TASK ACTIONS ---".into());
+    lines.push(format!(
+        "- start_task: {}{}{}",
+        "{",
+        [f("task_id", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- complete_task: {}{}{}",
+        "{",
+        [f("task_id", "str"), f("result", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- request_review: {}{}{}",
+        "{",
+        [f("task_id", "str"), f("reviewer", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- review_task: {}{}{}",
+        "{",
+        [
+            f("task_id", "str"),
+            f("approved", "bool"),
+            f("note", "str|null"),
+        ]
+        .join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- block_task: {}{}{}",
+        "{",
+        [f("task_id", "str"), f("reason", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- commit_to_change_set: {}{}{}",
+        "{",
+        [f("task_id", "str"), f("message", "str")].join(","),
+        "}"
+    ));
+    if is_pm {
+        lines.push(format!(
+            "- set_task_priority: {}{}{}",
+            "{",
+            [
+                f("task_id", "str"),
+                f("priority", "\"low\"|\"medium\"|\"high\"|\"critical\""),
+            ]
+            .join(","),
+            "}"
+        ));
+    }
+
+    // ── DECISIONS (PM/owner only) ────────────────────────────────────────
+    if is_pm {
+        lines.push("--- DECISIONS ---".into());
+        lines.push(format!(
+            "- propose_decision: {}{}{}",
+            "{",
+            [
+                f("id", "str"),
+                f("subject", "str"),
+                f("options", "{...}"),
+                f("recommendation", "str"),
+                f("class",
+                    "\"internal_implementation\"|\"internal_refactor\"|\"add_consultant\"|\"testing_library\"|\"security_critical\"|\"production_deployment\"|\"product_requirement\"|\"governance_change\"|\"database\"|\"internal_rename\"|\"architecture\"|\"spending_threshold\"|\"irreversible\""),
+                f("involvement", "\"pm\"|\"ask\"|\"never\"|\"notify\""),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- make_decision: {}{}{}",
+            "{",
+            [
+                f("decision_id", "str"),
+                f("approved", "bool"),
+                f("note", "str|null"),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- supersede_decision: {}{}{}",
+            "{",
+            [f("decision_id", "str"), f("by_decision_id", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- propose_consultant: {}{}{}",
+            "{",
+            [
+                f("id", "str"),
+                f("subject", "str"),
+                f("role_id", "str"),
+                f("involvement", "\"pm\"|\"ask\"|\"never\""),
+            ]
+            .join(","),
+            "}"
+        ));
+    }
+
+    // ── KNOWLEDGE ───────────────────────────────────────────────────────
+    lines.push("--- KNOWLEDGE ---".into());
+    lines.push(format!(
+        "- record_opinion: {}{}{}",
+        "{",
+        [
+            f("id", "str"),
+            f("subject", "str"),
+            f("category", "str"),
+            f("statement", "str"),
+            f("supersedes", "str|null"),
+        ]
+        .join(","),
+        "}"
+    ));
+    if is_pm {
+        lines.push(format!(
+            "- supersede_opinion: {}{}{}",
+            "{",
+            [f("opinion_id", "str"), f("by_opinion_id", "str")].join(","),
+            "}"
+        ));
+    }
+    lines.push(format!(
+        "- record_fact: {}{}{}",
+        "{",
+        [f("id", "str"), f("kind", "str"), f("statement", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- record_assumption: {}{}{}",
+        "{",
+        [f("id", "str"), f("body", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- record_constraint: {}{}{}",
+        "{",
+        [f("id", "str"), f("body", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- raise_risk: {}{}{}",
+        "{",
+        [f("id", "str"), f("subject", "str"), f("severity", "str")].join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- resolve_risk: {}{}{}",
+        "{",
+        [
+            f("risk_id", "str"),
+            f("status", "\"open\"|\"materialized\"|\"resolved\""),
+        ]
+        .join(","),
+        "}"
+    ));
+    lines.push(format!(
+        "- create_observation: {}{}{}",
+        "{",
+        [
+            f("id", "str"),
+            f("severity", "str"),
+            f("subject", "str"),
+            f("body", "str"),
+            f("pm_action_required", "bool"),
+        ]
+        .join(","),
+        "}"
+    ));
+
+    // ── GOVERNANCE (PM/owner only) ──────────────────────────────────────
+    if is_pm {
+        lines.push("--- GOVERNANCE ---".into());
+        lines.push(format!(
+            "- create_directive: {}{}{}",
+            "{",
+            [
+                f("id", "str"),
+                f("kind",
+                    "\"policy\"|\"constraint\"|\"principle\"|\"practice\"|\"preference\"|\"objective\""),
+                f("statement", "str"),
+                f("scope", "[str]"),
+                f("strength", "\"recommended\"|\"strong\"|\"required\""),
+                f("supersedes", "str|null"),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- suspend_directive: {}{}{}",
+            "{",
+            [f("directive_id", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- resume_directive: {}{}{}",
+            "{",
+            [f("directive_id", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- supersede_directive: {}{}{}",
+            "{",
+            [
+                f("directive_id", "str"),
+                f("by_directive_id", "str"),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- expire_directive: {}{}{}",
+            "{",
+            [f("directive_id", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- propose_directive_change: {}{}{}",
+            "{",
+            [
+                f("id", "str"),
+                f("subject", "str"),
+                f("kind",
+                    "\"policy\"|\"constraint\"|\"principle\"|\"practice\"|\"preference\"|\"objective\""),
+                f("statement", "str"),
+                f("scope", "[str]"),
+                f("strength", "\"recommended\"|\"strong\"|\"required\""),
+                f("supersedes", "str|null"),
+            ]
+            .join(","),
+            "}"
+        ));
+    }
+
+    // ── COMMUNICATION ──────────────────────────────────────────────────
+    lines.push("--- COMMUNICATION ---".into());
+    lines.push(format!(
+        "- send_message: {}{}{}",
+        "{",
+        [f("to", "str"), f("body", "str")].join(","),
+        "}"
+    ));
+    if is_pm {
+        lines.push(format!(
+            "- import_briefing: {}{}{}",
+            "{",
+            [
+                f("id", "str"),
+                f("source", "str"),
+                f("subject", "str"),
+                f("title", "str"),
+                f("body", "str"),
+                f("assets", "[{\"caption\":str,\"location\":str}]"),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- receive_external_request: {}{}{}",
+            "{",
+            [
+                f("id", "str"),
+                f("source", "str"),
+                f("external_id", "str|null"),
+                f("title", "str"),
+                f("body", "str"),
+                f("reporter", "str"),
+                f("labels", "[str]"),
+                f("url", "str|null"),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- save_diagram: {}{}{}",
+            "{",
+            [f("id", "str"), f("title", "str"), f("data", "str")].join(","),
+            "}"
+        ));
+    }
+
+    // ── SPECIAL ──────────────────────────────────────────────────────────
+    lines.push("--- SPECIAL ---".into());
+    lines.push(format!("- no_op: {}{}", "{", "}"));
+
+    // ── HARNESS GUARDS (PM/owner only) ─────────────────────────────────
+    if is_pm {
+        lines.push("--- HARNESS ---".into());
+        lines.push(format!(
+            "- set_budget: {}{}{}",
+            "{",
+            [
+                f("limit_usd", "f64"),
+                f("warn_at", "f64|null"),
+            ]
+            .join(","),
+            "}"
+        ));
+        lines.push(format!(
+            "- pause_work: {}{}{}",
+            "{",
+            [f("reason", "str")].join(","),
+            "}"
+        ));
+        lines.push(format!("- resume_work: {}{}", "{", "}"));
+    }
+
+    lines.join("\n")
+}

@@ -1,6 +1,8 @@
 // Types mirroring the Rust projection + event JSON shapes (see src/projection.rs).
 export type TaskStatus = "backlog" | "working" | "blocked" | "in_review" | "done";
 
+export type MergeAuthority = "self_merge" | "pm_merge";
+
 export interface Agent {
   id: string;
   role: string;
@@ -12,15 +14,48 @@ export interface Requirement {
   description: string;
 }
 
+export interface TaskReview {
+  reviewer: string;
+  note: string;
+  approved: boolean;
+}
+
+export interface TaskDependency {
+  task: string;
+  blocking_task: string;
+  required_state: TaskStatus;
+}
+
 export interface Task {
   id: string;
   title: string;
   kind: string;
   status: TaskStatus;
   assignee: string | null;
+  merge_authority: MergeAuthority;
+  priority: Priority;
+  review: TaskReview | null;
+  parent_id: string | null;
 }
 
-export type DecisionStatus = "proposed" | "approved" | "rejected";
+export type DecisionStatus = "proposed" | "approved" | "rejected" | "superseded";
+
+export type DecisionClass =
+  | "internal_rename"
+  | "internal_refactor"
+  | "testing_library"
+  | "add_consultant"
+  | "internal_implementation"
+  | "database"
+  | "architecture"
+  | "product_requirement"
+  | "spending_threshold"
+  | "production_deployment"
+  | "security_critical"
+  | "irreversible"
+  | "governance_change";
+
+export type OwnerInvolvement = "never" | "pm" | "notify" | "ask";
 
 export interface Decision {
   id: string;
@@ -28,6 +63,10 @@ export interface Decision {
   options: Record<string, string>;
   recommendation: string | null;
   status: DecisionStatus;
+  class: DecisionClass;
+  involvement: OwnerInvolvement;
+  decided_by: string | null;
+  superseded_by: string | null;
   owner_verdict: string | null;
 }
 
@@ -77,11 +116,174 @@ export interface ChangeSet {
   status: ChangeSetStatus;
 }
 
+// ---- First-class semantic objects (risks, assumptions, constraints, etc.) ----
+
+export type RiskStatus = "open" | "materialized" | "resolved";
+
+export interface Risk {
+  id: string;
+  subject: string;
+  severity: string;
+  status: RiskStatus;
+  discovered_by: string;
+}
+
+export interface Assumption {
+  id: string;
+  body: string;
+  recorded_by: string;
+}
+
+export interface Constraint {
+  id: string;
+  body: string;
+  recorded_by: string;
+}
+
+export type OpinionStatus = "active" | "superseded";
+
+export interface Opinion {
+  id: string;
+  subject: string;
+  category: string;
+  statement: string;
+  recorded_by: string;
+  status: OpinionStatus;
+  supersedes: string | null;
+}
+
+export interface Fact {
+  id: string;
+  kind: string;
+  statement: string;
+  recorded_by: string;
+  recorded_at: string;
+}
+
+export interface CostEntry {
+  id: string;
+  agent_id: string;
+  task_id: string | null;
+  cost_class: string;
+  model_tier: string;
+  model: string | null;
+  provider: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  latency_ms: number;
+  input_price_per_mtok: number | null;
+  output_price_per_mtok: number | null;
+  estimated_usd: number;
+  incurred_at: string;
+}
+
+export interface Budget {
+  limit_usd: number;
+  warn_at: number;
+}
+
+export type BriefingStatus = "active" | "superseded";
+
+export interface BriefingAsset {
+  caption: string;
+  location: string;
+}
+
+export interface Briefing {
+  id: string;
+  source: string;
+  subject: string;
+  title: string;
+  body: string;
+  assets: BriefingAsset[];
+  brought_in_by: string;
+  status: BriefingStatus;
+  supersedes: string | null;
+  imported_at: string;
+}
+
+export type ExternalRequestStatus = "open" | "closed";
+
+export interface ExternalRequest {
+  id: string;
+  source: string;
+  external_id: string | null;
+  title: string;
+  body: string;
+  reporter: string;
+  labels: string[];
+  url: string | null;
+  classification: string;
+  severity: string;
+  status: ExternalRequestStatus;
+  received_at: string;
+}
+
+export interface Diagram {
+  id: string;
+  title: string;
+  data: string;
+  saved_by: string;
+  saved_at: string;
+}
+
+export type DirectiveKind = "policy" | "constraint" | "principle" | "practice" | "preference" | "objective";
+
+export type DirectiveStrength = "recommended" | "strong" | "required";
+
+export type DirectiveStatus = "active" | "suspended" | "superseded" | "expired";
+
+export interface Directive {
+  id: string;
+  kind: DirectiveKind;
+  statement: string;
+  scope: string[];
+  strength: DirectiveStrength;
+  status: DirectiveStatus;
+  created_by: string;
+  supersedes: string | null;
+}
+
+export interface Worktree {
+  consultant: string;
+  slot: number;
+  task_id: string | null;
+  branch: string;
+  path: string;
+  cargo_target_dir: string;
+  port: number;
+}
+
+export interface ArchivedRecord {
+  entity_kind: string;
+  entity_id: string;
+  summary: string;
+  result: string;
+  archived_at: string;
+  archived_by: string;
+}
+
+export interface DecisionPolicy {
+  default_involvement: OwnerInvolvement;
+}
+
+export interface ProjectPlan {
+  objective: string | null;
+  priorities: PlannedItem[];
+  deprioritized: PlannedItem[];
+  open_risks: string[];
+  active_directives: string[];
+  open_decisions: string[];
+}
+
 export interface Projection {
   project_id: string;
   agents: Agent[];
   requirements: Requirement[];
   tasks: Task[];
+  dependencies: TaskDependency[];
   decisions: Decision[];
   messages: Message[];
   advisor_thread: Message[];
@@ -90,6 +292,25 @@ export interface Projection {
   commits: Commit[];
   merges: Merge[];
   changesets: ChangeSet[];
+  risks: Risk[];
+  assumptions: Assumption[];
+  constraints: Constraint[];
+  opinions: Opinion[];
+  facts: Fact[];
+  spend: CostEntry[];
+  budget: Budget | null;
+  paused: PauseInfo | null;
+  briefings: Briefing[];
+  external_requests: ExternalRequest[];
+  diagrams: Diagram[];
+  directives: Directive[];
+  repo_metrics: RepoMetrics[];
+  worktrees: Worktree[];
+  policy: DecisionPolicy;
+  archived: ArchivedRecord[];
+  plan: ProjectPlan;
+  rejections: ActionRejection[];
+  orchestration: OrchestrationRun[];
 }
 
 export interface InboxItem {

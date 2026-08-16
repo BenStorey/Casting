@@ -49,12 +49,19 @@ struct BranchTip {
 /// tracks the last event sequence the observer has processed, and the events
 /// it emitted tell it which commits it has already recorded). On the first
 /// pass, everything is new.
-pub fn observe<S: EventStore>(
+/// Internal: the core observation logic, parameterized by the append function.
+/// This lets the production path go through `AppState::append` (single append
+/// path with integrity + broadcast) while tests keep using the bare store.
+fn observe_internal<S: EventStore, F>(
     ws: &Workspace,
     store: &S,
     cursors: &dyn crate::store::CursorStore,
     project: &str,
-) -> Result<u32> {
+    append: F,
+) -> Result<u32>
+where
+    F: Fn(Event) -> Result<Event>,
+{
     let cursor = cursors.get(project, GIT_OBSERVER_CONSUMER)?;
     // We don't use the cursor to skip git operations (git is fast for small
     // repos); we use it to avoid emitting *duplicate* events for commits we've
@@ -106,7 +113,7 @@ pub fn observe<S: EventStore>(
             );
             crate::event::integrity::check_append(&proj, &ev)?;
             proj.apply(&ev);
-            store.append(ev)?;
+            append(ev)?;
             emitted += 1;
         }
     }
@@ -135,7 +142,7 @@ pub fn observe<S: EventStore>(
             );
             crate::event::integrity::check_append(&proj, &ev)?;
             proj.apply(&ev);
-            store.append(ev)?;
+            append(ev)?;
             emitted += 1;
 
             // Check if this is a merge commit — emit MergeCompleted if so.
@@ -160,7 +167,7 @@ pub fn observe<S: EventStore>(
                 );
                 crate::event::integrity::check_append(&proj, &ev)?;
                 proj.apply(&ev);
-                store.append(ev)?;
+                append(ev)?;
                 emitted += 1;
                 last_merge_sha = Some(commit.sha.clone());
             }
@@ -185,6 +192,17 @@ pub fn observe<S: EventStore>(
     cursors.advance(project, GIT_OBSERVER_CONSUMER, latest)?;
 
     Ok(emitted)
+}
+
+/// Public wrapper that keeps the original signature for tests. Delegates to
+/// [`observe_internal`] with the bare `store.append` path (no broadcast).
+pub fn observe<S: EventStore>(
+    ws: &Workspace,
+    store: &S,
+    cursors: &dyn crate::store::CursorStore,
+    project: &str,
+) -> Result<u32> {
+    observe_internal(ws, store, cursors, project, |ev| store.append(ev))
 }
 
 /// Check whether a BranchCreated event already exists for this branch name.
@@ -387,22 +405,20 @@ fn branch_name_for_commit(ws: &Workspace, sha: &str) -> Option<String> {
     }
 }
 
-/// Thin async wrapper around [`observe`] for use from the async runtime
-/// (called at boot and on each PM drain). Reads/writes through `AppState`'s
-/// store and cursors, broadcasts any new events so the UI/SSE updates live.
+/// Thin async wrapper around [`observe_internal`] for use from the async runtime
+/// (called at boot and on each PM drain). Goes through `AppState::append` so
+/// events pass through the single append path (integrity gate + broadcast).
 pub async fn observe_once(state: &AppState, ws: &Workspace) {
-    let result = observe(ws, &state.store, &state.cursors, &state.project);
+    let result = observe_internal(
+        ws,
+        &state.store,
+        &state.cursors,
+        &state.project,
+        |ev| state.append(ev),
+    );
     match result {
-        Ok(n) => {
-            if n > 0 {
-                // Broadcast the new events so SSE subscribers see them and the
-                // PM is woken. Read back what we just appended (last n events).
-                if let Ok(events) = state.store.read_since(&state.project, 0) {
-                    for ev in events.iter().rev().take(n as usize).rev() {
-                        state.notify(ev);
-                    }
-                }
-            }
+        Ok(_n) => {
+            // AppState::append already broadcasts — no manual notify needed.
         }
         Err(e) => {
             eprintln!("[git-observer] error: {e:#}");
