@@ -1,11 +1,14 @@
 //! Tests for the cast — role catalog + default cast (+ TeamChange policy class
 //! integration). The cast is configuration/data, never authoritative state.
 
-use casting::workspace::cast::{role_by_id, role_by_title, DEFAULT_CAST, ROLE_CATALOG};
+use casting::workspace::cast::{role_by_id, role_by_title, DEFAULT_CAST};
 
 #[test]
 fn catalog_has_sane_roles_with_scopes() {
-    let ids: Vec<&str> = ROLE_CATALOG.iter().map(|r| r.id).collect();
+    let ids: Vec<&str> = casting::workspace::role_catalog()
+        .iter()
+        .map(|r| r.id)
+        .collect();
     assert!(ids.contains(&"engineer"));
     assert!(ids.contains(&"qa"));
     // The assignable default-cast roles (the "Default Cast" roster).
@@ -19,7 +22,7 @@ fn catalog_has_sane_roles_with_scopes() {
         assert!(ids.contains(&rid), "catalog must contain {rid}");
     }
     // Every role has a scope (governance area).
-    for r in ROLE_CATALOG {
+    for r in casting::workspace::role_catalog() {
         assert!(!r.scope.is_empty());
     }
     // None of the catalog roles are the special (non-assignable) actors —
@@ -55,13 +58,7 @@ fn default_cast_members_have_catalog_roles() {
     // (PM/Advisor) are NOT seeded as hireable agents.
     assert_eq!(DEFAULT_CAST.len(), 5);
     let ids: Vec<&str> = DEFAULT_CAST.iter().map(|m| m.agent_id).collect();
-    for expect in [
-        "diego",
-        "tess",
-        "nina",
-        "ali",
-        "julien",
-    ] {
+    for expect in ["diego", "tess", "nina", "ali", "julien"] {
         assert!(ids.contains(&expect), "default cast must include {expect}");
     }
 }
@@ -80,8 +77,7 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
         let cursors = SqliteCursorStore::in_memory().unwrap();
-        AppState::new(store, cursors, "proj-cast")
-            .with_orchestrator(Arc::new(MockOrchestrator))
+        AppState::new(store, cursors, "proj-cast").with_orchestrator(Arc::new(MockOrchestrator))
     };
     state
         .append(casting::event::Event::new(

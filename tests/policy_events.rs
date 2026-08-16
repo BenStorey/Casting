@@ -18,8 +18,7 @@ use std::sync::Arc;
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
-    AppState::new(store, cursors, "proj-policy")
-        .with_orchestrator(Arc::new(MockOrchestrator))
+    AppState::new(store, cursors, "proj-policy").with_orchestrator(Arc::new(MockOrchestrator))
 }
 
 fn policy_changed(project: &str, class: DecisionClass, involvement: OwnerInvolvement) -> Event {
@@ -192,7 +191,10 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
             "proj-policy",
             Actor::Agent { id: "pm".into() },
             EventType::RequirementCreated,
-            casting::event::Aggregate { kind: "requirement".into(), id: "req-1".into() },
+            casting::event::Aggregate {
+                kind: "requirement".into(),
+                id: "req-1".into(),
+            },
             serde_json::json!({"title": "Build a thing", "description": "Build a thing"}),
         ))
         .unwrap();
@@ -201,7 +203,10 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
             "proj-policy",
             Actor::Agent { id: "pm".into() },
             EventType::DecisionProposed,
-            casting::event::Aggregate { kind: "decision".into(), id: "decision-testing-lib".into() },
+            casting::event::Aggregate {
+                kind: "decision".into(),
+                id: "decision-testing-lib".into(),
+            },
             serde_json::json!({
                 "subject": "Automated-testing library",
                 "options": {"A": "pytest", "B": "cargo test"},

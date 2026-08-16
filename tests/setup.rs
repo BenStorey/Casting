@@ -27,14 +27,7 @@ fn setup_creates_company_and_default_cast() {
     let proj = Projection::build(&store, "project-demo").unwrap();
     assert!(!proj.agents.is_empty());
     // Default cast => PM + 5 assignable consultants (2026-08-14 roster).
-    for id in &[
-        "pm",
-        "diego",
-        "tess",
-        "nina",
-        "ali",
-        "julien",
-    ] {
+    for id in &["pm", "diego", "tess", "nina", "ali", "julien"] {
         assert!(
             proj.agents.iter().any(|a| a.id == *id),
             "default cast must include {id}"
@@ -185,8 +178,8 @@ async fn setup_then_onboard_does_not_double_hire() {
     use std::sync::Arc;
     let store = casting::workspace::setup::open_store(tmp.path()).unwrap();
     let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
-    let state = AppState::new(store, cursors, "project-demo")
-        .with_orchestrator(Arc::new(MockOrchestrator));
+    let state =
+        AppState::new(store, cursors, "project-demo").with_orchestrator(Arc::new(MockOrchestrator));
 
     state
         .append(Event::new(
@@ -204,14 +197,7 @@ async fn setup_then_onboard_does_not_double_hire() {
 
     let proj = Projection::build(&state.store, "project-demo").unwrap();
     // Exactly one of each default agent — no duplicates from onboarding.
-    for expected in [
-        "pm",
-        "diego",
-        "tess",
-        "nina",
-        "ali",
-        "julien",
-    ] {
+    for expected in ["pm", "diego", "tess", "nina", "ali", "julien"] {
         let count = proj.agents.iter().filter(|a| a.id == expected).count();
         assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
     }
@@ -238,8 +224,8 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
     use std::sync::Arc;
     let store = casting::workspace::setup::open_store(tmp.path()).unwrap();
     let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
-    let state = AppState::new(store, cursors, "project-demo")
-        .with_orchestrator(Arc::new(MockOrchestrator));
+    let state =
+        AppState::new(store, cursors, "project-demo").with_orchestrator(Arc::new(MockOrchestrator));
     state
         .append(Event::new(
             "project-demo",

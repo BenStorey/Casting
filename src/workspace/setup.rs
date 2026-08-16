@@ -147,11 +147,7 @@ pub fn ensure_hires(
 }
 
 /// Persist the runtime config (name + owner token) that `cast run` reads.
-pub fn persist_config(
-    dir: &std::path::Path,
-    name: &str,
-    owner_token: Option<&str>,
-) -> Result<()> {
+pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&str>) -> Result<()> {
     let spec = SetupSpec {
         name: name.to_string(),
         roles: vec![],
@@ -181,7 +177,9 @@ pub fn persist_setup_prefs(
     let cfg = RuntimeConfig {
         name: prior.name,
         owner_name: owner_name.map(|s| s.to_string()).or(prior.owner_name),
-        experience_level: experience_level.map(|s| s.to_string()).or(prior.experience_level),
+        experience_level: experience_level
+            .map(|s| s.to_string())
+            .or(prior.experience_level),
         owner_token: prior.owner_token,
         api_key: api_key.map(|s| s.to_string()).or(prior.api_key),
         telegram_token: prior.telegram_token,

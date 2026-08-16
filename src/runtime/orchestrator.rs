@@ -17,8 +17,8 @@
 //! provider is configured.
 
 use crate::actions::PmAction;
-use crate::event::{Actor, EventType};
 use crate::event::Event;
+use crate::event::{Actor, EventType};
 use crate::pm::PlannedAction;
 use crate::runtime::context::AgentContext;
 use anyhow::Result;
@@ -95,12 +95,28 @@ impl Orchestrator for MockOrchestrator {
         // Handle owner decision triggers: create a follow-up task on approval,
         // acknowledge on rejection — mimics the old plan_owner_decision logic.
         if cause.event_type == EventType::DecisionMade && cause.actor == Actor::Owner {
-            let approved = cause.data.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
-            let subject = cause.data.get("subject").and_then(|v| v.as_str()).unwrap_or("your decision");
-            let note = cause.data.get("note").and_then(|v| v.as_str()).unwrap_or("");
+            let approved = cause
+                .data
+                .get("approved")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let subject = cause
+                .data
+                .get("subject")
+                .and_then(|v| v.as_str())
+                .unwrap_or("your decision");
+            let note = cause
+                .data
+                .get("note")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let mut actions: Vec<PlannedAction> = Vec::new();
             let verdict = if approved { "Approved" } else { "Declined" };
-            let suffix = if note.is_empty() { String::new() } else { format!(" (\"{note}\")") };
+            let suffix = if note.is_empty() {
+                String::new()
+            } else {
+                format!(" (\"{note}\")")
+            };
             actions.push((
                 "pm".into(),
                 PmAction::SendMessage {
@@ -118,7 +134,10 @@ impl Orchestrator for MockOrchestrator {
                     },
                 ));
             }
-            return Ok(PlanOutput { actions, metering: None });
+            return Ok(PlanOutput {
+                actions,
+                metering: None,
+            });
         }
 
         let mut actions: Vec<PlannedAction> = Vec::new();
@@ -179,36 +198,32 @@ impl Orchestrator for MockOrchestrator {
                 // so it always starts + completes + requests review for each
                 // assigned task. The gate will reject actions that are not
                 // legal in the current state, which is fine.
-                actions.push((context.actor.clone(), PmAction::StartTask { task_id: task_id.clone() }));
-                actions.push((context.actor.clone(), PmAction::CompleteTask {
-                    task_id: task_id.clone(),
-                    result: format!("{task_id} — completed by {}", context.actor),
-                }));
-                actions.push((context.actor.clone(), PmAction::RequestReview {
-                    task_id: task_id.clone(),
-                    reviewer: "pm".into(),
-                }));
+                actions.push((
+                    context.actor.clone(),
+                    PmAction::StartTask {
+                        task_id: task_id.clone(),
+                    },
+                ));
+                actions.push((
+                    context.actor.clone(),
+                    PmAction::CompleteTask {
+                        task_id: task_id.clone(),
+                        result: format!("{task_id} — completed by {}", context.actor),
+                    },
+                ));
+                actions.push((
+                    context.actor.clone(),
+                    PmAction::RequestReview {
+                        task_id: task_id.clone(),
+                        reviewer: "pm".into(),
+                    },
+                ));
             }
         }
 
         Ok(PlanOutput {
             actions,
-            metering: Some(CostMetering {
-                agent_id: "pm".into(),
-                task_id: None,
-                cost_class: "pm_overhead".into(),
-                model_tier: "flash".into(),
-                model: Some("deepseek/deepseek-v4-flash-0731".into()),
-                provider: Some("openrouter".into()),
-                prompt_tokens: 1200,
-                completion_tokens: 300,
-                cache_read_input_tokens: 200,
-                cache_creation_input_tokens: 100,
-                latency_ms: 150,
-                input_price_per_mtok: Some(0.25),
-                output_price_per_mtok: Some(1.25),
-                estimated_usd: 0.0018,
-            }),
+            metering: None, // stateless mock records no real spend
         })
     }
 }

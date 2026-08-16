@@ -13,6 +13,12 @@ use casting::store::EventStore;
 use casting::store::SqliteEventStore;
 use casting::store::{CursorStore, SqliteCursorStore};
 use casting::workspace::git_observer;
+
+/// One-shot env var set so the git observer debounce doesn't fire during tests.
+fn _init_debounce() {
+    std::env::set_var("CAST_GIT_DEBOUNCE_MS", "0");
+}
+
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo, ready for observer tests.
@@ -64,6 +70,7 @@ fn branch(ws: &Workspace, name: &str, with_commit: bool) {
 
 #[test]
 fn observer_emits_branch_created_for_new_branches() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -101,6 +108,7 @@ fn observer_emits_branch_created_for_new_branches() {
 
 #[test]
 fn observer_emits_commit_observed_for_new_commits() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -126,6 +134,7 @@ fn observer_emits_commit_observed_for_new_commits() {
 
 #[test]
 fn observer_records_commit_churn() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -145,6 +154,7 @@ fn observer_records_commit_churn() {
 
 #[test]
 fn observer_is_idempotent_on_replay() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -163,6 +173,7 @@ fn observer_is_idempotent_on_replay() {
 
 #[test]
 fn observer_picks_up_new_commits_on_second_pass() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -180,6 +191,7 @@ fn observer_picks_up_new_commits_on_second_pass() {
 
 #[test]
 fn observer_emits_merge_completed_for_merge_commits() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -222,6 +234,7 @@ fn observer_emits_merge_completed_for_merge_commits() {
 
 #[test]
 fn observer_handles_empty_repo() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
     let _ = ws;
@@ -233,6 +246,7 @@ fn observer_handles_empty_repo() {
 
 #[test]
 fn observer_cursor_advances_durably() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -253,6 +267,7 @@ fn observer_cursor_advances_durably() {
 
 #[test]
 fn derive_task_id_from_branch_name() {
+    _init_debounce();
     // The derive_task_id function is private, but we test it indirectly through
     // the BranchCreated event's task_id field (tested above). Here we just
     // confirm the convention works end-to-end with a multi-segment branch name.
@@ -274,6 +289,7 @@ fn derive_task_id_from_branch_name() {
 
 #[test]
 fn changeset_auto_derived_from_task_branch() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -302,6 +318,7 @@ fn changeset_auto_derived_from_task_branch() {
 
 #[test]
 fn changeset_ready_event_updates_status() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -340,6 +357,7 @@ fn changeset_ready_event_updates_status() {
 
 #[test]
 fn merge_marks_changeset_as_merged() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 

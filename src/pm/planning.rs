@@ -1,10 +1,19 @@
-//! Orchestrator-audit event builders and shared planner utilities.
+//! Deterministic scripted PM planning — the plan *builders* only.
 //!
-//! This module owns the tiny helpers used by the PM control loop for audit
-//! events (`OrchestrationRun` / `PlanActionRejected`), the worktree elaborator
-//! (`insert_worktree_provisions`) that ensures structural isolation for any
-//! plan, and the actor-turn helpers (`actors_with_work`) used by the per-actor
-//! loop.
+//! Extracted out of `pm.rs` (2026-08-14, de-monolith pass) to shrink the PM
+//! control loop's coordination surface. This module owns the pure/static
+//! plan-construction logic: given plain inputs (an owner message, a decided
+//! cause, a decision policy, a `&AppState` for projection/workspace reads) it
+//! returns the SAME typed `Vec<PlannedAction>` a provider would otherwise
+//! emit (docs/ADDENDUM.md §16). The control loop in `pm.rs` feeds these
+//! through the policy gate unchanged — moving house doesn't change the plans it
+//! ships.
+//!
+//! Everything here is behavior-identical to its former home; it only needs
+//! `AppState` for snapshot-aware projection reads (`AppState::projection`) and
+//! the optional workspace, never for field layout. It also hosts the tiny
+//! orchestrator-audit event builders (`OrchestrationRun` / `PlanActionRejected`)
+//! so the loop sites in `pm.rs` don't re-liter the plan-aggregate boilerplate.
 //!
 //! The old scripted planning functions (`plan_onboard`, `plan_acknowledge`,
 //! `plan_owner_decision`) have been removed — they were the demo tape.
@@ -138,9 +147,7 @@ fn find_free_port(
 /// Actors who have actionable work in the current projection: assignee
 /// consultants with non-done tasks, plus the PM (who reviews and manages).
 /// Returns actor ids (strings) in a deterministic order.
-pub(crate) fn actors_with_work(
-    projection: &crate::projection::Projection,
-) -> Vec<String> {
+pub(crate) fn actors_with_work(projection: &crate::projection::Projection) -> Vec<String> {
     use crate::projection::TaskStatus;
     let mut actors: Vec<String> = Vec::new();
 
@@ -163,10 +170,13 @@ pub(crate) fn actors_with_work(
     }
 
     // Also include the PM if any task is InReview (so the PM/reviewer acts).
-    if projection.tasks.iter().any(|t| t.status == TaskStatus::InReview) {
-        if !actors.contains(&"pm".to_string()) {
-            actors.push("pm".into());
-        }
+    if projection
+        .tasks
+        .iter()
+        .any(|t| t.status == TaskStatus::InReview)
+        && !actors.contains(&"pm".to_string())
+    {
+        actors.push("pm".into());
     }
 
     actors

@@ -174,7 +174,7 @@ fn request_review_requires_working_task_and_hired_reviewer() {
         PolicyError::TaskNotFound(_) | PolicyError::TaskUnassigned(_)
     ));
 
-    // Give it an assignee so the actor is the assignee; still not in review.
+    // Give it an assignee so the actor is the assignee; still not working yet.
     state
         .append(Event::new(
             "proj-review",
@@ -187,13 +187,27 @@ fn request_review_requires_working_task_and_hired_reviewer() {
             serde_json::json!({ "assignee": "marcus-reed" }),
         ))
         .unwrap();
+    // Start it so it reaches Working — the gate requires Working to submit
+    // for review (matches the graph's Working -> InReview transition).
+    state
+        .append(Event::new(
+            "proj-review",
+            Actor::System,
+            EventType::TaskStarted,
+            Aggregate {
+                kind: "task".into(),
+                id: "task-1".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
     proj = Projection::build(&state.store, "proj-review").unwrap();
     let act = PmAction::RequestReview {
         task_id: "task-1".into(),
         reviewer: "maya-patel".into(),
     };
-    // Assignee (marcus) submitting his own (assigned but not completed) work is
-    // allowed; the gate check is assignee==who && reviewer hired.
+    // Assignee (marcus) submitting his own working task is allowed; the gate
+    // check is assignee==who && task is Working && reviewer hired.
     assert!(validate(&act, "marcus-reed", &proj).is_ok());
     // Unhired reviewer is rejected.
     let act = PmAction::RequestReview {

@@ -87,22 +87,43 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         .unwrap();
     // Decompose the feature into parallel children with a hard edge.
     let children = vec![
-        casting::actions::TaskSpec { id: "feature-db".into(), title: "Database layer".into(), kind: "feature".into() },
-        casting::actions::TaskSpec { id: "feature-api".into(), title: "API layer".into(), kind: "feature".into() },
-        casting::actions::TaskSpec { id: "feature-ui".into(), title: "UI layer".into(), kind: "feature".into() },
-        casting::actions::TaskSpec { id: "feature-sec".into(), title: "Security review".into(), kind: "feature".into() },
+        casting::actions::TaskSpec {
+            id: "feature-db".into(),
+            title: "Database layer".into(),
+            kind: "feature".into(),
+        },
+        casting::actions::TaskSpec {
+            id: "feature-api".into(),
+            title: "API layer".into(),
+            kind: "feature".into(),
+        },
+        casting::actions::TaskSpec {
+            id: "feature-ui".into(),
+            title: "UI layer".into(),
+            kind: "feature".into(),
+        },
+        casting::actions::TaskSpec {
+            id: "feature-sec".into(),
+            title: "Security review".into(),
+            kind: "feature".into(),
+        },
     ];
     let cause = casting::event::Event::new(
         "proj",
         casting::event::Actor::Agent { id: "pm".into() },
         casting::event::EventType::TaskCreated,
-        casting::event::Aggregate { kind: "task".into(), id: "task-feature".into() },
+        casting::event::Aggregate {
+            kind: "task".into(),
+            id: "task-feature".into(),
+        },
         serde_json::json!({}),
     );
     for ev in (casting::actions::PmAction::DecomposeTask {
         parent: "task-feature".into(),
         children: children.clone(),
-    }).to_events("proj", "pm", &cause, "corr-decompose") {
+    })
+    .to_events("proj", "pm", &cause, "corr-decompose")
+    {
         state.append(ev).unwrap();
     }
 
@@ -111,7 +132,9 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         task_id: "feature-api".into(),
         blocking_task_id: "feature-db".into(),
         required_state: casting::types::TaskStatus::Done,
-    }).to_events("proj", "pm", &cause, "corr-edge") {
+    })
+    .to_events("proj", "pm", &cause, "corr-edge")
+    {
         state.append(ev).unwrap();
     }
 
@@ -121,7 +144,9 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
             task_id: child.into(),
             assignee: "diego".into(),
             merge_authority: casting::types::MergeAuthority::SelfMerge,
-        }).to_events("proj", "pm", &cause, "corr-assign") {
+        })
+        .to_events("proj", "pm", &cause, "corr-assign")
+        {
             state.append(ev).unwrap();
         }
     }

@@ -16,7 +16,8 @@ pub mod secrets;
 pub mod setup;
 
 pub use auth::{authorized, bearer_token};
-pub use cast::{role_by_id, role_by_title, CastMember, Role, DEFAULT_CAST, ROLE_CATALOG};
+pub use cast::role_catalog;
+pub use cast::{role_by_id, role_by_title, CastMember, Role, DEFAULT_CAST};
 pub use project::{ProvisionedWorktree, Selfhost, Workspace};
 pub use secrets::SecretStore;
 pub use setup::{RuntimeConfig, SetupPlan, SetupSpec};

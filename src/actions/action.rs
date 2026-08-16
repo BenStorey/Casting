@@ -341,6 +341,379 @@ pub struct TaskSpec {
     pub kind: String,
 }
 
+/// A single action vocabulary entry: its name, section header, PM-only flag,
+/// and the JSON-ish schema string for its fields (e.g. `"task_id":str, "note":str|null`).
+struct ActionVocabEntry {
+    name: &'static str,
+    section: &'static str,
+    pm_only: bool,
+    fields: &'static [(&'static str, &'static str)],
+}
+
+/// All known action entries, derived from the PmAction enum variants.
+///
+/// Each entry's field *names* MUST match the Rust struct field names of the
+/// corresponding PmAction variant. The field *types* are LLM-facing schema
+/// descriptors (e.g. `"str"`, `"bool"`, `"str|null"`, `"\\"self\\"|\\"pm\\""`).
+///
+/// Additions and removals here should mirror PmAction changes; the field-name
+/// correspondence is checked at review time.
+const ACTION_VOCAB: &[ActionVocabEntry] = &[
+    // ── ORGANISATIONAL ACTIONS (PM/owner only) ──────────────────────────
+    ActionVocabEntry {
+        name: "hire_agent",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[("agent_id", "str"), ("role", "str")],
+    },
+    ActionVocabEntry {
+        name: "create_requirement",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[("id", "str"), ("title", "str"), ("description", "str")],
+    },
+    ActionVocabEntry {
+        name: "create_task",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[("id", "str"), ("title", "str"), ("kind", "str")],
+    },
+    ActionVocabEntry {
+        name: "assign_task",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[
+            ("task_id", "str"),
+            ("assignee", "str"),
+            ("merge_authority", "\"self\"|\"pm\""),
+        ],
+    },
+    ActionVocabEntry {
+        name: "set_merge_authority",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[("task_id", "str"), ("merge_authority", "\"self\"|\"pm\"")],
+    },
+    ActionVocabEntry {
+        name: "decompose_task",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[
+            ("parent", "str"),
+            ("children", "[{\"id\":str,\"title\":str,\"kind\":str}]"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "block_task_on",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[
+            ("task_id", "str"),
+            ("blocking_task_id", "str"),
+            (
+                "required_state",
+                "\"backlog\"|\"working\"|\"in_review\"|\"blocked\"|\"done\"",
+            ),
+        ],
+    },
+    ActionVocabEntry {
+        name: "provision_worktree",
+        section: "--- ORGANISATIONAL ACTIONS ---",
+        pm_only: true,
+        fields: &[
+            ("task_id", "str"),
+            ("assignee", "str"),
+            ("slug", "str"),
+            ("cargo_target_dir", "str"),
+            ("slot", "0"),
+            ("port", "u16"),
+        ],
+    },
+    // ── TASK ACTIONS ────────────────────────────────────────────────────
+    ActionVocabEntry {
+        name: "start_task",
+        section: "--- TASK ACTIONS ---",
+        pm_only: false,
+        fields: &[("task_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "complete_task",
+        section: "--- TASK ACTIONS ---",
+        pm_only: false,
+        fields: &[("task_id", "str"), ("result", "str")],
+    },
+    ActionVocabEntry {
+        name: "request_review",
+        section: "--- TASK ACTIONS ---",
+        pm_only: false,
+        fields: &[("task_id", "str"), ("reviewer", "str")],
+    },
+    ActionVocabEntry {
+        name: "review_task",
+        section: "--- TASK ACTIONS ---",
+        pm_only: false,
+        fields: &[
+            ("task_id", "str"),
+            ("approved", "bool"),
+            ("note", "str|null"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "block_task",
+        section: "--- TASK ACTIONS ---",
+        pm_only: false,
+        fields: &[("task_id", "str"), ("reason", "str")],
+    },
+    ActionVocabEntry {
+        name: "commit_to_change_set",
+        section: "--- TASK ACTIONS ---",
+        pm_only: false,
+        fields: &[("task_id", "str"), ("message", "str")],
+    },
+    ActionVocabEntry {
+        name: "set_task_priority",
+        section: "--- TASK ACTIONS ---",
+        pm_only: true,
+        fields: &[
+            ("task_id", "str"),
+            ("priority", "\"low\"|\"medium\"|\"high\"|\"critical\""),
+        ],
+    },
+    // ── DECISIONS (PM/owner only) ────────────────────────────────────────
+    ActionVocabEntry {
+        name: "propose_decision",
+        section: "--- DECISIONS ---",
+        pm_only: true,
+        fields: &[
+            ("id", "str"),
+            ("subject", "str"),
+            ("options", "{...}"),
+            ("recommendation", "str"),
+            (
+                "class",
+                "\"internal_implementation\"|\"internal_refactor\"|\"add_consultant\"|\"testing_library\"|\"security_critical\"|\"production_deployment\"|\"product_requirement\"|\"governance_change\"|\"database\"|\"internal_rename\"|\"architecture\"|\"spending_threshold\"|\"irreversible\"",
+            ),
+            ("involvement", "\"pm\"|\"ask\"|\"never\"|\"notify\""),
+        ],
+    },
+    ActionVocabEntry {
+        name: "make_decision",
+        section: "--- DECISIONS ---",
+        pm_only: true,
+        fields: &[
+            ("decision_id", "str"),
+            ("approved", "bool"),
+            ("note", "str|null"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "supersede_decision",
+        section: "--- DECISIONS ---",
+        pm_only: true,
+        fields: &[("decision_id", "str"), ("by_decision_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "propose_consultant",
+        section: "--- DECISIONS ---",
+        pm_only: true,
+        fields: &[
+            ("id", "str"),
+            ("subject", "str"),
+            ("role_id", "str"),
+            ("involvement", "\"pm\"|\"ask\"|\"never\""),
+        ],
+    },
+    // ── KNOWLEDGE ───────────────────────────────────────────────────────
+    ActionVocabEntry {
+        name: "record_opinion",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[
+            ("id", "str"),
+            ("subject", "str"),
+            ("category", "str"),
+            ("statement", "str"),
+            ("supersedes", "str|null"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "supersede_opinion",
+        section: "--- KNOWLEDGE ---",
+        pm_only: true,
+        fields: &[("opinion_id", "str"), ("by_opinion_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "record_fact",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[("id", "str"), ("kind", "str"), ("statement", "str")],
+    },
+    ActionVocabEntry {
+        name: "record_assumption",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[("id", "str"), ("body", "str")],
+    },
+    ActionVocabEntry {
+        name: "record_constraint",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[("id", "str"), ("body", "str")],
+    },
+    ActionVocabEntry {
+        name: "raise_risk",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[("id", "str"), ("subject", "str"), ("severity", "str")],
+    },
+    ActionVocabEntry {
+        name: "resolve_risk",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[
+            ("risk_id", "str"),
+            ("status", "\"open\"|\"materialized\"|\"resolved\""),
+        ],
+    },
+    ActionVocabEntry {
+        name: "create_observation",
+        section: "--- KNOWLEDGE ---",
+        pm_only: false,
+        fields: &[
+            ("id", "str"),
+            ("severity", "str"),
+            ("subject", "str"),
+            ("body", "str"),
+            ("pm_action_required", "bool"),
+        ],
+    },
+    // ── GOVERNANCE (PM/owner only) ──────────────────────────────────────
+    ActionVocabEntry {
+        name: "create_directive",
+        section: "--- GOVERNANCE ---",
+        pm_only: true,
+        fields: &[
+            ("id", "str"),
+            (
+                "kind",
+                "\"policy\"|\"constraint\"|\"principle\"|\"practice\"|\"preference\"|\"objective\"",
+            ),
+            ("statement", "str"),
+            ("scope", "[str]"),
+            ("strength", "\"recommended\"|\"strong\"|\"required\""),
+            ("supersedes", "str|null"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "suspend_directive",
+        section: "--- GOVERNANCE ---",
+        pm_only: true,
+        fields: &[("directive_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "resume_directive",
+        section: "--- GOVERNANCE ---",
+        pm_only: true,
+        fields: &[("directive_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "supersede_directive",
+        section: "--- GOVERNANCE ---",
+        pm_only: true,
+        fields: &[("directive_id", "str"), ("by_directive_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "expire_directive",
+        section: "--- GOVERNANCE ---",
+        pm_only: true,
+        fields: &[("directive_id", "str")],
+    },
+    ActionVocabEntry {
+        name: "propose_directive_change",
+        section: "--- GOVERNANCE ---",
+        pm_only: true,
+        fields: &[
+            ("id", "str"),
+            ("subject", "str"),
+            (
+                "kind",
+                "\"policy\"|\"constraint\"|\"principle\"|\"practice\"|\"preference\"|\"objective\"",
+            ),
+            ("statement", "str"),
+            ("scope", "[str]"),
+            ("strength", "\"recommended\"|\"strong\"|\"required\""),
+            ("supersedes", "str|null"),
+        ],
+    },
+    // ── COMMUNICATION ──────────────────────────────────────────────────
+    ActionVocabEntry {
+        name: "send_message",
+        section: "--- COMMUNICATION ---",
+        pm_only: false,
+        fields: &[("to", "str"), ("body", "str")],
+    },
+    ActionVocabEntry {
+        name: "import_briefing",
+        section: "--- COMMUNICATION ---",
+        pm_only: true,
+        fields: &[
+            ("id", "str"),
+            ("source", "str"),
+            ("subject", "str"),
+            ("title", "str"),
+            ("body", "str"),
+            ("assets", "[{\"caption\":str,\"location\":str}]"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "receive_external_request",
+        section: "--- COMMUNICATION ---",
+        pm_only: true,
+        fields: &[
+            ("id", "str"),
+            ("source", "str"),
+            ("external_id", "str|null"),
+            ("title", "str"),
+            ("body", "str"),
+            ("reporter", "str"),
+            ("labels", "[str]"),
+            ("url", "str|null"),
+        ],
+    },
+    ActionVocabEntry {
+        name: "save_diagram",
+        section: "--- COMMUNICATION ---",
+        pm_only: true,
+        fields: &[("id", "str"), ("title", "str"), ("data", "str")],
+    },
+    // ── SPECIAL ──────────────────────────────────────────────────────────
+    ActionVocabEntry {
+        name: "no_op",
+        section: "--- SPECIAL ---",
+        pm_only: false,
+        fields: &[],
+    },
+    // ── HARNESS GUARDS (PM/owner only) ─────────────────────────────────
+    ActionVocabEntry {
+        name: "set_budget",
+        section: "--- HARNESS ---",
+        pm_only: true,
+        fields: &[("limit_usd", "f64"), ("warn_at", "f64|null")],
+    },
+    ActionVocabEntry {
+        name: "pause_work",
+        section: "--- HARNESS ---",
+        pm_only: true,
+        fields: &[("reason", "str")],
+    },
+    ActionVocabEntry {
+        name: "resume_work",
+        section: "--- HARNESS ---",
+        pm_only: true,
+        fields: &[],
+    },
+];
+
 /// Generate the action vocabulary schema string for a given actor role.
 ///
 /// Returns a structured string listing all actions the actor may perform,
@@ -352,405 +725,30 @@ pub struct TaskSpec {
 ///   and special actions they are permitted to perform.
 pub fn action_vocab_for(actor: &str) -> String {
     let is_pm = matches!(actor, "pm" | "owner" | "system");
-
-    // Helper: build a colon-separated entry like `field:type` from a name
-    // and a type representation.
-    let f = |name: &str, ty: &str| -> String { format!("  \"{name}\":{ty}") };
-
     let mut lines: Vec<String> = Vec::new();
+    let mut current_section: Option<&'static str> = None;
 
-    // ── ORGANISATIONAL ACTIONS (PM/owner only) ──────────────────────────
-    if is_pm {
-        lines.push("--- ORGANISATIONAL ACTIONS ---".into());
-        lines.push(format!(
-            "- hire_agent: {}{}{}",
-            "{",
-            [f("agent_id", "str"), f("role", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- create_requirement: {}{}{}",
-            "{",
-            [f("id", "str"), f("title", "str"), f("description", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- create_task: {}{}{}",
-            "{",
-            [f("id", "str"), f("title", "str"), f("kind", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- assign_task: {}{}{}",
-            "{",
-            [
-                f("task_id", "str"),
-                f("assignee", "str"),
-                f("merge_authority", "\"self\"|\"pm\""),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- set_merge_authority: {}{}{}",
-            "{",
-            [f("task_id", "str"), f("merge_authority", "\"self\"|\"pm\"")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- decompose_task: {}{}{}",
-            "{",
-            [
-                f("parent", "str"),
-                f(
-                    "children",
-                    "[{\"id\":str,\"title\":str,\"kind\":str}]",
-                ),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- block_task_on: {}{}{}",
-            "{",
-            [
-                f("task_id", "str"),
-                f("blocking_task_id", "str"),
-                f(
-                    "required_state",
-                    "\"backlog\"|\"working\"|\"in_review\"|\"blocked\"|\"done\"",
-                ),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- provision_worktree: {}{}{}",
-            "{",
-            [
-                f("task_id", "str"),
-                f("assignee", "str"),
-                f("slug", "str"),
-                f("cargo_target_dir", "str"),
-                f("slot", "0"),
-                f("port", "u16"),
-            ]
-            .join(","),
-            "}"
-        ));
-    }
+    let fmt_fields = |fields: &[(&str, &str)]| -> String {
+        if fields.is_empty() {
+            "{}".to_string()
+        } else {
+            let inner: Vec<String> = fields
+                .iter()
+                .map(|(name, ty)| format!("  \"{name}\":{ty}"))
+                .collect();
+            format!("{{{}}}", inner.join(","))
+        }
+    };
 
-    // ── TASK ACTIONS ────────────────────────────────────────────────────
-    lines.push("--- TASK ACTIONS ---".into());
-    lines.push(format!(
-        "- start_task: {}{}{}",
-        "{",
-        [f("task_id", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- complete_task: {}{}{}",
-        "{",
-        [f("task_id", "str"), f("result", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- request_review: {}{}{}",
-        "{",
-        [f("task_id", "str"), f("reviewer", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- review_task: {}{}{}",
-        "{",
-        [
-            f("task_id", "str"),
-            f("approved", "bool"),
-            f("note", "str|null"),
-        ]
-        .join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- block_task: {}{}{}",
-        "{",
-        [f("task_id", "str"), f("reason", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- commit_to_change_set: {}{}{}",
-        "{",
-        [f("task_id", "str"), f("message", "str")].join(","),
-        "}"
-    ));
-    if is_pm {
-        lines.push(format!(
-            "- set_task_priority: {}{}{}",
-            "{",
-            [
-                f("task_id", "str"),
-                f("priority", "\"low\"|\"medium\"|\"high\"|\"critical\""),
-            ]
-            .join(","),
-            "}"
-        ));
-    }
-
-    // ── DECISIONS (PM/owner only) ────────────────────────────────────────
-    if is_pm {
-        lines.push("--- DECISIONS ---".into());
-        lines.push(format!(
-            "- propose_decision: {}{}{}",
-            "{",
-            [
-                f("id", "str"),
-                f("subject", "str"),
-                f("options", "{...}"),
-                f("recommendation", "str"),
-                f("class",
-                    "\"internal_implementation\"|\"internal_refactor\"|\"add_consultant\"|\"testing_library\"|\"security_critical\"|\"production_deployment\"|\"product_requirement\"|\"governance_change\"|\"database\"|\"internal_rename\"|\"architecture\"|\"spending_threshold\"|\"irreversible\""),
-                f("involvement", "\"pm\"|\"ask\"|\"never\"|\"notify\""),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- make_decision: {}{}{}",
-            "{",
-            [
-                f("decision_id", "str"),
-                f("approved", "bool"),
-                f("note", "str|null"),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- supersede_decision: {}{}{}",
-            "{",
-            [f("decision_id", "str"), f("by_decision_id", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- propose_consultant: {}{}{}",
-            "{",
-            [
-                f("id", "str"),
-                f("subject", "str"),
-                f("role_id", "str"),
-                f("involvement", "\"pm\"|\"ask\"|\"never\""),
-            ]
-            .join(","),
-            "}"
-        ));
-    }
-
-    // ── KNOWLEDGE ───────────────────────────────────────────────────────
-    lines.push("--- KNOWLEDGE ---".into());
-    lines.push(format!(
-        "- record_opinion: {}{}{}",
-        "{",
-        [
-            f("id", "str"),
-            f("subject", "str"),
-            f("category", "str"),
-            f("statement", "str"),
-            f("supersedes", "str|null"),
-        ]
-        .join(","),
-        "}"
-    ));
-    if is_pm {
-        lines.push(format!(
-            "- supersede_opinion: {}{}{}",
-            "{",
-            [f("opinion_id", "str"), f("by_opinion_id", "str")].join(","),
-            "}"
-        ));
-    }
-    lines.push(format!(
-        "- record_fact: {}{}{}",
-        "{",
-        [f("id", "str"), f("kind", "str"), f("statement", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- record_assumption: {}{}{}",
-        "{",
-        [f("id", "str"), f("body", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- record_constraint: {}{}{}",
-        "{",
-        [f("id", "str"), f("body", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- raise_risk: {}{}{}",
-        "{",
-        [f("id", "str"), f("subject", "str"), f("severity", "str")].join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- resolve_risk: {}{}{}",
-        "{",
-        [
-            f("risk_id", "str"),
-            f("status", "\"open\"|\"materialized\"|\"resolved\""),
-        ]
-        .join(","),
-        "}"
-    ));
-    lines.push(format!(
-        "- create_observation: {}{}{}",
-        "{",
-        [
-            f("id", "str"),
-            f("severity", "str"),
-            f("subject", "str"),
-            f("body", "str"),
-            f("pm_action_required", "bool"),
-        ]
-        .join(","),
-        "}"
-    ));
-
-    // ── GOVERNANCE (PM/owner only) ──────────────────────────────────────
-    if is_pm {
-        lines.push("--- GOVERNANCE ---".into());
-        lines.push(format!(
-            "- create_directive: {}{}{}",
-            "{",
-            [
-                f("id", "str"),
-                f("kind",
-                    "\"policy\"|\"constraint\"|\"principle\"|\"practice\"|\"preference\"|\"objective\""),
-                f("statement", "str"),
-                f("scope", "[str]"),
-                f("strength", "\"recommended\"|\"strong\"|\"required\""),
-                f("supersedes", "str|null"),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- suspend_directive: {}{}{}",
-            "{",
-            [f("directive_id", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- resume_directive: {}{}{}",
-            "{",
-            [f("directive_id", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- supersede_directive: {}{}{}",
-            "{",
-            [
-                f("directive_id", "str"),
-                f("by_directive_id", "str"),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- expire_directive: {}{}{}",
-            "{",
-            [f("directive_id", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- propose_directive_change: {}{}{}",
-            "{",
-            [
-                f("id", "str"),
-                f("subject", "str"),
-                f("kind",
-                    "\"policy\"|\"constraint\"|\"principle\"|\"practice\"|\"preference\"|\"objective\""),
-                f("statement", "str"),
-                f("scope", "[str]"),
-                f("strength", "\"recommended\"|\"strong\"|\"required\""),
-                f("supersedes", "str|null"),
-            ]
-            .join(","),
-            "}"
-        ));
-    }
-
-    // ── COMMUNICATION ──────────────────────────────────────────────────
-    lines.push("--- COMMUNICATION ---".into());
-    lines.push(format!(
-        "- send_message: {}{}{}",
-        "{",
-        [f("to", "str"), f("body", "str")].join(","),
-        "}"
-    ));
-    if is_pm {
-        lines.push(format!(
-            "- import_briefing: {}{}{}",
-            "{",
-            [
-                f("id", "str"),
-                f("source", "str"),
-                f("subject", "str"),
-                f("title", "str"),
-                f("body", "str"),
-                f("assets", "[{\"caption\":str,\"location\":str}]"),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- receive_external_request: {}{}{}",
-            "{",
-            [
-                f("id", "str"),
-                f("source", "str"),
-                f("external_id", "str|null"),
-                f("title", "str"),
-                f("body", "str"),
-                f("reporter", "str"),
-                f("labels", "[str]"),
-                f("url", "str|null"),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- save_diagram: {}{}{}",
-            "{",
-            [f("id", "str"), f("title", "str"), f("data", "str")].join(","),
-            "}"
-        ));
-    }
-
-    // ── SPECIAL ──────────────────────────────────────────────────────────
-    lines.push("--- SPECIAL ---".into());
-    lines.push(format!("- no_op: {}{}", "{", "}"));
-
-    // ── HARNESS GUARDS (PM/owner only) ─────────────────────────────────
-    if is_pm {
-        lines.push("--- HARNESS ---".into());
-        lines.push(format!(
-            "- set_budget: {}{}{}",
-            "{",
-            [
-                f("limit_usd", "f64"),
-                f("warn_at", "f64|null"),
-            ]
-            .join(","),
-            "}"
-        ));
-        lines.push(format!(
-            "- pause_work: {}{}{}",
-            "{",
-            [f("reason", "str")].join(","),
-            "}"
-        ));
-        lines.push(format!("- resume_work: {}{}", "{", "}"));
+    for entry in ACTION_VOCAB {
+        if entry.pm_only && !is_pm {
+            continue;
+        }
+        if current_section != Some(entry.section) {
+            current_section = Some(entry.section);
+            lines.push(entry.section.to_string());
+        }
+        lines.push(format!("- {}: {}", entry.name, fmt_fields(entry.fields)));
     }
 
     lines.join("\n")

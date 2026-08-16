@@ -20,10 +20,10 @@ use casting::actions::PmAction;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
+use casting::runtime::orchestrator::MockOrchestrator;
 use casting::store::EventStore;
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
-use casting::runtime::orchestrator::MockOrchestrator;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -79,7 +79,10 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
             "proj-idem",
             Actor::Agent { id: "pm".into() },
             EventType::RequirementCreated,
-            Aggregate { kind: "requirement".into(), id: "req-1".into() },
+            Aggregate {
+                kind: "requirement".into(),
+                id: "req-1".into(),
+            },
             serde_json::json!({"title": "Build a todo app", "description": "Build a todo app"}),
         ))
         .unwrap();
@@ -166,7 +169,10 @@ async fn reentry_preserves_audit_events_unchanged() {
             "proj-idem",
             Actor::Agent { id: "pm".into() },
             EventType::RequirementCreated,
-            Aggregate { kind: "requirement".into(), id: "req-1".into() },
+            Aggregate {
+                kind: "requirement".into(),
+                id: "req-1".into(),
+            },
             serde_json::json!({"title": "Build a todo app", "description": "Build a todo app"}),
         ))
         .unwrap();
@@ -175,7 +181,10 @@ async fn reentry_preserves_audit_events_unchanged() {
             "proj-idem",
             Actor::Agent { id: "pm".into() },
             EventType::TaskCreated,
-            Aggregate { kind: "task".into(), id: "task-design".into() },
+            Aggregate {
+                kind: "task".into(),
+                id: "task-design".into(),
+            },
             serde_json::json!({"title": "Design Build a todo app", "kind": "feature"}),
         ))
         .unwrap();

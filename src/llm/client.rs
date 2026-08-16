@@ -7,7 +7,6 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// One message in a chat/completions request.
 #[derive(Debug, Clone, Serialize)]
@@ -73,12 +72,9 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(client: reqwest::Client, base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
         OpenAiClient {
-            http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(120))
-                .build()
-                .expect("build reqwest client"),
+            http: client,
             base_url: base_url.into().trim_end_matches('/').to_string(),
             api_key: api_key.into(),
         }

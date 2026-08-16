@@ -118,17 +118,17 @@ fn review_missing_task_still_rejected() {
     assert!(matches!(err, PolicyError::TaskNotFound(_)));
 }
 
-/// The assignee-side lifecycle invariants are unchanged: an assigned but not
-/// yet InReview task is still submittable by its assignee (with a hired
-/// reviewer), and the assignee gate still stops a non-assignee from reviewing.
+/// The assignee-side lifecycle invariants are unchanged: a Working task is
+/// submittable by its assignee (with a hired reviewer), and the assignee gate
+/// still stops a non-assignee from reviewing.
 #[test]
 fn assignee_lifecycle_gates_unchanged() {
     let st = proj(
-        vec![task("t-submit", TaskStatus::Backlog, Some("marcus-reed"))],
+        vec![task("t-submit", TaskStatus::Working, Some("marcus-reed"))],
         vec![agent("marcus-reed"), agent("maya-patel")],
     );
-    // An assigned (non-InReview) task's own assignee may still RequestReview
-    // with a hired reviewer — a non-status gate, preserved as-is.
+    // A Working task's own assignee may RequestReview with a hired reviewer
+    // — a non-status gate, preserved as-is.
     assert!(validate(
         &PmAction::RequestReview {
             task_id: "t-submit".into(),

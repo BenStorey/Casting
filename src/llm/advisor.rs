@@ -29,6 +29,7 @@ pub struct AdvisorOutcome {
 /// the advisor grounds its advice in. Returns an `Err` on any provider/parse
 /// failure — the caller audits it, never panics.
 pub async fn advisor_reply(
+    client: &reqwest::Client,
     resolver: &ModelResolver,
     context: &AgentContext,
     thread: &[Message],
@@ -68,6 +69,7 @@ pub async fn advisor_reply(
     }
 
     let client = crate::llm::client::OpenAiClient::new(
+        client.clone(),
         resolved.config.base_url.clone(),
         resolved.config.api_key.clone(),
     );
@@ -184,7 +186,11 @@ pub fn advisor_context_summary(context: &AgentContext) -> String {
 /// the handoff briefing the PM reads. Reuses the advisor's model binding.
 /// Returns an `Err` on any provider/parse failure; the caller falls back to the
 /// deterministic summarizer (never a hard failure).
-pub async fn advisor_summarize(resolver: &ModelResolver, thread: &[Message]) -> Result<String> {
+pub async fn advisor_summarize(
+    client: &reqwest::Client,
+    resolver: &ModelResolver,
+    thread: &[Message],
+) -> Result<String> {
     let resolved = resolver.resolve("advisor");
     let mut messages = vec![ChatMessage {
         role: "system".into(),
@@ -213,6 +219,7 @@ pub async fn advisor_summarize(resolver: &ModelResolver, thread: &[Message]) -> 
     }
 
     let client = crate::llm::client::OpenAiClient::new(
+        client.clone(),
         resolved.config.base_url.clone(),
         resolved.config.api_key.clone(),
     );

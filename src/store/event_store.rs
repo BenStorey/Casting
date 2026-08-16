@@ -1,8 +1,7 @@
 //! Event-store abstraction.
 //!
 //! The logical event model is database-independent (docs/CASTING_PROJECT_BRIEF.md
-//! §10). We implement SQLite first; Postgres can be added behind the same trait
-//! without changing domain semantics. Do not force a lowest-common-denominator
+//! §10). SQLite and Postgres backends are both implemented behind the same trait. Do not force a lowest-common-denominator
 //! SQL layer — the trait only needs what the domain requires.
 
 use crate::event::Event;

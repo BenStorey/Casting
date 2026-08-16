@@ -63,8 +63,8 @@ pub fn from_env(state_dir: Option<&Path>) -> Result<Option<ProviderConfig>> {
     if let Some(dir) = state_dir {
         if let Some(cfg) = read_config(dir) {
             if let Some(api_key) = cfg.api_key.filter(|k| !k.is_empty()) {
-                let provider = std::env::var("CAST_LLM_PROVIDER")
-                    .unwrap_or_else(|_| "openrouter".into());
+                let provider =
+                    std::env::var("CAST_LLM_PROVIDER").unwrap_or_else(|_| "openrouter".into());
                 let model = std::env::var("CAST_LLM_MODEL")
                     .ok()
                     .filter(|m| !m.is_empty())

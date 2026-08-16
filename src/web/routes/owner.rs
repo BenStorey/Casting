@@ -91,8 +91,8 @@ pub(crate) struct HireIn {
 
 /// POST /api/hire — the OWNER adds an agent of a role to the cast (delegated
 /// authority: the CEO grows the team). Resolves the role against the dynamic
-/// role set — the catalog PLUS any roles defined by loaded consultant packages
-/// (`[consultant.new_role]`) — so an owner can hire a custom consultant. It
+/// role set — the catalog PLUS any roles the loaded consultants fill via
+/// `cast_role` — so an owner can hire a custom consultant. It
 /// then generates a unique agent id and persists `AgentHired` (actor = Owner)
 /// via the validated `HireAgent` action.
 pub(crate) async fn hire_handler(

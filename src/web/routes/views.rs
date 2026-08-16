@@ -36,7 +36,10 @@ pub(crate) struct ActorRouting {
 /// config + the consultant registry (the same resolver `cast run` builds).
 /// Read-only debug surface: which model each actor is handed.
 pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<ActorRouting>> {
-    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref()).ok().flatten() else {
+    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref())
+        .ok()
+        .flatten()
+    else {
         return Json(Vec::new()); // LLM not configured — nothing to route.
     };
     let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());
@@ -194,7 +197,14 @@ pub(crate) async fn full_context_handler(
         base_url: String::new(),
         api_key: String::new(),
     };
-    let orch = LlmOrchestrator::new(base_cfg, system_prompt.clone());
+    let orch = LlmOrchestrator::new(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("build reqwest client"),
+        base_cfg,
+        system_prompt.clone(),
+    );
     let planning = orch.planning_instructions(&actor);
 
     // Assemble the full prompt.

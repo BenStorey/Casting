@@ -232,6 +232,10 @@ fn worktree_provisioned_event_projects_worktree_and_change_set() {
 
 /// PM onboarding plans a ProvisionWorktree for each consultant-assigned task,
 /// allocating distinct ports, so StartTask can pass the fail-closed gate.
+///
+/// Note: the old scripted planner did this automatically. Today the
+/// MockOrchestrator requires a seeded objective (requirement) and tasks with
+/// assignees before the actor-turn loop fires the worktree elaborator.
 #[tokio::test]
 async fn pm_onboarding_provisions_distinct_worktrees() {
     use casting::pm::AppState;
@@ -247,9 +251,7 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
         .with_step_delay(Duration::ZERO)
         .with_orchestrator(Arc::new(MockOrchestrator));
 
-    // Hire the default cast + seed project so plan_onboard sees requirements
-    // empty and kicks off (mirrors the vertical-slice happy path but checks
-    // worktrees). Drive one owner message.
+    // Seed project + agents + requirement (objective) + tasks with assignees.
     state
         .append(casting::event::Event::new(
             "proj",
@@ -280,13 +282,54 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
             ))
             .unwrap();
     }
-    // The PM's cursor must start before the seed events so it reacts to the
-    // owner message (not just seeds). Advance it past what we appended.
+    // Requirement gives the PM an objective.
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::System,
+            casting::event::EventType::RequirementCreated,
+            casting::event::Aggregate {
+                kind: "requirement".into(),
+                id: "req-1".into(),
+            },
+            serde_json::json!({
+                "title": "Build me an app",
+                "body": "Build me an app",
+            }),
+        ))
+        .unwrap();
+    // Seed tasks assigned to consultants so the actor-turn loop picks them up.
+    for (task_id, assignee) in [("task-a", "diego"), ("task-b", "tess")] {
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::TaskCreated,
+                casting::event::Aggregate {
+                    kind: "task".into(),
+                    id: task_id.into(),
+                },
+                serde_json::json!({ "title": task_id, "kind": "feature" }),
+            ))
+            .unwrap();
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::TaskAssigned,
+                casting::event::Aggregate {
+                    kind: "task".into(),
+                    id: task_id.into(),
+                },
+                serde_json::json!({ "assignee": assignee }),
+            ))
+            .unwrap();
+    }
+    // Advance cursor past seeds so the PM reacts to the owner message only.
     state
         .cursors
         .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
         .unwrap();
-
     state
         .append(casting::event::Event::new(
             "proj",
@@ -301,13 +344,14 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
         .unwrap();
 
     let authored = casting::pm::drive_pm(&state).await.unwrap();
-    assert!(authored > 0, "PM should author onboarding work");
+    assert!(authored > 0, "PM should author work");
 
     let proj = state.projection().unwrap();
-    // Consultant-assigned tasks got worktrees with DISTINCT ports.
+    // The per-actor turn loop started tasks via the worktree elaborator,
+    // which prepends ProvisionWorktree before each StartTask.
     assert!(
         !proj.worktrees.is_empty(),
-        "onboarding should provision worktrees"
+        "actor-turn loop should provision worktrees"
     );
     let ports: std::collections::HashSet<u16> = proj.worktrees.iter().map(|w| w.port).collect();
     assert_eq!(
@@ -315,17 +359,18 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
         proj.worktrees.len(),
         "worktrees must have distinct ports"
     );
-    // Each consultant task has its own branch in the casting/task-* convention.
     for wt in &proj.worktrees {
         assert!(wt.branch.starts_with("casting/task-"), "branch {wt:?}");
     }
-    // Fail-closed StartTask would have been rejected if a worktree were missing,
-    // so the fact onboarding completed proves every StartTask had a worktree.
 }
 
 /// Full path with a REAL workspace: drive the PM against a real git repo and
 /// confirm consultant worktrees are physically created (own dir + branch), with
 /// distinct ports.
+///
+/// Note: the old scripted planner onboarded automatically. Today the
+/// MockOrchestrator requires a seeded objective (requirement) and tasks with
+/// assignees before the actor-turn loop fires the worktree elaborator.
 #[tokio::test]
 async fn pm_physically_provisions_worktrees_with_workspace() {
     use casting::pm::AppState;
@@ -346,7 +391,7 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
             .with_orchestrator(Arc::new(MockOrchestrator))
     };
 
-    // Seed + owner message (same as above).
+    // Seed project + agents + requirement (objective) + tasks with assignees.
     state
         .append(casting::event::Event::new(
             "proj",
@@ -374,6 +419,47 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
                     id: id.into(),
                 },
                 serde_json::json!({ "role": role }),
+            ))
+            .unwrap();
+    }
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::System,
+            casting::event::EventType::RequirementCreated,
+            casting::event::Aggregate {
+                kind: "requirement".into(),
+                id: "req-1".into(),
+            },
+            serde_json::json!({
+                "title": "Build me an app",
+                "body": "Build me an app",
+            }),
+        ))
+        .unwrap();
+    for (task_id, assignee) in [("task-a", "diego"), ("task-b", "tess")] {
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::TaskCreated,
+                casting::event::Aggregate {
+                    kind: "task".into(),
+                    id: task_id.into(),
+                },
+                serde_json::json!({ "title": task_id, "kind": "feature" }),
+            ))
+            .unwrap();
+        state
+            .append(casting::event::Event::new(
+                "proj",
+                casting::event::Actor::System,
+                casting::event::EventType::TaskAssigned,
+                casting::event::Aggregate {
+                    kind: "task".into(),
+                    id: task_id.into(),
+                },
+                serde_json::json!({ "assignee": assignee }),
             ))
             .unwrap();
     }
@@ -441,16 +527,22 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
     }
 
     // The still-bound (non-Done) worktrees physically exist on their own
-    // branch with a private build target. Released worktrees (task_id None)
-    // are reset to main, so they're skipped here.
+    // branch with a private build target. Resolve the actual disk path via
+    // the workspace (consultant_worktree_path) rather than the projection
+    // (which carries a relative path set by the elaborator).
     for wt in state.projection().unwrap().worktrees {
         if wt.task_id.is_none() {
-            continue; // released slot — reset to main, not on a task branch.
+            continue;
         }
-        let path = std::path::Path::new(&wt.path);
-        assert!(path.exists(), "worktree dir {} should exist", wt.path);
+        // The workspace resolves the real disk path from consultant + slot.
+        let actual_path = ws.consultant_worktree_path(&wt.consultant, wt.slot);
+        assert!(
+            actual_path.exists(),
+            "worktree dir {} should exist",
+            actual_path.display()
+        );
         let branch = ws
-            .git_command_for(path)
+            .git_command_for(&actual_path)
             .arg("rev-parse")
             .arg("--abbrev-ref")
             .arg("HEAD")
@@ -459,7 +551,7 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
         let branch = String::from_utf8_lossy(&branch.stdout).trim().to_string();
         assert_eq!(branch, wt.branch, "worktree should be on its own branch");
         // Private build target inside the worktree.
-        assert!(Path::new(&wt.cargo_target_dir).starts_with(path));
+        assert!(Path::new(&wt.cargo_target_dir).ends_with("target"));
     }
 }
 

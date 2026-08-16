@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_events_project_sequence
 "#;
 
 /// SQLite-backed [`EventStore`]. Cheap interior mutability via a Mutex is fine
-/// for slice one; Postgres (real concurrency) is a later backend.
+/// for slice one; Postgres is a separate backend module.
 #[derive(Clone)]
 pub struct SqliteEventStore {
     conn: Arc<Mutex<Connection>>,

@@ -37,21 +37,18 @@ pub fn capture(repo: &Path) -> crate::types::RepoMetrics {
 }
 
 /// Capture a snapshot and append it as a `RepoMetricsCaptured` event through
-/// the write-time integrity rail (mirrors how the git observer appends).
-/// Caller supplies `merge_sha` (the PR landing that triggered this) and a
-/// live `proj` to keep the check_append chain consistent.
-pub fn capture_and_emit<S: crate::store::EventStore>(
+/// `AppState::append` (integrity rail + broadcast). Caller supplies `merge_sha`
+/// (the PR landing that triggered this).
+pub fn capture_and_emit(
     ws: &Workspace,
-    store: &S,
-    project: &str,
-    proj: &mut crate::projection::Projection,
+    state: &crate::pm::AppState,
     merge_sha: Option<&str>,
 ) -> Result<()> {
     let mut rm = capture(&ws.repo);
     rm.merge_sha = merge_sha.map(|s| s.to_string());
 
     let ev = crate::event::Event::new(
-        project,
+        &state.project,
         crate::event::Actor::System,
         crate::event::EventType::RepoMetricsCaptured,
         crate::event::Aggregate {
@@ -60,9 +57,7 @@ pub fn capture_and_emit<S: crate::store::EventStore>(
         },
         serde_json::to_value(&rm)?,
     );
-    crate::event::integrity::check_append(proj, &ev)?;
-    proj.apply(&ev);
-    store.append(ev)?;
+    state.append(ev)?;
     Ok(())
 }
 
@@ -203,7 +198,9 @@ fn parse_coverage_file(path: &Path) -> Option<crate::types::CoverageInfo> {
         "coverage.xml" | "cobertura.xml" | "cobertura-coverage.xml" => parse_cobertura(&content),
         "jacoco.xml" | "jacocoTestReport.xml" => parse_jacoco(&content),
         ".coverage" => parse_python_coverage(&content),
-        _ => parse_generic_percent(&content),
+        // No catch-all: unknown file patterns are silently skipped to
+        // avoid interpreting random "100%" strings in non-coverage files.
+        _ => None,
     };
     Some(crate::types::CoverageInfo {
         percent: pct,

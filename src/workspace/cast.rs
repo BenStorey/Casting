@@ -10,6 +10,10 @@
 //! This is **configuration/data**, never authoritative state — the projection
 //! (agents hired via `AgentHired` events) is the truth. The catalog and default
 //! cast are just the seed.
+//!
+//! The role catalog is derived from two sources:
+//! 1. Legacy roles (engineer, qa, security, devops) — predate the 7-role enum
+//! 2. The 7 `CastRole` variants — the authoritative source for role metadata
 
 use serde::Serialize;
 
@@ -24,9 +28,10 @@ pub struct Role {
     pub scope: &'static str,
 }
 
-/// The curated role catalog. Hardcoded for now; owner-creating *new role types*
-/// is a later, more consequential capability (it invents a new model/prompt).
-pub const ROLE_CATALOG: &[Role] = &[
+/// Legacy role ids that exist in the catalog but do NOT map to a CastRole
+/// (they predate the 7-role enum). Kept for backward compat in the setup
+/// wizard and test data. The 7 CastRole roles are the authoritative source.
+const LEGACY_ROLES: &[Role] = &[
     Role {
         id: "engineer",
         title: "Engineer",
@@ -47,47 +52,44 @@ pub const ROLE_CATALOG: &[Role] = &[
         title: "DevOps / SRE",
         scope: "engineering",
     },
-    // The curated default assignable cast (the "Default Cast" from the
-    // consultant plan 2026-08-14). Each is a real catalog role the PM can
-    // assign implementation work to. The special (non-assignable) roles —
-    // PM, Advisor — are NOT catalog roles: they are fixed co-ordinator /
-    // adviser actors, never hireable agents.
-    Role {
-        id: "lead-developer",
-        title: "Lead Developer",
-        scope: "engineering",
-    },
-    Role {
-        id: "testing-engineer",
-        title: "Testing Engineer",
-        scope: "qa",
-    },
-    Role {
-        id: "systems-architect",
-        title: "Systems Architect",
-        scope: "architecture",
-    },
-    Role {
-        id: "stage-manager",
-        title: "Stage Manager",
-        scope: "engineering",
-    },
-    Role {
-        id: "critic",
-        title: "The Critic",
-        scope: "qa",
-    },
 ];
 
+/// Build the complete role catalog: legacy roles + every CastRole-derived role.
+/// The 7 CastRole roles are the authoritative source (the legacy 4 are
+/// maintained for compatibility).
+pub fn role_catalog() -> Vec<Role> {
+    let mut roles: Vec<Role> = LEGACY_ROLES
+        .iter()
+        .map(|r| Role {
+            id: r.id,
+            title: r.title,
+            scope: r.scope,
+        })
+        .collect();
+    for cr in crate::consultants::cast_role::ALL_CAST_ROLES {
+        // Only include assignable roles in the catalog (PM and Advisor are
+        // special co-ordinator roles, not hireable agents).
+        if !cr.is_assignable() {
+            continue;
+        }
+        roles.push(Role {
+            id: cr.role_id(),
+            title: cr.title(),
+            scope: cr.scope(),
+        });
+    }
+    roles
+}
+
 /// Look up a role by id from the catalog.
-pub fn role_by_id(id: &str) -> Option<&'static Role> {
-    ROLE_CATALOG.iter().find(|r| r.id == id)
+pub fn role_by_id(id: &str) -> Option<Role> {
+    role_catalog().into_iter().find(|r| r.id == id)
 }
 
 /// Look up a role by its title (used to map an agent's stored role title back
 /// to a catalog role and its scope).
-pub fn role_by_title(title: &str) -> Option<&'static Role> {
-    ROLE_CATALOG.iter().find(|r| r.title == title)
+pub fn role_by_title(title: &str) -> Option<Role> {
+    role_catalog().into_iter().find(|r| r.title == title)
 }
 
 /// A member of the default cast: an agent id bound to a role.

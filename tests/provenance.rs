@@ -13,6 +13,11 @@ use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
 use casting::workspace::git_observer;
 use casting::workspace::provenance;
+/// One-shot env var set so the git observer debounce doesn't fire during tests.
+fn _init_debounce() {
+    std::env::set_var("CAST_GIT_DEBOUNCE_MS", "0");
+}
+
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real git repo + an event store.
@@ -58,6 +63,7 @@ fn append_with_meta(
 
 #[test]
 fn provenance_traces_commit_to_owner_message() {
+    _init_debounce();
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
     let project = "proj";

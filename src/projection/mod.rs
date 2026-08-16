@@ -358,7 +358,8 @@ impl Projection {
                     id: e.aggregate.id.clone(),
                     agent_id: string_field(e, "agent_id").unwrap_or_default(),
                     task_id: string_field(e, "task_id"),
-                    cost_class: string_field(e, "cost_class").unwrap_or_else(|| "unspecified".into()),
+                    cost_class: string_field(e, "cost_class")
+                        .unwrap_or_else(|| "unspecified".into()),
                     model_tier: string_field(e, "model_tier").unwrap_or_default(),
                     model: string_field(e, "model"),
                     provider: string_field(e, "provider"),

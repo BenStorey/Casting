@@ -122,3 +122,47 @@ fn cursor_starts_zero_and_advances_durably() {
     let other = cursors.get("proj", "agent:marcus").unwrap();
     assert_eq!(other.last_seen, 0);
 }
+
+#[test]
+fn concurrent_appends_are_monotonic_and_gap_free() {
+    let store = std::sync::Arc::new(SqliteEventStore::in_memory().unwrap());
+    let p = "concurrent-proj";
+
+    let threads: Vec<_> = (0..4)
+        .map(|t| {
+            let store = std::sync::Arc::clone(&store);
+            let project = p.to_string();
+            std::thread::spawn(move || {
+                for i in 0..25 {
+                    let ev = Event::new(
+                        &project,
+                        Actor::Agent { id: format!("thread-{t}") },
+                        EventType::TaskCreated,
+                        Aggregate {
+                            kind: "task".into(),
+                            id: format!("concurrent-{t}-{i}"),
+                        },
+                        serde_json::json!({"t": t, "i": i}),
+                    );
+                    store.append(ev).unwrap();
+                }
+            })
+        })
+        .collect();
+
+    for t in threads {
+        t.join().unwrap();
+    }
+
+    // Read back all events; sequences must be 1..=100 contiguous and monotonic.
+    let all = store.read_since(p, 0).unwrap();
+    assert_eq!(all.len(), 100, "expected 100 events from 4×25 concurrent appends");
+    let seqs: Vec<i64> = all.iter().map(|e| e.sequence).collect();
+    for (i, seq) in seqs.iter().enumerate() {
+        assert_eq!(*seq, (i + 1) as i64, "sequence must be {pos} but got {seq}",
+            pos = i + 1);
+    }
+    // No duplicate aggregate id.
+    let ids: std::collections::HashSet<_> = all.iter().map(|e| e.aggregate.id.clone()).collect();
+    assert_eq!(ids.len(), 100, "all 100 aggregate ids must be unique");
+}

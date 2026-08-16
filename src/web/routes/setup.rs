@@ -11,7 +11,7 @@ use serde::Deserialize;
 pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
     let proj = state.projection().unwrap_or_default();
     let has_cast = proj.agents.iter().any(|a| a.id != "pm");
-    let roles: Vec<serde_json::Value> = crate::workspace::ROLE_CATALOG
+    let roles: Vec<serde_json::Value> = crate::workspace::role_catalog()
         .iter()
         .map(|r| {
             serde_json::json!({

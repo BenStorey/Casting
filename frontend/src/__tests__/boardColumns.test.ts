@@ -11,4 +11,30 @@ describe("board columns", () => {
       expect(keys).toContain(s); // every status is reachable on the board
     }
   });
+
+  it("has columns in standard kanban order (backlog → working → blocked → in_review → done)", () => {
+    const keys = TASK_COLUMNS.map((c) => c.key);
+    expect(keys).toEqual(["backlog", "working", "blocked", "in_review", "done"]);
+  });
+
+  it("has non-empty labels for every column", () => {
+    for (const col of TASK_COLUMNS) {
+      expect(col.label).toBeTruthy();
+      expect(col.label.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("has human-readable labels that match their status keys", () => {
+    // Map each status to the expected label text
+    const labelMap: Record<string, string> = {
+      backlog: "Backlog",
+      working: "Working",
+      blocked: "Blocked",
+      in_review: "In Review",
+      done: "Done",
+    };
+    for (const col of TASK_COLUMNS) {
+      expect(col.label).toBe(labelMap[col.key]);
+    }
+  });
 });

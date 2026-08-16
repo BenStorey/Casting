@@ -128,19 +128,32 @@ impl crate::store::SnapshotStore for SqliteSnapshotStore {
 /// the *result* — only how it was computed. If the snapshot is unusable we fall
 /// back to `Projection::build`. This helper does NOT write new snapshots (writes
 /// are the caller's choice), so the read path can stay snapshot-agnostic.
+///
+/// Returns `(projection, folded_through)`: the second element is the exact
+/// sequence the returned projection was folded through (the last applied
+/// event's sequence, or the snapshot's own sequence when the tail was empty).
+/// Callers MUST persist a snapshot with THIS sequence — saving with a
+/// `latest_sequence` read afterwards races a concurrent append (an event that
+/// lands between the fold and the read would be marked folded but skipped on
+/// future rebuilds).
 pub fn build_from<S: crate::store::EventStore>(
     store: &S,
     snapshots: &dyn SnapshotStore,
     project_id: &str,
-) -> Result<Projection> {
+) -> Result<(Projection, i64)> {
     match snapshots.load(project_id) {
         Some((seq, mut proj)) => {
             let tail = store.read_since(project_id, seq)?;
             for e in &tail {
                 proj.apply(e);
             }
-            Ok(proj)
+            let folded_through = tail.last().map(|e| e.sequence).unwrap_or(seq);
+            Ok((proj, folded_through))
         }
-        None => Projection::build(store, project_id),
+        None => {
+            let proj = Projection::build(store, project_id)?;
+            let folded_through = store.latest_sequence(project_id)?;
+            Ok((proj, folded_through))
+        }
     }
 }

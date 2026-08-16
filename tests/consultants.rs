@@ -48,15 +48,7 @@ fn default_cast_is_the_seven_introduced_consultants() {
         .collect();
 
     // All seven consultants are "introduced in the beginning" (auto_join).
-    for id in [
-        "pm",
-        "advisor",
-        "diego",
-        "tess",
-        "nina",
-        "ali",
-        "julien",
-    ] {
+    for id in ["pm", "advisor", "diego", "tess", "nina", "ali", "julien"] {
         assert!(
             default.contains(&id.to_string()),
             "default cast must introduce {id}"

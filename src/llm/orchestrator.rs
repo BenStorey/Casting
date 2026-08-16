@@ -20,6 +20,23 @@ fn classify_cost(actor: &str) -> String {
     }
 }
 
+/// Derive the model tier string from the per-1M-token prices that were set
+/// by `tier_prices`. This avoids hardcoding "standard" in the orchestrator
+/// (P3.4 fix) and reflects the consultant's actual cost_tier.
+fn derive_tier_from_prices(input_price: f64, output_price: f64) -> String {
+    // The tier_prices function in routing.rs defines these thresholds.
+    // Match from most expensive to cheapest for correctness.
+    if (input_price - 5.00).abs() < 0.01 && (output_price - 15.00).abs() < 0.01 {
+        "premium".into()
+    } else if (input_price - 1.00).abs() < 0.01 && (output_price - 3.00).abs() < 0.01 {
+        "standard".into()
+    } else if (input_price - 0.15).abs() < 0.01 && (output_price - 0.60).abs() < 0.01 {
+        "budget".into()
+    } else {
+        "custom".into()
+    }
+}
+
 /// The real provider orchestrator.
 ///
 /// One `Orchestrator` wrapping one provider endpoint. Build a system prompt
@@ -28,6 +45,7 @@ fn classify_cost(actor: &str) -> String {
 /// back into `PmAction`s. Every action still flows through `actions::validate`
 /// in `pm::run_planned`, so the LLM can only do what it's authorized to.
 pub struct LlmOrchestrator {
+    http: reqwest::Client,
     resolver: crate::llm::routing::ModelResolver,
     /// Input/output price per 1M tokens, for metering (if known).
     input_price_per_mtok: Option<f64>,
@@ -35,10 +53,15 @@ pub struct LlmOrchestrator {
 }
 
 impl LlmOrchestrator {
-    pub fn new(config: ProviderConfig, system_prompt: String) -> Self {
+    pub fn new(
+        client: reqwest::Client,
+        config: ProviderConfig,
+        system_prompt: String,
+    ) -> Self {
         let resolver = crate::llm::routing::ModelResolver::new(config, Default::default())
             .with_default_persona(system_prompt);
         LlmOrchestrator {
+            http: client,
             resolver,
             input_price_per_mtok: None,
             output_price_per_mtok: None,
@@ -153,6 +176,7 @@ impl Orchestrator for LlmOrchestrator {
         // Per-actor routing: the actor decides the model + persona.
         let resolved = self.resolver.resolve(&context.actor);
         let client = OpenAiClient::new(
+            self.http.clone(),
             resolved.config.base_url.clone(),
             resolved.config.api_key.clone(),
         );
@@ -215,7 +239,10 @@ impl Orchestrator for LlmOrchestrator {
             agent_id: context.actor.clone(),
             task_id: context.my_tasks.first().cloned(),
             cost_class: classify_cost(&context.actor),
-            model_tier: "standard".into(),
+            model_tier: derive_tier_from_prices(
+                resolved.input_price_per_mtok,
+                resolved.output_price_per_mtok,
+            ),
             model: Some(resolved.config.model.clone()),
             provider: Some(resolved.config.provider.clone()),
             prompt_tokens: u.prompt_tokens,

@@ -133,6 +133,11 @@ impl ModelResolver {
     /// (region block, rate limit, outage). D2's exec loop tries these in
     /// order. Empty when the actor has no binding (all paths fall back to the
     /// env base config as a single entry).
+    ///
+    /// NOTE: No production caller currently uses this — only tests. The
+    /// live path uses `resolve()` which returns the first entry. Kept as a
+    /// public API for diagnostics and future multi-model orchestration.
+    #[allow(dead_code)]
     pub fn resolve_chain(&self, actor: &str) -> Vec<ResolvedModel> {
         let generic = format!("You are {actor}.");
         let fallback = if self.default_persona.is_empty() {

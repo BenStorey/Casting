@@ -98,13 +98,16 @@ pub fn tier_of(et: EventType) -> WakeTier {
 
 /// Whether the PM should ACT now given the newly-arrived events, or defer.
 ///
-/// ACT when:
-/// 1. the quiet window has elapsed (a poll timeout with nothing higher-priority
-///    pending means we flush the batch), OR
-/// 2. any arrived event is a non-batch (Immediate/Single) interrupt.
+/// The ACT path: a non-batch (interrupt) event arrived, or the quiet window
+/// elapsed (a poll timeout with nothing higher-priority pending means we
+/// flush the batch). Only-batch arrival with NO quiet window → defers (the
+/// cursor keeps accumulating; a later interrupt or the poll timeout flushes
+/// it).
 ///
-/// Only-batch arrival with NO quiet window → defers (the cursor keeps
-/// accumulating; a later interrupt or the poll timeout flushes it).
+/// NOTE: The PM loop in control.rs reimplements this logic inline rather than
+/// calling this function, so this function is currently unused. It is kept
+/// as documentation of the wake decision algorithm.
+#[allow(dead_code)]
 pub fn should_act(new_events: &[Event], quiet_elapsed: bool) -> bool {
     if quiet_elapsed {
         return true;
@@ -115,7 +118,9 @@ pub fn should_act(new_events: &[Event], quiet_elapsed: bool) -> bool {
 }
 
 /// The highest-tier event in the batch, if any is an interrupt (used for
-/// diagnostics/logging — "woke on Tier-0 interrupt X").
+/// diagnostics/logging — "woke on Tier-0 interrupt X"). Currently unused
+/// but kept for documentation.
+#[allow(dead_code)]
 pub fn highest_tier(new_events: &[Event]) -> Option<WakeTier> {
     new_events
         .iter()

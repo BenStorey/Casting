@@ -55,8 +55,16 @@ pub(crate) async fn advisor_message_handler(
 /// append it + its cost to the thread. Best-effort: failures/guard blocks are
 /// audited silently (a reply is a nice-to-have, never load-bearing).
 async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
-    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref()).ok().flatten() else {
+    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref())
+        .ok()
+        .flatten()
+    else {
         return; // LLM not configured — deterministic (no reply).
+    };
+    // Get the shared HTTP client for LLM calls.
+    let http_client = match state.http_client.as_ref() {
+        Some(c) => c.clone(),
+        None => return,
     };
     // Harness guard: paused / budget-halted → no provider call, no spend.
     let proj = match state.projection() {
@@ -73,7 +81,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
     // governance, risks, decisions) — NOT task machinery (the advisor's role
     // operates above task priorities).
     let advisor_context = proj.context_for("advisor");
-    let outcome = crate::llm::advisor_reply(&resolver, &advisor_context, &thread, owner_body).await;
+    let outcome = crate::llm::advisor_reply(&http_client, &resolver, &advisor_context, &thread, owner_body).await;
     match outcome {
         Ok(outcome) => {
             let reply_ev = Event::new(
@@ -196,11 +204,18 @@ pub(crate) async fn advisor_summarize_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let thread = proj.advisor_thread.clone();
     let fallback = crate::llm::advisor_summarize_deterministic(&thread);
-    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref()).ok().flatten() else {
+    let Some(base_cfg) = crate::llm::config::from_env(state.state_dir.as_deref())
+        .ok()
+        .flatten()
+    else {
         return Ok(Json(serde_json::json!({ "summary": fallback })));
     };
     let resolver = crate::llm::routing::ModelResolver::new(base_cfg, (*state.consultants).clone());
-    match crate::llm::advisor_summarize(&resolver, &thread).await {
+    let http_client = match state.http_client.as_ref() {
+        Some(c) => c.clone(),
+        None => return Ok(Json(serde_json::json!({ "summary": fallback }))),
+    };
+    match crate::llm::advisor_summarize(&http_client, &resolver, &thread).await {
         Ok(summary) if !summary.trim().is_empty() => {
             Ok(Json(serde_json::json!({ "summary": summary })))
         }

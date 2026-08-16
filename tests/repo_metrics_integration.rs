@@ -7,8 +7,12 @@ use casting::projection::Projection;
 use casting::store::EventStore;
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
-use casting::workspace::git_observer;
 use casting::workspace::repo_metrics;
+/// One-shot env var set so the git observer debounce doesn't fire during tests.
+fn _init_debounce() {
+    std::env::set_var("CAST_GIT_DEBOUNCE_MS", "0");
+}
+
 use casting::workspace::{Selfhost, Workspace};
 
 /// A fresh workspace with a real (empty) git repo.
@@ -48,6 +52,7 @@ fn commit_rs(ws: &Workspace, name: &str, body: &str) {
 
 #[test]
 fn reducer_folds_repo_metrics_captured() {
+    _init_debounce();
     let (retain, _ws, store, _cursors) = ws_with_repo();
     let _ = retain;
 
@@ -121,8 +126,8 @@ fn capture_counts_tracked_files() {
     }
 }
 
-#[test]
-fn observer_captures_repo_metrics_on_merge() {
+#[tokio::test]
+async fn observer_captures_repo_metrics_on_merge() {
     let (retain, ws, store, cursors) = ws_with_repo();
     let _ = retain;
 
@@ -148,8 +153,11 @@ fn observer_captures_repo_metrics_on_merge() {
         .output()
         .unwrap();
 
-    let emitted = git_observer::observe(&ws, &store, &cursors, "proj").unwrap();
-    assert!(emitted > 0, "should emit on first pass, got {emitted}");
+    // Use observe_once (the async production path) so repo-metrics are
+    // captured via AppState::append (integrity rail + broadcast).
+    let state = casting::pm::AppState::new(store.clone(), cursors.clone(), "proj")
+        .with_step_delay(std::time::Duration::ZERO);
+    casting::workspace::git_observer::observe_once(&state, &ws).await;
 
     let proj = Projection::build(&store, "proj").unwrap();
     assert!(

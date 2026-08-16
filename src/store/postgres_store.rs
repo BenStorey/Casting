@@ -346,7 +346,18 @@ impl EventStore for PostgresBackend {
                         .map_err(|e| anyhow!("allocate sequence: {e}"))?;
                     event.sequence = row.get::<_, i64>(0);
 
-                    match client
+                    // Use BEGIN / COMMIT to wrap the INSERT in a transaction
+                    // so a crash between alloc and INSERT does not burn the
+                    // sequence (P0.5 — the alloc's ON CONFLICT UPDATE is NOT
+                    // rolled back on connection loss, but wrapping just the
+                    // INSERT ensures we only store events with committed seqs).
+                    // The query_one above uses the auto-commit connection.
+                    client
+                        .batch_execute("BEGIN")
+                        .await
+                        .map_err(|e| anyhow!("begin: {e}"))?;
+
+                    let result = client
                         .execute(
                             INSERT_EVENT_SQL,
                             &[
@@ -365,10 +376,19 @@ impl EventStore for PostgresBackend {
                                 &event.metadata.agent_run_id,
                             ],
                         )
-                        .await
-                    {
-                        Ok(_) => return Ok(event),
+                        .await;
+
+                    match result {
+                        Ok(_) => {
+                            client
+                                .batch_execute("COMMIT")
+                                .await
+                                .map_err(|e| anyhow!("commit: {e}"))?;
+                            return Ok(event);
+                        }
                         Err(e) => {
+                            // Rollback on any error to release any locks.
+                            let _ = client.batch_execute("ROLLBACK").await;
                             // A unique violation on UNIQUE(project_id, sequence)
                             // means the counter raced a concurrent allocator.
                             // Retry with a freshly-allocated sequence so the

@@ -92,25 +92,8 @@ pub struct VerificationConfig {
     pub review_required: bool,
 }
 
-/// An OPTIONAL role a consultant package can define for itself, instead of
-/// binding to a catalog role. This is how a user builds & shares a consultant
-/// with a NEW capability (the deferred "owner-creates-new-role-types" item).
-/// `id`/`title`/`scope` become the consultant's effective role.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NewRole {
-    /// Role id (the machine key, e.g. "compliance").
-    pub id: String,
-    /// Display title (e.g. "Compliance Consultant").
-    #[serde(default)]
-    pub title: String,
-    /// Governance scope this role operates in (drives directive filtering).
-    #[serde(default)]
-    pub scope: String,
-}
-
-/// A resolved role identity: either a catalog role, or a role a consultant
-/// package defined via `[consultant.new_role]`. Owned (not `&'static`) so it
-/// can come from loaded configuration.
+/// A resolved role identity (from the catalog or a loaded consultant's
+/// cast_role). Owned (not `&'static`) so it can come from configuration.
 #[derive(Debug, Clone, Serialize)]
 pub struct RoleInfo {
     pub id: String,
@@ -293,11 +276,11 @@ impl ConsultantRegistry {
             .collect()
     }
 
-    /// Every known role: the built-in catalog PLUS any roles defined by loaded
-    /// consultant packages via `[consultant.new_role]`. This is the dynamic role
+    /// Every known role: the built-in catalog PLUS the roles assigned by the
+    /// registered consultants' `cast_role` fields. This is the dynamic role
     /// set an owner can hire into (custom consultants carry their own roles).
     pub fn known_roles(&self) -> Vec<RoleInfo> {
-        let mut out: Vec<RoleInfo> = crate::workspace::ROLE_CATALOG
+        let mut out: Vec<RoleInfo> = crate::workspace::role_catalog()
             .iter()
             .map(|r| RoleInfo {
                 id: r.id.to_string(),

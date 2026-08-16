@@ -26,7 +26,7 @@ mod events;
 mod owner;
 pub mod policy;
 
-pub use action::{is_valid_assignee, action_vocab_for, PmAction, TaskSpec, OWNER};
+pub use action::{action_vocab_for, is_valid_assignee, PmAction, TaskSpec, OWNER};
 pub use owner::{
     owner_budget_set, owner_decision_made, owner_directive_created, owner_policy_changed,
     owner_work_paused, owner_work_resumed,

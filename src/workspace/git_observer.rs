@@ -29,6 +29,8 @@ use crate::store::EventStore;
 use crate::workspace::Workspace;
 use anyhow::{Context, Result};
 use serde_json::json;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// The consumer id under which the git observer stores its cursor.
 pub const GIT_OBSERVER_CONSUMER: &str = "git-observer";
@@ -40,9 +42,26 @@ struct BranchTip {
     name: String,
 }
 
+fn debounce_ms() -> u64 {
+    std::env::var("CAST_GIT_DEBOUNCE_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5000)
+}
+
+/// Track the last time we actually performed a git scan. Used to debounce
+/// idle polling: if less than `debounce_ms()` ms have elapsed since the
+/// last scan, we skip the git operations entirely. Controlled via the
+/// `CAST_GIT_DEBOUNCE_MS` env var (default 5000, set to 0 to disable).
+fn last_scan_instant() -> &'static Mutex<Instant> {
+    static LAST_SCAN: OnceLock<Mutex<Instant>> = OnceLock::new();
+    LAST_SCAN.get_or_init(|| Mutex::new(Instant::now()))
+}
+
 /// Run one observation pass: discover branches and commits that are new since
 /// the observer's cursor, emit semantic events, then advance the cursor.
-/// Returns the number of events emitted.
+/// Returns the number of events emitted, the last merge sha (if any), and a
+/// bool indicating whether any actual work was done (false when debounced out).
 ///
 /// The observer works by listing all branches and their tips, comparing them
 /// to what it has already seen (based on the cursor position — the cursor
@@ -58,10 +77,21 @@ fn observe_internal<S: EventStore, F>(
     cursors: &dyn crate::store::CursorStore,
     project: &str,
     append: F,
-) -> Result<u32>
+) -> Result<(u32, Option<String>, bool)>
 where
     F: Fn(Event) -> Result<Event>,
 {
+    // Debounce: skip the git scan if less than 5 seconds have elapsed since
+    // the last scan. This prevents idle-spin when the PM loop wakes 2×/second
+    // but nothing has changed in the repo.
+    {
+        let mut guard = last_scan_instant().lock().unwrap();
+        if guard.elapsed() < Duration::from_millis(debounce_ms()) {
+            return Ok((0, None, false));
+        }
+        *guard = Instant::now();
+    }
+
     let cursor = cursors.get(project, GIT_OBSERVER_CONSUMER)?;
     // We don't use the cursor to skip git operations (git is fast for small
     // repos); we use it to avoid emitting *duplicate* events for commits we've
@@ -149,7 +179,7 @@ where
             if commit.is_merge {
                 let parents = commit.parents.unwrap_or_default();
                 let from_branch = parents
-                    .first()
+                    .get(1) // parent #2 = merged-in branch (P1.3 fix)
                     .and_then(|sha| branch_name_for_commit(ws, sha))
                     .unwrap_or_else(|| "unknown".to_string());
                 let ev = Event::new(
@@ -174,24 +204,14 @@ where
         }
     }
 
-    // If a PR landed this pass, snapshot the repo metrics (file count, lines
-    // by language, best-effort coverage) and append them (during the same pass,
-    // before the cursor advances — always tagged with the merge that caused it).
-    if let Some(merge_sha) = &last_merge_sha {
-        crate::workspace::repo_metrics::capture_and_emit(
-            ws,
-            store,
-            project,
-            &mut proj,
-            Some(merge_sha),
-        )?;
-    }
+    // Remove the metrics capture from observe_internal — it needs AppState
+    // for broadcast, which is only available in observe_once.
 
     // Advance the cursor past everything we've emitted (and everything else).
     let latest = store.latest_sequence(project)?;
     cursors.advance(project, GIT_OBSERVER_CONSUMER, latest)?;
 
-    Ok(emitted)
+    Ok((emitted, last_merge_sha, true))
 }
 
 /// Public wrapper that keeps the original signature for tests. Delegates to
@@ -202,7 +222,8 @@ pub fn observe<S: EventStore>(
     cursors: &dyn crate::store::CursorStore,
     project: &str,
 ) -> Result<u32> {
-    observe_internal(ws, store, cursors, project, |ev| store.append(ev))
+    let (count, _merge_sha, _did_work) = observe_internal(ws, store, cursors, project, |ev| store.append(ev))?;
+    Ok(count)
 }
 
 /// Check whether a BranchCreated event already exists for this branch name.
@@ -409,16 +430,16 @@ fn branch_name_for_commit(ws: &Workspace, sha: &str) -> Option<String> {
 /// (called at boot and on each PM drain). Goes through `AppState::append` so
 /// events pass through the single append path (integrity gate + broadcast).
 pub async fn observe_once(state: &AppState, ws: &Workspace) {
-    let result = observe_internal(
-        ws,
-        &state.store,
-        &state.cursors,
-        &state.project,
-        |ev| state.append(ev),
-    );
+    let result = observe_internal(ws, &state.store, &state.cursors, &state.project, |ev| {
+        state.append(ev)
+    });
     match result {
-        Ok(_n) => {
-            // AppState::append already broadcasts — no manual notify needed.
+        Ok((_n, merge_sha, _did_work)) => {
+            // If a PR landed this pass, snapshot the repo metrics and append
+            // through AppState::append (which broadcasts to subscribers).
+            if let Some(sha) = merge_sha {
+                let _ = crate::workspace::repo_metrics::capture_and_emit(ws, state, Some(&sha));
+            }
         }
         Err(e) => {
             eprintln!("[git-observer] error: {e:#}");

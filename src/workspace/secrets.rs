@@ -88,6 +88,11 @@ impl SecretStore {
     /// VALUE. This is the runner seam: the resolved string exists only in
     /// memory at execution time and is never persisted. Unknown names resolve
     /// to the empty string (a caller that needs it may validate via `has`).
+    ///
+    /// NOTE: Currently unused — the workspace runner performs side effects
+    /// without resolving secrets, and the durable executor is unplugged
+    /// (see ARCHITECTURE_REVIEW.md P2.13). Kept for the harness round.
+    #[allow(dead_code)]
     pub fn resolve(&self, text: &str) -> String {
         let mut out = text.to_string();
         while let Some(start) = out.find("@secret:") {

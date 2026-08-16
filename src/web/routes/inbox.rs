@@ -38,8 +38,14 @@ pub(crate) async fn inbox_handler(
             subject: d.subject.clone(),
             recommendation: d.recommendation.clone(),
             options: d.options.clone(),
-            class: format!("{:?}", d.class).to_lowercase(),
-            involvement: format!("{:?}", d.involvement).to_lowercase(),
+            class: serde_json::to_value(d.class)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default(),
+            involvement: serde_json::to_value(d.involvement)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default(),
         })
         .collect();
     let unread = items.len();

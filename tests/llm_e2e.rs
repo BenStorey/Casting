@@ -166,7 +166,13 @@ fn orch_for(base_url: String, with_prices: bool) -> LlmOrchestrator {
         api_key: "test-key".into(),
         model: "stub-model".into(),
     };
-    let o = LlmOrchestrator::new(cfg, "You are the Project Manager.".into());
+    let o = LlmOrchestrator::new(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("build reqwest client"),
+        cfg,
+        "You are the Project Manager.".into());
     if with_prices {
         o.with_prices(0.25, 1.25)
     } else {
@@ -761,6 +767,10 @@ async fn live_openrouter_round_trip() {
 
     let state = make_state()
         .with_orchestrator(Arc::new(LlmOrchestrator::new(
+            reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("build reqwest client"),
             casting::llm::config::from_env(None).unwrap().unwrap(),
             "You are the Project Manager.".into(),
         )))

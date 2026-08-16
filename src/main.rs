@@ -672,12 +672,12 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // Durable-execution recovery: re-dispatch any activity that was
         // scheduled but never completed/failed (i.e. the server died mid-
         // activity). The executor's idempotency guard makes the re-run safe.
-        // The NoopRunner is the safe default until D2 (LLM) / git / shell
-        // runners are wired — it can only do inline work and fails loudly on
-        // external kinds rather than silently fake-completing them.
+        // Use WorkspaceRunner so that in-flight worktree provisioning and
+        // commits get properly re-dispatched (NoopRunner would fail them).
+        let ws_for_recovery = ws.clone();
         match casting::runtime::executor::redispatch_inflight(
             &state,
-            &casting::runtime::executor::NoopRunner,
+            &casting::runtime::executor::WorkspaceRunner::new(ws_for_recovery),
             casting::event::Actor::System,
         ) {
             Ok(ids) if !ids.is_empty() => {
@@ -898,10 +898,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
     ))?;
 
     // PM + engineer hired.
-    for (id, role) in [
-        ("pm", "Project Manager"),
-        ("diego", "Lead Developer"),
-    ] {
+    for (id, role) in [("pm", "Project Manager"), ("diego", "Lead Developer")] {
         store.append(Event::new(
             project,
             Actor::System,

@@ -14,9 +14,7 @@
 
 use crate::actions::{self, PmAction};
 use crate::event::{Actor, Event, EventType};
-use crate::pm::planning::{
-    actors_with_work, orchestration_run_event, insert_worktree_provisions,
-};
+use crate::pm::planning::{actors_with_work, insert_worktree_provisions, orchestration_run_event};
 use crate::projection::Projection;
 use crate::store::EventStore;
 use anyhow::Result;
@@ -101,12 +99,15 @@ pub struct AppState {
     pub channel: Arc<dyn crate::runtime::channel::OwnerChannel>,
     /// Guards against double-spawning the Telegram run loop (2026-08-14): it
     /// can be started from boot env OR from the UI `POST /api/telegram/configure`,
-    /// but must run exactly once. Set the first time a channel is attached.
+    /// but must run exactly once. Set the first time a start is attempted.
     pub telegram_started: Arc<std::sync::atomic::AtomicBool>,
     /// The running Telegram loop's JoinHandle (2026-08-14, batch 3): lets a
-    /// reconfigure (new bot token / chat) abort the old loop and start a fresh
-    /// one — so messaging can be reconnected any time, not just at boot.
+    /// re-configure (new bot token / new chat id) abort the old loop and start a
+    /// fresh one — so messaging can be reconnected any time, not just at boot.
     pub telegram_handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Shared HTTP client for all LLM calls. Built once at startup so all
+    /// connections share a single pool. `None` when LLM is not configured.
+    pub http_client: Option<reqwest::Client>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -141,6 +142,7 @@ impl AppState {
             channel: Arc::new(crate::runtime::channel::NoopChannel),
             telegram_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             telegram_handle: Arc::new(std::sync::Mutex::new(None)),
+            http_client: None,
             events: Arc::new(tx),
         }
     }
@@ -166,6 +168,12 @@ impl AppState {
     /// isolated worktrees when a consultant is summoned.
     pub fn with_workspace(mut self, workspace: Arc<crate::workspace::Workspace>) -> Self {
         self.workspace = Some(workspace);
+        self
+    }
+
+    /// Builder-style: attach a shared HTTP client for all LLM calls.
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.http_client = Some(client);
         self
     }
 
@@ -248,6 +256,11 @@ impl AppState {
         let state_dir = self.state_dir.as_deref();
         match crate::llm::config::from_env(state_dir) {
             Ok(Some(cfg)) => {
+                // Build one HTTP client shared across all LLM calls.
+                let http = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(120))
+                    .build()
+                    .expect("build reqwest client");
                 // The PM persona: prefer a consultant bound to the pm role if one
                 // exists, else the canonical PM identity (the registry holds the
                 // agent cast — Marcus/Maya/etc. — so don't borrow an engineer's
@@ -274,8 +287,9 @@ impl AppState {
                     (*self.consultants).clone(),
                 )
                 .with_default_persona(persona.clone());
-                self.with_orchestrator(Arc::new(
-                    crate::llm::LlmOrchestrator::new(cfg, persona).with_resolver(resolver),
+                self.with_http_client(http.clone()).with_orchestrator(Arc::new(
+                    crate::llm::LlmOrchestrator::new(http, cfg, persona)
+                        .with_resolver(resolver),
                 ))
             }
             Ok(None) => self,
@@ -298,8 +312,11 @@ impl AppState {
     pub fn projection(&self) -> anyhow::Result<Projection> {
         match &self.snapshots {
             Some(snaps) => {
-                let proj = crate::store::build_from(&self.store, snaps, &self.project)?;
-                let seq = self.store.latest_sequence(&self.project)?;
+                let (proj, seq) = crate::store::build_from(&self.store, snaps, &self.project)?;
+                // The snapshot is saved at the sequence the projection was
+                // actually folded through (not a fresh `latest_sequence` read)
+                // — that closes the race where a concurrent append between the
+                // fold and the read would be marked folded but skipped forever.
                 let stale = snaps
                     .load(&self.project)
                     .map(|(last_seq, _)| seq - last_seq > SNAPSHOT_CATCHUP)
@@ -407,8 +424,15 @@ async fn drain(state: &AppState) -> Result<u32> {
     let projection = state.projection()?;
     let authored = respond(state, &projection, &new_events).await?;
 
-    let latest = state.store.latest_sequence(&state.project)?;
-    state.cursors.advance(&state.project, PM_CONSUMER, latest)?;
+    // Advance the cursor to the last event WE actually processed, not
+    // `latest_sequence`. Events appended concurrently by other actors (web
+    // handlers, git observer) between `read_since` and here would be jumped
+    // over by `advance(latest)` — the leapfrog race (P0.3 fix). By advancing
+    // to our own last event, concurrent events arrive on the next drain.
+    let last_processed = new_events.last().unwrap().sequence;
+    state
+        .cursors
+        .advance(&state.project, PM_CONSUMER, last_processed)?;
     Ok(authored)
 }
 
@@ -429,7 +453,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
     // Phase 1: PM trigger processing (owner messages and decisions)
     // ========================================================================
     for e in new_events {
-        let (is_owner_message, body) = match e.event_type {
+        let (is_owner_message, _body) = match e.event_type {
             EventType::MessageSent if e.actor == Actor::Owner => (
                 true,
                 e.data.get("body").and_then(|b| b.as_str()).unwrap_or(""),
@@ -437,8 +461,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             _ => (false, ""),
         };
 
-        let is_owner_decision =
-            e.event_type == EventType::DecisionMade && e.actor == Actor::Owner;
+        let is_owner_decision = e.event_type == EventType::DecisionMade && e.actor == Actor::Owner;
 
         // Only process PM-level triggers; the actor turn loop below handles
         // consultant work (start/complete/review).
@@ -571,8 +594,8 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
 }
 
 /// Run actor turns for all non-PM actors with actionable work.
-/// Only runs when an orchestrator is present — the scripted path handles
-/// everything through plan_onboard in one pass.
+/// Only runs when an orchestrator is present — without one the system is
+/// properly inert (no demo tape).
 /// Multi-pass: continues until no actor has further work, so cascading
 /// actions (e.g. CompleteTask → InReview → ReviewTask) resolve in one drain.
 async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> {
@@ -590,6 +613,11 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
         return Ok(0); // no trigger event to correlate with
     };
 
+    // Safety: prevent infinite loops (max 10 iterations). Declared OUTSIDE
+    // the loop so the cap actually fires — declaring it inside resets every
+    // pass and the check is unreachable (P0.4 bug fix).
+    let mut iteration = 0u32;
+
     loop {
         let proj = state.projection()?;
         let actors = actors_with_work(&proj);
@@ -598,8 +626,6 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
         }
 
         let mut made_progress = false;
-        // Safety: prevent infinite loops in tests (max 10 iterations).
-        let mut iteration = 0u32;
 
         for actor in &actors {
             let context = proj.context_for(actor);
@@ -704,9 +730,10 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
             let mut actions = out.actions;
             insert_worktree_provisions(state, &mut actions, &mut claimed_ports);
 
+            let before = authored;
             authored += run_planned(state, cause, actions).await?;
-            if authored > 0 {
-                made_progress = true;
+            if authored > before {
+                made_progress = true; // per-pass, not cumulative
             }
         }
 
@@ -716,7 +743,9 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
         // Safety: prevent infinite loops in tests (max 10 iterations).
         iteration += 1;
         if iteration > 10 {
-            log::warn!("[pm] actor-turn loop exceeded 10 iterations — breaking to prevent infinite loop");
+            log::warn!(
+                "[pm] actor-turn loop exceeded 10 iterations — breaking to prevent infinite loop"
+            );
             break;
         }
     }
@@ -741,12 +770,13 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
         return Ok(0);
     }
     let correlation = format!("run-{}", cause.sequence);
-    // One store read per plan: the set of real-entity domain events already in
-    // the log (keyed by event_type + aggregate.id + correlation). Built once so
-    // the whole pass dedups against the same picture of history. EventType has
-    // no `Hash`, so the event_type is keyed by its Debug (variant) name.
+    // One store read per plan: the set of real-entity domain events since the
+    // PM's cursor (events before the cursor carry older correlation_ids and
+    // cannot conflict with the current planning pass). EventType has no `Hash`,
+    // so the event_type is keyed by its Debug (variant) name.
+    let cursor = state.cursors.get(&state.project, PM_CONSUMER)?.last_seen;
     let mut applied: std::collections::HashSet<(String, String, String)> =
-        applied_domain_keys(&state.store, &state.project)?;
+        applied_domain_keys(&state.store, &state.project, cursor)?;
     let mut projection = state.projection()?;
     let mut authored = 0u32;
     let mut rejected = 0u32;
@@ -898,12 +928,17 @@ fn dedup_applies(e: &Event) -> bool {
 /// `(event_type, aggregate.id, correlation_id)`. The PM drain uses this to skip
 /// re-emitting an already-applied domain event for the same planning cause on
 /// re-entry (a mid-drain failure must not duplicate events).
+///
+/// Only scans from `from_seq` onwards (the PM's current cursor) rather than
+/// the full log — events before the cursor carry older correlation_ids and
+/// cannot conflict with the current planning pass (P3.6, O(n²) fix).
 fn applied_domain_keys(
     store: &Arc<dyn crate::store::EventStore>,
     project: &str,
+    from_seq: i64,
 ) -> Result<std::collections::HashSet<(String, String, String)>> {
     let mut keys = std::collections::HashSet::new();
-    for e in store.read_since(project, 0)? {
+    for e in store.read_since(project, from_seq)? {
         if dedup_applies(&e) {
             if let Some(corr) = &e.metadata.correlation_id {
                 keys.insert((

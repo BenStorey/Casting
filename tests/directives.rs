@@ -19,8 +19,7 @@ use std::sync::Arc;
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
-    AppState::new(store, cursors, "proj-dir")
-        .with_orchestrator(Arc::new(MockOrchestrator))
+    AppState::new(store, cursors, "proj-dir").with_orchestrator(Arc::new(MockOrchestrator))
 }
 
 fn append(state: &AppState, event_type: EventType, id: &str, data: serde_json::Value) {

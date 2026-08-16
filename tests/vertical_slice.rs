@@ -1,14 +1,20 @@
 //! Integration tests for the vertical slice: projections + simulated PM loop.
 //! Exercises the real SQLite backend, the derived current-state projection, and
-//! the scripted PM control loop (owner message -> requirements/tasks/decisions).
+//! the MockOrchestrator-driven PM control loop.
+//!
+//! The old scripted planning functions (`plan_onboard`, etc.) were removed in
+//! c244d15 — they were the demo tape. These tests seed the required state
+//! directly (project, agents, requirements, tasks) and verify the current
+//! MockOrchestrator behavior: ack on owner message, create-task / propose-
+//! decision when an objective exists, per-actor lifecycle for assigned tasks.
 
 use casting::event::{Actor, Event, EventType};
 use casting::pm::{AppState, PM_CONSUMER};
 use casting::projection::{DecisionStatus, Projection, TaskStatus};
+use casting::runtime::orchestrator::MockOrchestrator;
 use casting::store::EventStore;
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
-use casting::runtime::orchestrator::MockOrchestrator;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,6 +37,64 @@ fn owner_message(body: &str) -> Event {
         },
         serde_json::json!({ "to": "pm", "body": body }),
     )
+}
+
+/// Seed project + agents + requirement so the MockOrchestrator sees an
+/// objective and can plan actions (CreateTask or ProposeDecision).
+/// The cursor is advanced past these seed events so the PM only reacts
+/// to the subsequent owner message.
+fn seed_company(state: &AppState) {
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::System,
+            EventType::ProjectCreated,
+            casting::event::Aggregate {
+                kind: "project".into(),
+                id: "proj-test".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
+    for (id, role) in [("diego", "engineer"), ("tess", "testing_engineer")] {
+        state
+            .append(Event::new(
+                "proj-test",
+                Actor::System,
+                EventType::AgentHired,
+                casting::event::Aggregate {
+                    kind: "agent".into(),
+                    id: id.into(),
+                },
+                serde_json::json!({ "role": role }),
+            ))
+            .unwrap();
+    }
+    // A requirement gives the PM an objective (derived from its title).
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::System,
+            EventType::RequirementCreated,
+            casting::event::Aggregate {
+                kind: "requirement".into(),
+                id: "req-1".into(),
+            },
+            serde_json::json!({
+                "title": "Build me a todo app",
+                "body": "Build me a todo app",
+            }),
+        ))
+        .unwrap();
+    // Advance cursor past seed events so the PM only processes the owner message.
+    state
+        .cursors
+        .advance(
+            "proj-test",
+            PM_CONSUMER,
+            state.store.latest_sequence("proj-test").unwrap(),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -125,39 +189,23 @@ fn projection_derives_current_state_from_events() {
 }
 
 #[tokio::test]
-async fn simulated_pm_onboards_company_from_owner_message() {
+async fn pm_acknowledges_owner_message_and_cursor_advances() {
     let state = make_state();
+    seed_company(&state);
 
-    // The loop must seed nothing by itself: send one owner message, then drive.
+    // Send one owner message and drive the PM.
     state.append(owner_message("Build me a todo app")).unwrap();
     let authored = casting::pm::drive_pm(&state).await.unwrap();
-    assert!(
-        authored >= 3,
-        "PM should author a non-trivial response, got {authored}"
-    );
+    // The MockOrchestrator sees an existing objective and the PM role, with
+    // no other priorities — it creates task-mock-1 (1 action). Plus any
+    // audit/telemetry events.
+    assert!(authored >= 1, "PM should author a response, got {authored}");
 
     let proj = Projection::build(&state.store, "proj-test").unwrap();
-    assert_eq!(
-        proj.requirements.len(),
-        1,
-        "requirement created from owner intent"
-    );
-    assert_eq!(proj.requirements[0].title, "Build me a todo app");
+    // The mock created task-mock-1 under the PM's objective.
     assert!(
-        proj.agents.iter().any(|a| a.id == "diego"),
-        "Lead Developer hired"
-    );
-    assert!(
-        proj.agents.iter().any(|a| a.id == "tess"),
-        "Testing Engineer hired"
-    );
-    assert!(!proj.tasks.is_empty(), "tasks created");
-    // The onboarding raises a decision for the owner.
-    assert!(
-        proj.decisions
-            .iter()
-            .any(|d| d.status == DecisionStatus::Proposed),
-        "a decision awaiting owner exists"
+        proj.tasks.iter().any(|t| t.id == "task-mock-1"),
+        "mock PM should create a task from the objective"
     );
 
     // The PM's cursor advanced past everything: driving again is a no-op.
@@ -173,24 +221,36 @@ async fn simulated_pm_onboards_company_from_owner_message() {
 #[tokio::test]
 async fn owner_decision_is_recorded_and_pm_reacts() {
     let state = make_state();
-    state.append(owner_message("Build a thing")).unwrap();
-    casting::pm::drive_pm(&state).await.unwrap();
+    seed_company(&state);
 
-    // Find the Database decision specifically (it is Ask-class -> owner decides).
+    // Seed a Database decision (Ask-class) directly.
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::System,
+            EventType::DecisionProposed,
+            casting::event::Aggregate {
+                kind: "decision".into(),
+                id: "dec-db".into(),
+            },
+            serde_json::json!({
+                "subject": "Database choice",
+                "options": {"A": "Postgres", "B": "SQLite"},
+                "recommendation": "A",
+                "class": "database",
+                "involvement": "ask",
+            }),
+        ))
+        .unwrap();
     let proj = Projection::build(&state.store, "proj-test").unwrap();
     let decision_id = proj
         .decisions
         .iter()
         .find(|d| d.subject == "Database choice")
         .map(|d| d.id.clone())
-        .expect("the Database decision should be proposed to the owner");
-    let subject = proj
-        .decisions
-        .iter()
-        .find(|d| d.subject == "Database choice")
-        .unwrap()
-        .subject
-        .clone();
+        .expect("the Database decision should be proposed");
+
+    // Owner rejects the decision.
     state
         .append(Event::new(
             "proj-test",
@@ -200,7 +260,7 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
                 kind: "decision".into(),
                 id: decision_id.clone(),
             },
-            serde_json::json!({"subject": subject, "approved": false, "note": "keep it simple"}),
+            serde_json::json!({"subject": "Database choice", "approved": false, "note": "keep it simple"}),
         ))
         .unwrap();
 
@@ -222,10 +282,28 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
 #[tokio::test]
 async fn ask_class_decision_stays_in_owner_inbox_with_policy_typed() {
     let state = make_state();
-    state.append(owner_message("Build a thing")).unwrap();
-    casting::pm::drive_pm(&state).await.unwrap();
-    let proj = Projection::build(&state.store, "proj-test").unwrap();
+    seed_company(&state);
+    // Seed a Database decision (Ask-class) directly.
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::System,
+            EventType::DecisionProposed,
+            casting::event::Aggregate {
+                kind: "decision".into(),
+                id: "dec-db".into(),
+            },
+            serde_json::json!({
+                "subject": "Database choice",
+                "options": {"A": "Postgres", "B": "SQLite"},
+                "recommendation": "A",
+                "class": "database",
+                "involvement": "ask",
+            }),
+        ))
+        .unwrap();
 
+    let proj = Projection::build(&state.store, "proj-test").unwrap();
     let db = proj
         .decisions
         .iter()
@@ -241,12 +319,34 @@ async fn ask_class_decision_stays_in_owner_inbox_with_policy_typed() {
 #[tokio::test]
 async fn pm_class_decision_is_delegated_via_universal_pair() {
     let state = make_state();
-    state.append(owner_message("Build a thing")).unwrap();
-    casting::pm::drive_pm(&state).await.unwrap();
-    let proj = Projection::build(&state.store, "proj-test").unwrap();
+    seed_company(&state);
+    // Seed a TestingLibrary decision (Pm-class, auto-decided by PM).
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::System,
+            EventType::DecisionProposed,
+            casting::event::Aggregate {
+                kind: "decision".into(),
+                id: "dec-test-lib".into(),
+            },
+            serde_json::json!({
+                "subject": "Automated-testing library",
+                "options": {"A": "Vitest", "B": "Playwright"},
+                "recommendation": "A",
+                "class": "testing_library",
+                "involvement": "pm",
+            }),
+        ))
+        .unwrap();
 
-    // TestingLibrary is a Pm-class decision: the PM decides it itself via the
-    // SAME event pair (DecisionProposed -> DecisionMade, actor = pm).
+    // The PM loop doesn't auto-decide Pm-class decisions (the old scripted
+    // planner did). Instead, drive the PM and verify the decision remains as
+    // proposed — the universal pair is resolved by a MakeDecision action,
+    // which the MockOrchestrator does not produce.
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "proj-test").unwrap();
     let tl = proj
         .decisions
         .iter()
@@ -254,41 +354,7 @@ async fn pm_class_decision_is_delegated_via_universal_pair() {
         .expect("TestingLibrary decision exists");
     assert_eq!(tl.class, casting::pm::policy::DecisionClass::TestingLibrary);
     assert_eq!(tl.involvement, casting::pm::policy::OwnerInvolvement::Pm);
-    assert_eq!(tl.status, DecisionStatus::Approved);
-    assert_eq!(tl.decided_by.as_deref(), Some("pm"));
-
-    // It must NOT be in the owner's inbox (inbox = Proposed decisions only).
-    let open: Vec<_> = proj
-        .decisions
-        .iter()
-        .filter(|d| d.status == DecisionStatus::Proposed)
-        .collect();
-    assert!(
-        !open
-            .iter()
-            .any(|d| d.subject == "Automated-testing library"),
-        "a delegated decision should never sit in the owner inbox"
-    );
-
-    // And a follow-up task was created for it.
-    assert!(
-        proj.tasks.iter().any(|t| t.id == "task-testing-lib"),
-        "PM should create a task for the delegated decision"
-    );
-
-    // The full universal pair is recorded in the event log as DecisionMade by
-    // the PM (not the owner) — proving the event type carries the decider.
-    let made_events = state
-        .store
-        .read_since("proj-test", 0)
-        .unwrap()
-        .into_iter()
-        .filter(|e| e.event_type == EventType::DecisionMade)
-        .collect::<Vec<_>>();
-    assert!(
-        made_events
-            .iter()
-            .any(|e| e.actor == Actor::Agent { id: "pm".into() } && e.aggregate.id == tl.id),
-        "the universal DecisionMade should be authored by the delegated PM"
-    );
+    // Without an LLM to call MakeDecision, the decision stays proposed.
+    assert_eq!(tl.status, DecisionStatus::Proposed);
+    assert_eq!(tl.decided_by, None);
 }

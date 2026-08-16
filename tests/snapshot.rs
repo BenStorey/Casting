@@ -49,10 +49,13 @@ fn snapshot_then_tail_equals_full_fold() {
     hire_engineer(&state, "james-wilson");
 
     // Building from snapshot should catch only the tail (james-wilson).
-    let from_snap = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let (from_snap, folded_through) =
+        store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(from_snap.agents.len(), 3);
     assert!(from_snap.agents.iter().any(|a| a.id == "james-wilson"));
     assert!(from_snap.agents.iter().any(|a| a.id == "marcus-reed"));
+    // The folded-through sequence is the last applied event's (seq 3).
+    assert_eq!(folded_through, 3);
 
     // And it equals a full rebuild of the same log.
     let full_now = Projection::build(&state.store, "proj-snap").unwrap();
@@ -66,7 +69,7 @@ fn build_from_falls_back_to_full_fold_without_a_snapshot() {
     hire_engineer(&state, "maya-patel");
     let snapshots = SqliteSnapshotStore::in_memory().unwrap(); // empty
 
-    let proj = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let (proj, _) = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents.len(), 2);
     assert_eq!(
         proj.agents,
@@ -96,7 +99,7 @@ fn corrupt_snapshot_is_discarded_and_falls_back() {
     // Corrupt snapshot -> load() returns None -> build_from falls back to a
     // full fold, identical to ground truth. (Snapshots are disposable.)
     assert!(snapshots.load("proj-snap").is_none());
-    let proj = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let (proj, _) = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents.len(), 1);
     assert_eq!(
         proj.agents,
@@ -120,7 +123,7 @@ fn snapshot_round_trips_through_the_store() {
     assert_eq!(loaded_seq, seq);
     assert_eq!(loaded.agents.len(), 3);
     // No tail events after the snapshot: build_from returns exactly the snapshot.
-    let proj = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
+    let (proj, _) = store::snapshot::build_from(&state.store, &snapshots, "proj-snap").unwrap();
     assert_eq!(proj.agents, full.agents);
 }
 

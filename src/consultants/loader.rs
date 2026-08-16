@@ -11,9 +11,7 @@
 //! an empty id/name, or an out-of-range temperature is rejected loudly.
 
 use super::cast_role::CastRole;
-use super::{
-    ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig, VerificationConfig,
-};
+use super::{ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig, VerificationConfig};
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
@@ -97,9 +95,7 @@ impl ConsultantRegistry {
                 std::str::from_utf8(&file.data).context("consultant package not valid UTF-8")?;
             let wrapped: ConsultantFile =
                 toml::from_str(text).with_context(|| format!("parse {name}"))?;
-            configs.push(
-                from_raw(wrapped.consultant).with_context(|| format!("validate {name}"))?,
-            );
+            configs.push(from_raw(wrapped.consultant).with_context(|| format!("validate {name}"))?);
         }
         let reg = build_defaults(configs)?;
         // Validate all 7 roles are present.
@@ -137,8 +133,7 @@ impl ConsultantRegistry {
                 .with_context(|| format!("read {}", path.display()))?;
             let wrapped: ConsultantFile =
                 toml::from_str(&text).with_context(|| format!("parse {name}"))?;
-            let cfg = from_raw(wrapped.consultant)
-                .with_context(|| format!("validate {name}"))?;
+            let cfg = from_raw(wrapped.consultant).with_context(|| format!("validate {name}"))?;
             overlay_insert(self, cfg);
             loaded += 1;
         }
@@ -160,10 +155,20 @@ fn build_defaults(configs: Vec<ConsultantConfig>) -> Result<ConsultantRegistry> 
 }
 
 /// Overlay semantics: replace on id collision (a real override of a default).
+/// When an overlay changes an id's `cast_role`, the old `by_role` entry is
+/// removed so stale bindings never persist (P1.2 fix).
 fn overlay_insert(reg: &mut ConsultantRegistry, cfg: ConsultantConfig) {
     let id = cfg.id.clone();
     if !reg.by_id.contains_key(&id) {
         reg.order.push(id.clone());
+    } else {
+        // Overriding an existing id: if the role changed, remove the old
+        // by_role entry so stale bindings don't persist.
+        if let Some(old) = reg.by_id.get(&id) {
+            if old.role != cfg.role {
+                reg.by_role.remove(&old.role);
+            }
+        }
     }
     reg.by_id.insert(id.clone(), Arc::new(cfg.clone()));
     reg.by_role.insert(cfg.role.clone(), Arc::new(cfg));

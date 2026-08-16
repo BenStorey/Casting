@@ -103,6 +103,10 @@ pub fn router(state: AppState) -> Router {
             "/api/telegram/configure",
             axum::routing::post(telegram_configure_handler),
         )
+        // Auth-guarded GET endpoints: debug context exposes full system prompts,
+        // and telegram status leaks the chat_id. Both need the owner token.
+        .route("/api/debug/context/{actor}", get(full_context_handler))
+        .route("/api/telegram/status", get(telegram_status_handler))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_auth,
@@ -129,13 +133,13 @@ pub fn router(state: AppState) -> Router {
             get(provenance_decision_handler),
         )
         .route("/api/context/{actor}", get(context_handler))
-        .route("/api/debug/context/{actor}", get(full_context_handler))
+        // NOTE: /api/debug/context/{actor} is auth-guarded in the guarded router
         .route("/api/persona/{agent_id}", get(persona_handler))
         .route("/api/model", get(model_handler))
         .route("/api/graph", get(graph_handler))
         .route("/api/consultants", get(consultants_handler))
         .route("/api/routing", get(routing_handler))
-        .route("/api/telegram/status", get(telegram_status_handler))
+        // NOTE: /api/telegram/status is auth-guarded in the guarded router
         .route("/api/health", get(health_handler))
         .route("/api/graph/task/{task_id}", get(graph_task_context_handler))
         // The embedded SPA (and SPA route fallback) handles everything else.

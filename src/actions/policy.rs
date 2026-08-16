@@ -20,6 +20,9 @@ pub enum PolicyError {
     SpecialRoleNotAssignable(String),
     /// Reviewing a task that isn't currently in review.
     TaskNotInReview(String),
+    /// A task is not in the correct status for the action (replaces the old
+    /// misattributed TaskAlreadyExists for status-mismatch errors).
+    TaskStatusError(String),
     /// Starting/completing/blocking a task that has not been assigned yet.
     TaskUnassigned(String),
     /// Starting/completing/blocking a task by someone other than its assignee.
@@ -104,6 +107,7 @@ impl std::fmt::Display for PolicyError {
             PolicyError::TaskNotInReview(id) => {
                 write!(f, "cannot review task {id}: it is not in review")
             }
+            PolicyError::TaskStatusError(msg) => write!(f, "{msg}"),
             PolicyError::TaskUnassigned(id) => {
                 write!(f, "cannot act on task {id}: no assignee yet")
             }
@@ -281,12 +285,11 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             // Fail-closed: a task can only be started from Backlog state.
             // System and owner bypass this check (trusted actors).
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
-            if task.status != crate::projection::TaskStatus::Backlog
-                && who != "system"
-            {
-                return Err(PolicyError::TaskAlreadyExists(
-                    format!("task {task_id} is not in Backlog state (status={:?})", task.status)
-                ));
+            if task.status != crate::projection::TaskStatus::Backlog && who != "system" {
+                return Err(PolicyError::TaskStatusError(format!(
+                    "task {task_id} is not in Backlog state (status={:?})",
+                    task.status
+                )));
             }
             // Fail-closed isolation (2026-08-12): a task can only be started
             // with an isolated worktree provisioned — unless the assignee is
@@ -370,10 +373,8 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             // through the PM's review (RequestReview → ReviewTask). `self`-merge
             // tasks, owner-delivered tasks, and system tasks may complete
             // directly (the fast path).
-            let is_owner_or_system =
-                task.assignee.as_deref() == Some(OWNER) || who == "system";
-            if task.merge_authority == crate::types::MergeAuthority::PmMerge
-                && !is_owner_or_system
+            let is_owner_or_system = task.assignee.as_deref() == Some(OWNER) || who == "system";
+            if task.merge_authority == crate::types::MergeAuthority::PmMerge && !is_owner_or_system
             {
                 return Err(PolicyError::PmMergeRequiresReview(task_id.clone()));
             }
@@ -398,9 +399,10 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
             // Fail-closed: a task can only be sent for review from Working state.
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             if task.status != crate::projection::TaskStatus::Working {
-                return Err(PolicyError::TaskNotInReview(
-                    format!("task {task_id} is not in Working state (status={:?})", task.status),
-                ));
+                return Err(PolicyError::TaskNotInReview(format!(
+                    "task {task_id} is not in Working state (status={:?})",
+                    task.status
+                )));
             }
             if !state.agents.iter().any(|a| a.id == *reviewer) {
                 return Err(PolicyError::AgentNotHired(reviewer.clone()));
