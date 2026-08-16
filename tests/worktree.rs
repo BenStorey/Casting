@@ -235,13 +235,17 @@ fn worktree_provisioned_event_projects_worktree_and_change_set() {
 #[tokio::test]
 async fn pm_onboarding_provisions_distinct_worktrees() {
     use casting::pm::AppState;
+    use casting::runtime::orchestrator::MockOrchestrator;
     use casting::store::CursorStore as _;
     use casting::store::EventStore as _;
+    use std::sync::Arc;
     use std::time::Duration;
 
     let store = casting::store::SqliteEventStore::in_memory().unwrap();
     let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
-    let state = AppState::new(store, cursors, "proj").with_step_delay(Duration::ZERO);
+    let state = AppState::new(store, cursors, "proj")
+        .with_step_delay(Duration::ZERO)
+        .with_orchestrator(Arc::new(MockOrchestrator));
 
     // Hire the default cast + seed project so plan_onboard sees requirements
     // empty and kicks off (mirrors the vertical-slice happy path but checks
@@ -325,6 +329,7 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
 #[tokio::test]
 async fn pm_physically_provisions_worktrees_with_workspace() {
     use casting::pm::AppState;
+    use casting::runtime::orchestrator::MockOrchestrator;
     use casting::store::CursorStore as _;
     use casting::store::EventStore as _;
     use std::sync::Arc;
@@ -338,6 +343,7 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
         AppState::new(store, cursors, "proj")
             .with_step_delay(Duration::ZERO)
             .with_workspace(Arc::new(ws.clone()))
+            .with_orchestrator(Arc::new(MockOrchestrator))
     };
 
     // Seed + owner message (same as above).

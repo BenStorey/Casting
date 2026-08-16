@@ -68,7 +68,7 @@ The PM runs as a background async loop inside `cast run`. On each cycle it:
 
 1. Reads new events since its last cursor position
 2. Rebuilds the projection (up to date)
-3. Plans what to do next (deterministic scripted policy — no LLM calls yet)
+3. Plans what to do next (via the `Orchestrator` trait — real LLM when configured, `MockOrchestrator` in tests)
 4. Proposes typed actions through the **policy gate**
 5. Appends accepted actions as new events
 6. Sleeps until the next trigger (new event or timer)
@@ -187,7 +187,7 @@ frontend/
 
 **What works today:**
 - Full CRUD event sourcing with SQLite (Postgres optional)
-- PM control loop with deterministic scripted planning
+- PM control loop with `Orchestrator` trait — real LLM when configured (via `CAST_LLM_API_KEY` or setup wizard), otherwise properly inert
 - Decision policy engine with per-class autonomy levels
 - Setup wizard (name → experience → cast intro → project → policies → API key)
 - React SPA with live chat, board, team view, graph, inbox, decisions
@@ -196,16 +196,8 @@ frontend/
 - Git observer + provenance queries
 - Telegram owner channel (BotFather integration)
 - CLI: init, run, purge, brief, request, log, smoke
-
-**What's next (D2):**
-- Wire the real LLM orchestrator (currently the PM uses a scripted policy)
-- The typed action vocabulary and policy gate are the seam — an LLM producer
-  drops in behind the same `Orchestrator` trait that the mock uses
-
-**What's mocked / not yet wired:**
-- LLM calls (the orchestrator trait exists, a mock exists, but the real
-  OpenAI-compatible client is not connected — requires `CAST_LLM_API_KEY`)
-- The PM's planning is deterministic scripted logic in `planning.rs`
+- Generated LLM action vocabulary (kept in sync with the PmAction enum)
+- Cost classification per call (pm_overhead / implementation / research / tooling)
 
 ---
 

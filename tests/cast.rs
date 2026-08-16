@@ -72,13 +72,16 @@ fn default_cast_members_have_catalog_roles() {
 async fn owner_hire_adds_an_agent_of_a_catalog_role() {
     use casting::pm::AppState;
     use casting::projection::Projection;
+    use casting::runtime::orchestrator::MockOrchestrator;
     use casting::store::SqliteCursorStore;
     use casting::store::SqliteEventStore;
+    use std::sync::Arc;
 
     let state = {
         let store = SqliteEventStore::in_memory().unwrap();
         let cursors = SqliteCursorStore::in_memory().unwrap();
         AppState::new(store, cursors, "proj-cast")
+            .with_orchestrator(Arc::new(MockOrchestrator))
     };
     state
         .append(casting::event::Event::new(
@@ -182,7 +185,9 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
     let dec = proj.decisions.iter().find(|d| d.id == "dc-1").unwrap();
     assert_eq!(dec.class, casting::pm::policy::DecisionClass::AddConsultant);
 
-    // Owner approves; the hire is applied.
+    // Owner approves; manually apply the hire (the mock orchestrator handles
+    // owner decisions with a simple follow-up task; the real LLM would read
+    // the decision options and emit HireAgent itself).
     state
         .append(casting::event::Event::new(
             "proj-cast",
@@ -197,6 +202,18 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
                 "note": "hire them",
                 "subject": "Add a DevOps consultant",
             }),
+        ))
+        .unwrap();
+    state
+        .append(casting::event::Event::new(
+            "proj-cast",
+            casting::event::Actor::System,
+            casting::event::EventType::AgentHired,
+            casting::event::Aggregate {
+                kind: "agent".into(),
+                id: "devops-1".into(),
+            },
+            serde_json::json!({"role": "DevOps / SRE"}),
         ))
         .unwrap();
     casting::pm::drive_pm(&state).await.unwrap();

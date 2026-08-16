@@ -4,8 +4,10 @@
 //! the hard-blocked child stays queued until the gate sees its blocker complete.
 
 use casting::pm::AppState;
+use casting::runtime::orchestrator::MockOrchestrator;
 use casting::store::CursorStore as _;
 use casting::store::EventStore as _;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn seed(state: &AppState) {
@@ -52,24 +54,82 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
     let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
     let state = AppState::new(store, cursors, "proj")
         .with_step_delay(Duration::ZERO)
-        .with_decompose();
+        .with_decompose()
+        .with_orchestrator(Arc::new(MockOrchestrator));
     seed(&state);
 
+    // Manually create the requirement and feature task that would otherwise
+    // be produced by the PM's first message. The old plan_onboard did this
+    // as a demo tape; now the orchestrator path handles it.
     state
         .append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Owner,
-            casting::event::EventType::MessageSent,
+            casting::event::Actor::Agent { id: "pm".into() },
+            casting::event::EventType::RequirementCreated,
             casting::event::Aggregate {
-                kind: "message".into(),
-                id: "m1".into(),
+                kind: "requirement".into(),
+                id: "req-1".into(),
             },
-            serde_json::json!({ "body": "Build me an app" }),
+            serde_json::json!({ "title": "Build me an app", "description": "Build me an app" }),
         ))
         .unwrap();
+    state
+        .append(casting::event::Event::new(
+            "proj",
+            casting::event::Actor::Agent { id: "pm".into() },
+            casting::event::EventType::TaskCreated,
+            casting::event::Aggregate {
+                kind: "task".into(),
+                id: "task-feature".into(),
+            },
+            serde_json::json!({ "title": "Feature: Build me an app", "kind": "feature" }),
+        ))
+        .unwrap();
+    // Decompose the feature into parallel children with a hard edge.
+    let children = vec![
+        casting::actions::TaskSpec { id: "feature-db".into(), title: "Database layer".into(), kind: "feature".into() },
+        casting::actions::TaskSpec { id: "feature-api".into(), title: "API layer".into(), kind: "feature".into() },
+        casting::actions::TaskSpec { id: "feature-ui".into(), title: "UI layer".into(), kind: "feature".into() },
+        casting::actions::TaskSpec { id: "feature-sec".into(), title: "Security review".into(), kind: "feature".into() },
+    ];
+    let cause = casting::event::Event::new(
+        "proj",
+        casting::event::Actor::Agent { id: "pm".into() },
+        casting::event::EventType::TaskCreated,
+        casting::event::Aggregate { kind: "task".into(), id: "task-feature".into() },
+        serde_json::json!({}),
+    );
+    for ev in (casting::actions::PmAction::DecomposeTask {
+        parent: "task-feature".into(),
+        children: children.clone(),
+    }).to_events("proj", "pm", &cause, "corr-decompose") {
+        state.append(ev).unwrap();
+    }
 
+    // Add the hard edge: feature-api blocks on feature-db.
+    for ev in (casting::actions::PmAction::BlockTaskOn {
+        task_id: "feature-api".into(),
+        blocking_task_id: "feature-db".into(),
+        required_state: casting::types::TaskStatus::Done,
+    }).to_events("proj", "pm", &cause, "corr-edge") {
+        state.append(ev).unwrap();
+    }
+
+    // Assign children to diego (engineer) so the actor-turn loop can act.
+    for child in ["feature-db", "feature-api", "feature-ui", "feature-sec"] {
+        for ev in (casting::actions::PmAction::AssignTask {
+            task_id: child.into(),
+            assignee: "diego".into(),
+            merge_authority: casting::types::MergeAuthority::SelfMerge,
+        }).to_events("proj", "pm", &cause, "corr-assign") {
+            state.append(ev).unwrap();
+        }
+    }
+
+    // Now drive the PM — the actor-turn loop should pick up the Backlog
+    // children, start/complete/review them through the gate.
     let authored = casting::pm::drive_pm(&state).await.unwrap();
-    assert!(authored > 0, "PM should author onboarding work");
+    assert!(authored > 0, "PM should author work through actor turns");
 
     let proj = state.projection().unwrap();
 
@@ -146,7 +206,9 @@ async fn default_onboard_without_decompose_stays_flat() {
     // no feature children are fanned out.
     let store = casting::store::SqliteEventStore::in_memory().unwrap();
     let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
-    let state = AppState::new(store, cursors, "proj").with_step_delay(Duration::ZERO);
+    let state = AppState::new(store, cursors, "proj")
+        .with_step_delay(Duration::ZERO)
+        .with_orchestrator(Arc::new(MockOrchestrator));
     seed(&state);
 
     state

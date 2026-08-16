@@ -15,8 +15,7 @@
 use crate::actions::{self, PmAction};
 use crate::event::{Actor, Event, EventType};
 use crate::pm::planning::{
-    plan_acknowledge, plan_onboard, plan_owner_decision, actors_with_work,
-    orchestration_run_event, insert_worktree_provisions,
+    actors_with_work, orchestration_run_event, insert_worktree_provisions,
 };
 use crate::projection::Projection;
 use crate::store::EventStore;
@@ -451,10 +450,10 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
         let (planned, metering): (
             Vec<PlannedAction>,
             Option<crate::runtime::orchestrator::CostMetering>,
-        ) = if is_owner_message {
+        ) = if is_owner_message || is_owner_decision {
             // D2 seam: if an orchestrator is enabled, let IT drive the
-            // response (the LLM, or the mock in tests). Otherwise use the
-            // scripted plans.
+            // response (the LLM, or the mock in tests). Without an orchestrator,
+            // the system is properly inert — no scripted fallback, no demo tape.
             if let Some(orch) = &state.orchestrator {
                 // Hard harness gate (2026-08-13, guard.rs)
                 if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(projection) {
@@ -515,14 +514,16 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     }
                     (out.actions, out.metering)
                 }
-            } else if projection.requirements.is_empty() {
-                (plan_onboard(state, e, body, &projection.policy), None)
             } else {
-                (plan_acknowledge(e), None)
+                // No orchestrator attached — system is properly inert.
+                // Without a provider, there is no one to plan. The owner must
+                // configure an LLM API key (via setup wizard or env var) before
+                // the organization can act.
+                log::info!("[pm] no orchestrator attached; owner messages/decisions are recorded but no action is taken until a provider is configured");
+                (Vec::new(), None)
             }
         } else {
-            // is_owner_decision
-            (plan_owner_decision(state, e), None)
+            unreachable!("non-PM triggers are filtered before this point")
         };
 
         // Record provider cost in the event log
@@ -597,6 +598,8 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
         }
 
         let mut made_progress = false;
+        // Safety: prevent infinite loops in tests (max 10 iterations).
+        let mut iteration = 0u32;
 
         for actor in &actors {
             let context = proj.context_for(actor);
@@ -702,11 +705,19 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
             insert_worktree_provisions(state, &mut actions, &mut claimed_ports);
 
             authored += run_planned(state, cause, actions).await?;
-            made_progress = true;
+            if authored > 0 {
+                made_progress = true;
+            }
         }
 
         if !made_progress {
             break; // stable — no actor could act
+        }
+        // Safety: prevent infinite loops in tests (max 10 iterations).
+        iteration += 1;
+        if iteration > 10 {
+            log::warn!("[pm] actor-turn loop exceeded 10 iterations — breaking to prevent infinite loop");
+            break;
         }
     }
 

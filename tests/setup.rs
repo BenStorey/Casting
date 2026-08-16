@@ -180,10 +180,13 @@ async fn setup_then_onboard_does_not_double_hire() {
     // owner's first message (which triggers plan_onboard).
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
+    use casting::runtime::orchestrator::MockOrchestrator;
     use casting::store::SqliteCursorStore;
+    use std::sync::Arc;
     let store = casting::workspace::setup::open_store(tmp.path()).unwrap();
     let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
-    let state = AppState::new(store, cursors, "project-demo");
+    let state = AppState::new(store, cursors, "project-demo")
+        .with_orchestrator(Arc::new(MockOrchestrator));
 
     state
         .append(Event::new(
@@ -230,10 +233,13 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
 
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
+    use casting::runtime::orchestrator::MockOrchestrator;
     use casting::store::SqliteCursorStore;
+    use std::sync::Arc;
     let store = casting::workspace::setup::open_store(tmp.path()).unwrap();
     let cursors = SqliteCursorStore::open(tmp.path().join("cursors.db")).unwrap();
-    let state = AppState::new(store, cursors, "project-demo");
+    let state = AppState::new(store, cursors, "project-demo")
+        .with_orchestrator(Arc::new(MockOrchestrator));
     state
         .append(Event::new(
             "project-demo",

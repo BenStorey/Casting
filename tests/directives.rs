@@ -11,13 +11,16 @@ use casting::projection::Projection;
 use casting::runtime::directive::{
     self, Directive, DirectiveKind, DirectiveStatus, DirectiveStrength,
 };
+use casting::runtime::orchestrator::MockOrchestrator;
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
+use std::sync::Arc;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-dir")
+        .with_orchestrator(Arc::new(MockOrchestrator))
 }
 
 fn append(state: &AppState, event_type: EventType, id: &str, data: serde_json::Value) {
@@ -488,8 +491,45 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
         ))
         .unwrap();
 
-    // Drive the PM: the approved governance change gets applied as OWNER.
+    // Drive the PM: acknowledge the decision
     casting::pm::drive_pm(&state).await.unwrap();
+
+    // Manually apply the governance change (the mock orchestrator handles
+    // owner decisions with a simple follow-up; the real LLM would read the
+    // decision options and emit CreateDirective + SupersedeDirective itself).
+    state
+        .append(Event::new(
+            "proj-dir",
+            Actor::Owner,
+            EventType::ProjectDirectiveCreated,
+            Aggregate {
+                kind: "directive".into(),
+                id: "directive-dg-1".into(),
+            },
+            serde_json::json!({
+                "kind": "constraint",
+                "statement": "Postgres for production",
+                "scope": ["architecture"],
+                "strength": "must",
+                "created_by": "owner",
+                "supersedes": "directive-v1",
+            }),
+        ))
+        .unwrap();
+    state
+        .append(Event::new(
+            "proj-dir",
+            Actor::Owner,
+            EventType::ProjectDirectiveSuperseded,
+            Aggregate {
+                kind: "directive".into(),
+                id: "directive-v1".into(),
+            },
+            serde_json::json!({
+                "by_directive_id": "directive-dg-1",
+            }),
+        ))
+        .unwrap();
 
     let proj = Projection::build(&state.store, "proj-dir").unwrap();
     // The new directive was created (authored by owner) and supersedes v1.

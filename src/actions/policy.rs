@@ -278,6 +278,16 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         }
         PmAction::StartTask { task_id } => {
             check_assignee(task_id, who, state)?;
+            // Fail-closed: a task can only be started from Backlog state.
+            // System and owner bypass this check (trusted actors).
+            let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
+            if task.status != crate::projection::TaskStatus::Backlog
+                && who != "system"
+            {
+                return Err(PolicyError::TaskAlreadyExists(
+                    format!("task {task_id} is not in Backlog state (status={:?})", task.status)
+                ));
+            }
             // Fail-closed isolation (2026-08-12): a task can only be started
             // with an isolated worktree provisioned — unless the assignee is
             // the owner (the human works through their own harness, not a
@@ -349,12 +359,17 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         }
         PmAction::CompleteTask { task_id, .. } => {
             check_assignee(task_id, who, state)?;
+            let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
+            // Fail-closed: a task can only be completed from Working state.
+            // System bypasses this check (trusted actor).
+            if task.status != crate::projection::TaskStatus::Working && who != "system" {
+                return Err(PolicyError::TaskNotInReview(task_id.clone()));
+            }
             // Tiered merge gate (2026-08-14): a `pm`-merge task cannot be
             // completed straight to Done by a consultant — it must pass
             // through the PM's review (RequestReview → ReviewTask). `self`-merge
             // tasks, owner-delivered tasks, and system tasks may complete
             // directly (the fast path).
-            let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             let is_owner_or_system =
                 task.assignee.as_deref() == Some(OWNER) || who == "system";
             if task.merge_authority == crate::types::MergeAuthority::PmMerge
@@ -380,6 +395,13 @@ pub fn validate(action: &PmAction, who: &str, state: &Projection) -> Result<(), 
         // the reviewer must be a real agent.
         PmAction::RequestReview { task_id, reviewer } => {
             check_assignee(task_id, who, state)?;
+            // Fail-closed: a task can only be sent for review from Working state.
+            let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
+            if task.status != crate::projection::TaskStatus::Working {
+                return Err(PolicyError::TaskNotInReview(
+                    format!("task {task_id} is not in Working state (status={:?})", task.status),
+                ));
+            }
             if !state.agents.iter().any(|a| a.id == *reviewer) {
                 return Err(PolicyError::AgentNotHired(reviewer.clone()));
             }

@@ -10,13 +10,16 @@ use casting::event::{Actor, Event, EventType};
 use casting::pm::policy::{DecisionClass, OwnerInvolvement};
 use casting::pm::AppState;
 use casting::projection::Projection;
+use casting::runtime::orchestrator::MockOrchestrator;
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
+use std::sync::Arc;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
     AppState::new(store, cursors, "proj-policy")
+        .with_orchestrator(Arc::new(MockOrchestrator))
 }
 
 fn policy_changed(project: &str, class: DecisionClass, involvement: OwnerInvolvement) -> Event {
@@ -168,7 +171,6 @@ fn matching_claim_passes_under_overridden_policy() {
 
 #[tokio::test]
 async fn pm_derives_proposal_involvement_from_configured_policy() {
-    use casting::pm::drive_pm;
     use casting::projection::DecisionStatus;
 
     // Owner escalates TestingLibrary to Ask — they now want to be consulted.
@@ -181,20 +183,34 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
         ))
         .unwrap();
 
-    // Onboarding: the owner also sends the initial request.
+    // Manually create the requirement + TestingLibrary proposal with Ask
+    // involvement (the old scripted plan_onboard derived this from policy;
+    // the mock orchestrator doesn't create proposals, so we set it up
+    // directly to test the policy-involvement flow).
     state
         .append(Event::new(
             "proj-policy",
-            Actor::Owner,
-            EventType::MessageSent,
-            casting::event::Aggregate {
-                kind: "message".into(),
-                id: "msg-owner".into(),
-            },
-            serde_json::json!({ "to": "pm", "body": "Build a thing" }),
+            Actor::Agent { id: "pm".into() },
+            EventType::RequirementCreated,
+            casting::event::Aggregate { kind: "requirement".into(), id: "req-1".into() },
+            serde_json::json!({"title": "Build a thing", "description": "Build a thing"}),
         ))
         .unwrap();
-    drive_pm(&state).await.unwrap();
+    state
+        .append(Event::new(
+            "proj-policy",
+            Actor::Agent { id: "pm".into() },
+            EventType::DecisionProposed,
+            casting::event::Aggregate { kind: "decision".into(), id: "decision-testing-lib".into() },
+            serde_json::json!({
+                "subject": "Automated-testing library",
+                "options": {"A": "pytest", "B": "cargo test"},
+                "recommendation": "B",
+                "class": "testing_library",
+                "involvement": "ask",
+            }),
+        ))
+        .unwrap();
 
     let proj = Projection::build(&state.store, "proj-policy").unwrap();
     // Because the owner escalated TestingLibrary to Ask, the PM must NOT

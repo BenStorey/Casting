@@ -8,12 +8,16 @@ use casting::projection::{DecisionStatus, Projection, TaskStatus};
 use casting::store::EventStore;
 use casting::store::SqliteCursorStore;
 use casting::store::SqliteEventStore;
+use casting::runtime::orchestrator::MockOrchestrator;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
-    AppState::new(store, cursors, "proj-test").with_step_delay(Duration::ZERO)
+    AppState::new(store, cursors, "proj-test")
+        .with_step_delay(Duration::ZERO)
+        .with_orchestrator(Arc::new(MockOrchestrator))
 }
 
 fn owner_message(body: &str) -> Event {

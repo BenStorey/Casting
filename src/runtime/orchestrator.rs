@@ -1,9 +1,7 @@
-//! The orchestrator seam (D2) — the contract the future LLM PM will implement.
+//! The orchestrator seam (D2) — the contract the LLM PM implements.
 //!
-//! Every piece so far was shaped for this: the PM's "reasoning" is isolated in
-//! a few scripted `plan_*` functions that take (state, cause, policy) and
-//! return `PmAction`s. D2 replaces (or augments) those with a real LLM. This
-//! module defines the *contract* — [`Orchestrator`] — and ships a deterministic
+//! Every piece was shaped for this: the PM's "reasoning" is isolated behind the
+//! [`Orchestrator`] trait. D2 drives it with a real LLM; tests use the
 //! [`MockOrchestrator`] so the whole seam is built, tested, and gate-checked
 //! with **zero LLM and zero spend**.
 //!
@@ -11,8 +9,15 @@
 //! while travelling the LLM is deliberately unplugged). When it's plugged in,
 //! it just has to implement [`Orchestrator`]: read the assembled context, return
 //! `PmAction`s, and the existing gate + append path do the rest.
+//!
+//! The old scripted planning functions (`plan_onboard`, `plan_acknowledge`,
+//! `plan_owner_decision`) have been removed — they were the demo tape.
+//! Without an orchestrator attached, the system is properly inert: the event
+//! log records owner messages and decisions, but no action is taken until a
+//! provider is configured.
 
 use crate::actions::PmAction;
+use crate::event::{Actor, EventType};
 use crate::event::Event;
 use crate::pm::PlannedAction;
 use crate::runtime::context::AgentContext;
@@ -87,6 +92,35 @@ pub struct MockOrchestrator;
 #[async_trait::async_trait]
 impl Orchestrator for MockOrchestrator {
     async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
+        // Handle owner decision triggers: create a follow-up task on approval,
+        // acknowledge on rejection — mimics the old plan_owner_decision logic.
+        if cause.event_type == EventType::DecisionMade && cause.actor == Actor::Owner {
+            let approved = cause.data.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
+            let subject = cause.data.get("subject").and_then(|v| v.as_str()).unwrap_or("your decision");
+            let note = cause.data.get("note").and_then(|v| v.as_str()).unwrap_or("");
+            let mut actions: Vec<PlannedAction> = Vec::new();
+            let verdict = if approved { "Approved" } else { "Declined" };
+            let suffix = if note.is_empty() { String::new() } else { format!(" (\"{note}\")") };
+            actions.push((
+                "pm".into(),
+                PmAction::SendMessage {
+                    to: "owner".into(),
+                    body: format!("{verdict}: \"{subject}\"{suffix}"),
+                },
+            ));
+            if approved {
+                actions.push((
+                    "pm".into(),
+                    PmAction::CreateTask {
+                        id: format!("task-adopt-{}", cause.aggregate.id),
+                        title: format!("Adopt {subject}"),
+                        kind: "feature".into(),
+                    },
+                ));
+            }
+            return Ok(PlanOutput { actions, metering: None });
+        }
+
         let mut actions: Vec<PlannedAction> = Vec::new();
 
         if context.objective.is_none() {
@@ -112,27 +146,49 @@ impl Orchestrator for MockOrchestrator {
         }
 
         // There's an objective: narrow the task backlog (mock "reasoning").
-        if context.priorities.is_empty() {
-            actions.push((
-                "pm".into(),
-                PmAction::CreateTask {
-                    id: "task-mock-1".into(),
-                    title: "Implement the build plan".to_string(),
-                    kind: "feature".into(),
-                },
-            ));
-        } else {
-            actions.push((
-                "pm".into(),
-                PmAction::ProposeDecision {
-                    id: "decision-mock-1".into(),
-                    subject: "Mock follow-up".to_string(),
-                    options: serde_json::json!({ "A": "continue", "B": "pause" }),
-                    recommendation: "A".into(),
-                    class: crate::pm::DecisionClass::InternalImplementation,
-                    involvement: crate::pm::OwnerInvolvement::Pm,
-                },
-            ));
+        // Only the PM creates tasks; non-PM actors work on what they're assigned.
+        if context.actor == "pm" {
+            if context.priorities.is_empty() {
+                actions.push((
+                    "pm".into(),
+                    PmAction::CreateTask {
+                        id: "task-mock-1".into(),
+                        title: "Implement the build plan".to_string(),
+                        kind: "feature".into(),
+                    },
+                ));
+            } else {
+                actions.push((
+                    "pm".into(),
+                    PmAction::ProposeDecision {
+                        id: "decision-mock-1".into(),
+                        subject: "Mock follow-up".to_string(),
+                        options: serde_json::json!({ "A": "continue", "B": "pause" }),
+                        recommendation: "A".into(),
+                        class: crate::pm::DecisionClass::InternalImplementation,
+                        involvement: crate::pm::OwnerInvolvement::Pm,
+                    },
+                ));
+            }
+        } else if !context.my_tasks.is_empty() {
+            // Non-PM actor with assigned tasks: advance their assigned work.
+            // In a real LLM the model decides what to do; the mock just drives
+            // the lifecycle deterministically so the actor-turn loop is tested.
+            for task_id in &context.my_tasks {
+                // The mock doesn't have access to task status from context,
+                // so it always starts + completes + requests review for each
+                // assigned task. The gate will reject actions that are not
+                // legal in the current state, which is fine.
+                actions.push((context.actor.clone(), PmAction::StartTask { task_id: task_id.clone() }));
+                actions.push((context.actor.clone(), PmAction::CompleteTask {
+                    task_id: task_id.clone(),
+                    result: format!("{task_id} — completed by {}", context.actor),
+                }));
+                actions.push((context.actor.clone(), PmAction::RequestReview {
+                    task_id: task_id.clone(),
+                    reviewer: "pm".into(),
+                }));
+            }
         }
 
         Ok(PlanOutput {

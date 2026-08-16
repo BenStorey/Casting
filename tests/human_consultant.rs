@@ -92,6 +92,7 @@ fn owner_can_start_and_complete_their_own_task() {
     .unwrap();
 
     // Owner (who == "owner") can start and complete it.
+    // First start the task so it transitions to Working.
     let proj = Projection::build(&st.store, &st.project).unwrap();
     assert!(casting::actions::validate(
         &casting::actions::PmAction::StartTask {
@@ -101,6 +102,20 @@ fn owner_can_start_and_complete_their_own_task() {
         &proj
     )
     .is_ok());
+
+    // Simulate the task being started so CompleteTask is valid.
+    st.append(Event::new(
+        &st.project,
+        Actor::Owner,
+        EventType::TaskStarted,
+        Aggregate {
+            kind: "task".into(),
+            id: "task-1".into(),
+        },
+        serde_json::json!({}),
+    ))
+    .unwrap();
+    let proj = Projection::build(&st.store, &st.project).unwrap();
     assert!(casting::actions::validate(
         &casting::actions::PmAction::CompleteTask {
             task_id: "task-1".into(),
