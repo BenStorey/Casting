@@ -142,3 +142,25 @@ pub fn ensure_no_raw_secrets(store: &SecretStore, activity: &Activity) -> Result
     }
     Ok(())
 }
+
+/// Check a free-text string for embedded secret values. Same verbatim-scan
+/// logic as [`ensure_no_raw_secrets`] but works on a bare `&str` (no
+/// `Activity` wrapper). `context` identifies the source in the error message
+/// (e.g. `"message body"`, `"briefing body"`).
+///
+/// Returns `Ok(())` when no secrets are embedded (or the store is empty).
+/// Returns `bail!` with a descriptive error when a raw value is found.
+pub fn ensure_no_secrets_in_text(store: &SecretStore, text: &str, context: &str) -> Result<()> {
+    for (name, value) in &store.values {
+        if value.len() < MIN_SCAN_LEN || value.is_empty() {
+            continue;
+        }
+        if text.contains(value.as_str()) {
+            bail!(
+                "{context} embeds the RAW value of secret '{name}'; reference it as \
+                 @secret:{name}@ so it never reaches the event log"
+            );
+        }
+    }
+    Ok(())
+}

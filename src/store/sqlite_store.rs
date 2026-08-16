@@ -56,6 +56,9 @@ impl SqliteEventStore {
             .with_context(|| format!("open SQLite database {}", path.display()))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // Exclusive locking mode prevents a second `cast run` process from opening
+        // the same database file, avoiding dual-PM-process conflicts on the .casting/ dir.
+        conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
         conn.execute_batch(SCHEMA)?;
         Ok(SqliteEventStore {
             conn: Arc::new(Mutex::new(conn)),

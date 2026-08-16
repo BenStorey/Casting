@@ -27,7 +27,7 @@ pub enum Actor {
 /// Semantic type of a domain event. Deliberately a small, curated set —
 /// the organizational model (docs/CASTING_PROJECT_BRIEF.md §12) rather
 /// than raw machinery. Git semantic events per docs/ADDENDUM.md §23.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventType {
     // --- Organizational events ---
     ProjectCreated,

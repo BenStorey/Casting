@@ -1,6 +1,7 @@
 use super::append_json;
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::pm::AppState;
+use crate::workspace::secrets::ensure_no_secrets_in_text;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -20,6 +21,11 @@ pub(crate) async fn message_handler(
     let body = input.body.trim().to_string();
     if body.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "message must not be empty".into()));
+    }
+    // Reject if the message body embeds a raw secret value
+    if let Some(ref secrets) = state.secrets {
+        ensure_no_secrets_in_text(secrets, &body, "message body")
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     }
     let ev = Event::new(
         &state.project,
@@ -61,6 +67,16 @@ pub(crate) async fn brief_handler(
             StatusCode::BAD_REQUEST,
             "briefing body must not be empty".into(),
         ));
+    }
+    // Reject if briefing body embeds a raw secret value (check BEFORE action
+    // construction to avoid borrow-after-move on body).
+    if let Some(ref secrets) = state.secrets {
+        ensure_no_secrets_in_text(secrets, &body, "briefing body")
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        if let Some(ref subject) = input.subject {
+            ensure_no_secrets_in_text(secrets, subject, "briefing subject")
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        }
     }
     let action = crate::actions::PmAction::ImportBriefing {
         id: format!("brief-{}", uuid::Uuid::new_v4()),
@@ -139,12 +155,23 @@ pub(crate) async fn request_handler(
             "request title must not be empty".into(),
         ));
     }
+    let body = input.body;
+    // Reject if external request title/body embeds a raw secret value (check
+    // BEFORE action construction to avoid borrow-after-move).
+    if let Some(ref secrets) = state.secrets {
+        ensure_no_secrets_in_text(secrets, &title, "request title")
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        if !body.is_empty() {
+            ensure_no_secrets_in_text(secrets, &body, "request body")
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        }
+    }
     let action = crate::actions::PmAction::ReceiveExternalRequest {
         id: format!("req-{}", uuid::Uuid::new_v4()),
         source: input.source,
         external_id: input.external_id,
         title,
-        body: input.body,
+        body,
         reporter: input.reporter,
         labels: input.labels,
         url: input.url,
@@ -178,19 +205,14 @@ pub(crate) async fn request_handler(
     append_json(&state, ev)
 }
 
-/// POST /api/diagram input: a diagram drawn in the app (Excalidraw), captured
-/// DIRECTLY from the editor at save time. `data` is the serialized Excalidraw JSON
-/// (reloadable). No export/re-upload — the editor hands us its own document.
+/// POST /api/diagram input: Excalidraw JSON data + optional title.
 #[derive(Deserialize)]
 pub(crate) struct DiagramIn {
-    #[serde(default)]
     title: String,
     data: String,
 }
 
-/// POST /api/diagram — save a diagram drawn in the app (Excalidraw). `data` is the
-/// serialized Excalidraw JSON the editor hands over at save time; we persist it
-/// directly (no export/re-upload) as a durable, reloadable visual artifact.
+/// POST /api/diagram — save a diagram drawn in the app (Excalidraw).
 pub(crate) async fn diagram_handler(
     State(state): State<AppState>,
     Json(input): Json<DiagramIn>,

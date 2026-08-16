@@ -479,6 +479,14 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             // response (the LLM, or the mock in tests). Without an orchestrator,
             // the system is properly inert — no scripted fallback, no demo tape.
             if let Some(orch) = &state.orchestrator {
+                // Warn at startup if the orchestrator is enabled but there's no
+                // configured budget — an unbounded-spend risk by design (guard.rs).
+                if !crate::pm::guard::budget_is_configured(projection) {
+                    log::warn!(
+                        "[pm] orchestrator enabled with no budget configured — \
+                         spend is unbounded; set a BudgetSet limit_usd > 0.0"
+                    );
+                }
                 // Hard harness gate (2026-08-13, guard.rs)
                 if let Err(reason) = crate::pm::guard::llm_dispatch_allowed(projection) {
                     log::warn!("[pm] guard blocked LLM dispatch: {reason}");
@@ -773,10 +781,9 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
     let correlation = format!("run-{}", cause.sequence);
     // One store read per plan: the set of real-entity domain events since the
     // PM's cursor (events before the cursor carry older correlation_ids and
-    // cannot conflict with the current planning pass). EventType has no `Hash`,
-    // so the event_type is keyed by its Debug (variant) name.
+    // cannot conflict with the current planning pass).
     let cursor = state.cursors.get(&state.project, PM_CONSUMER)?.last_seen;
-    let mut applied: std::collections::HashSet<(String, String, String)> =
+    let mut applied: std::collections::HashSet<(crate::event::EventType, String, String)> =
         applied_domain_keys(&state.store, &state.project, cursor)?;
     let mut projection = state.projection()?;
     let mut authored = 0u32;
@@ -816,7 +823,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
             // this (they keep appending as-is).
             if dedup_applies(&event) {
                 let key = (
-                    format!("{:?}", event.event_type),
+                    event.event_type,
                     event.aggregate.id.clone(),
                     correlation.clone(),
                 );
@@ -941,13 +948,13 @@ fn applied_domain_keys(
     store: &Arc<dyn crate::store::EventStore>,
     project: &str,
     from_seq: i64,
-) -> Result<std::collections::HashSet<(String, String, String)>> {
+) -> Result<std::collections::HashSet<(crate::event::EventType, String, String)>> {
     let mut keys = std::collections::HashSet::new();
     for e in store.read_since(project, from_seq)? {
         if dedup_applies(&e) {
             if let Some(corr) = &e.metadata.correlation_id {
                 keys.insert((
-                    format!("{:?}", e.event_type),
+                    e.event_type,
                     e.aggregate.id.clone(),
                     corr.clone(),
                 ));

@@ -1,6 +1,7 @@
 use super::append_json;
 use crate::event::Event;
 use crate::pm::AppState;
+use crate::workspace::secrets::ensure_no_secrets_in_text;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -29,6 +30,15 @@ pub(crate) async fn decision_handler(
         input.approved,
         input.note.clone(),
     );
+    // Reject if decision subject/note embeds a raw secret value
+    if let Some(ref secrets) = state.secrets {
+        ensure_no_secrets_in_text(secrets, &input.subject, "decision subject")
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        if let Some(ref note) = input.note {
+            ensure_no_secrets_in_text(secrets, note, "decision note")
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        }
+    }
     append_json(&state, ev)
 }
 

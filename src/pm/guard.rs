@@ -82,6 +82,21 @@ pub fn budget_fraction(proj: &Projection) -> f64 {
     }
 }
 
+/// Returns `true` when a budget limit is actually configured and active.
+///
+/// A budget of `Disabled` (i.e. `proj.budget` is `None` or `limit_usd <= 0.0`)
+/// means **unbounded spend by design** — no automatic spend guard is in effect,
+/// and `llm_dispatch_allowed` silently returns `Ok(unbounded)`. This is
+/// intentional: the guard refuses only when work is paused or the hard
+/// `Halted` threshold is reached, never when the budget is simply absent.
+///
+/// **Owner guidance:** an orchestrator should not be enabled without a
+/// configured budget. Set `limit_usd` to a real positive value via `BudgetSet`
+/// before enabling an orchestrator that can dispatch LLM calls.
+pub fn budget_is_configured(proj: &Projection) -> bool {
+    proj.budget.is_some() && proj.budget.as_ref().unwrap().limit_usd > 0.0
+}
+
 /// Derive the budget phase from the projection. This is the hard breaker's
 /// check — deterministic and always recomputed from spend (the event log).
 pub fn budget_status(proj: &Projection) -> BudgetStatus {
