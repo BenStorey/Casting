@@ -1,5 +1,5 @@
 //! Axum web server for the vertical slice: JSON API over the projections,
-//! owner inbox endpoints, SSE realtime, and the embedded React SPA.
+//! director inbox endpoints, SSE realtime, and the embedded React SPA.
 //!
 //! Serves everything from ONE binary (brief §26/§29/§31): the API and the
 //! compiled frontend are both handled here, so `cast run` stays a single

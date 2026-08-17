@@ -1,7 +1,7 @@
 //! Decision policy engine — *delegated authority* (docs/CASTING_PROJECT_BRIEF.md §5).
 //!
 //! the director should not have to reason about every move the organization makes.
-//! Instead they configure, per class of decision, how much owner involvement is
+//! Instead they configure, per class of decision, how much director involvement is
 //! required. This module is that engine, expressed as a pure, deterministic,
 //! LLM-free policy layer:
 //!
@@ -16,7 +16,7 @@
 //! every decision in Casting is recorded via the universal `DecisionProposed`
 //! → `DecisionMade` event pair. The engine only decides **who the
 //! decision-maker is** (the director, or a delegated PM/agent) and **whether the
-//! owner's inbox is involved**.
+//! director's inbox is involved**.
 //!
 //! It sits directly in front of the LLM seam: today a scripted PM consults it;
 //! a future provider's plans flow through the exact same gate (see `actions.rs`).
@@ -24,8 +24,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// How much owner involvement a class of decision requires, along the autonomy
-/// spectrum from least to most owner control:
+/// How much director involvement a class of decision requires, along the autonomy
+/// spectrum from least to most director control:
 ///
 /// ```text
 /// Never < Pm < Notify < Ask
@@ -52,10 +52,10 @@ pub enum OwnerInvolvement {
     Ask,
 }
 
-/// The delegated decision-maker for a level of owner involvement.
+/// The delegated decision-maker for a level of director involvement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Decider {
-    /// The human owner decides.
+    /// The human director decides.
     Owner,
     /// A PM/agent decides on the organization's behalf.
     Agent,
@@ -111,8 +111,8 @@ pub enum DecisionClass {
     /// An irreversible action. Default: Ask.
     Irreversible,
     /// Changing project governance (a directive). Default: Ask — governance is
-    /// owner-only, so the PM proposing a directive change must route to the
-    /// owner for approval before it can be applied.
+    /// director-only, so the PM proposing a directive change must route to the
+    /// director for approval before it can be applied.
     GovernanceChange,
     /// Applying a CHEAP-cost-band playbook. Default: Pm so the PM can fire
     /// inexpensive, everyday recipes without the director. Owner can tighten to
@@ -217,7 +217,7 @@ mod tests {
             builtin_involvement(DecisionClass::PlaybookMedium),
             OwnerInvolvement::Pm
         );
-        // Expensive requires owner ask
+        // Expensive requires director ask
         assert_eq!(
             builtin_involvement(DecisionClass::PlaybookExpensive),
             OwnerInvolvement::Ask

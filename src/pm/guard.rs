@@ -14,7 +14,7 @@
 //!    `ResumeWork` (spend doesn't go down); only a higher budget limit
 //!    un-halts it. Set by the director via `BudgetSet`.
 //! 2. **Pause** — a resumable flag (`WorkPaused`/`WorkResumed`) used by the
-//!    owner or by the liveness watchdog to stop all side-effecting work.
+//!    director or by the liveness watchdog to stop all side-effecting work.
 
 use crate::projection::Projection;
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ impl Default for Budget {
     }
 }
 
-/// Why work is currently paused (owner- or watchdog-initiated; resumable).
+/// Why work is currently paused (director- or watchdog-initiated; resumable).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PauseInfo {
     pub reason: String,

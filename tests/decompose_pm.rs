@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn seed(state: &AppState) {
-    // Seed project + cast so plan_onboard kicks off on the first owner message.
+    // Seed project + cast so plan_onboard kicks off on the first director message.
     state
         .append(casting::event::Event::new(
             "proj",

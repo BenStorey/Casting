@@ -1,4 +1,4 @@
-//! Tests for the web first-run setup wizard (owner decision: CLI + UI share one
+//! Tests for the web first-run setup wizard (director decision: CLI + UI share one
 //! engine). GET /api/setup/status says whether a cast is configured; POST
 //! /api/setup hires the cast (idempotently), persists the director token, and fires
 //! the objective message so onboarding kicks off.
@@ -128,7 +128,8 @@ async fn status_is_unconfigured_then_configured_after_setup() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|m| m["from"] == "owner" && m["body"].as_str().unwrap_or("").contains("todo app")),
+            .any(|m| m["from"] == "director"
+                && m["body"].as_str().unwrap_or("").contains("todo app")),
         "objective fired as the director's first message"
     );
     assert_eq!(status, StatusCode::OK);

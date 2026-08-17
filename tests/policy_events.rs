@@ -42,7 +42,7 @@ fn policy_changed(project: &str, class: DecisionClass, involvement: OwnerInvolve
 #[test]
 fn policy_folds_from_events_into_projection() {
     let state = make_state();
-    // Override Database -> Pm (owner escalates it to PM-authority).
+    // Override Database -> Pm (director escalates it to PM-authority).
     state
         .append(policy_changed(
             "proj-policy",

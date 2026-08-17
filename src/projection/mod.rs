@@ -47,7 +47,7 @@ pub struct Projection {
     pub spend: Vec<CostEntry>,
     /// the director-set hard token budget (guard circuit breaker). None = unset.
     pub budget: Option<crate::pm::guard::Budget>,
-    /// A resumable pause in effect (owner- or watchdog-set). None = running.
+    /// A resumable pause in effect (director- or watchdog-set). None = running.
     pub paused: Option<crate::pm::guard::PauseInfo>,
     /// External advisor briefings imported into the project (advisory, NOT
     /// authoritative — see `Briefing`).
@@ -70,7 +70,7 @@ pub struct Projection {
     pub repo_metrics: Vec<RepoMetrics>,
     /// ChangeSets — the unit of agent output (ADDENDUM §21–22).
     pub changesets: Vec<ChangeSet>,
-    /// Isolated worktrees provisioned for summoned consultants (owner,
+    /// Isolated worktrees provisioned for summoned consultants (director,
     /// 2026-08-12). One per task; the platform provisions them so concurrent
     /// consultants can't collide (distinct branch/build-target/port).
     pub worktrees: Vec<Worktree>,
@@ -580,7 +580,7 @@ impl Projection {
             EventType::MessageSent => self.messages.push(Message {
                 id: e.aggregate.id.clone(),
                 from: actor_name(e),
-                to: string_field(e, "to").unwrap_or_else(|| "owner".into()),
+                to: string_field(e, "to").unwrap_or_else(|| "director".into()),
                 body: string_field(e, "body").unwrap_or_default(),
             }),
             EventType::AdvisorMessageSent => {
@@ -601,7 +601,7 @@ impl Projection {
                     title: string_field(e, "title").unwrap_or_default(),
                     body: string_field(e, "body").unwrap_or_default(),
                     assets: Vec::new(),
-                    brought_in_by: "owner".to_string(),
+                    brought_in_by: "director".to_string(),
                     status: BriefingStatus::Active,
                     supersedes: None,
                     imported_at: e.timestamp.to_string(),
@@ -1098,10 +1098,10 @@ fn bool_field(e: &Event, key: &str) -> Option<bool> {
     e.data.get(key).and_then(|v| v.as_bool())
 }
 
-/// Human label for an actor (owner / agent id / system).
+/// Human label for an actor (director / agent id / system).
 fn actor_name(e: &Event) -> String {
     match &e.actor {
-        crate::event::Actor::Director { .. } => "owner".into(),
+        crate::event::Actor::Director { .. } => "director".into(),
         crate::event::Actor::Agent { id } => id.clone(),
         crate::event::Actor::System => "system".into(),
     }

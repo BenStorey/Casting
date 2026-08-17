@@ -1,4 +1,4 @@
-//! Tests for the human-as-consultant delivery model (owner 2026-08-10):
+//! Tests for the human-as-consultant delivery model (director 2026-08-10):
 //! a task can be assigned to the DIRECTOR (the human), who executes and delivers
 //! it (possibly working through their own harness). Distinct from hired agents.
 

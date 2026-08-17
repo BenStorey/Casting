@@ -1,4 +1,4 @@
-//! Tests for external advisor briefings (owner 2026-08-10) — importing content
+//! Tests for external advisor briefings (director 2026-08-10) — importing content
 //! from OUTSIDE Casting (e.g. a ChatGPT plan) as ADVISORY context that can
 //! inform but never sets rules. Covers the event/projection path, the gate
 //! action, and the /api/brief endpoint.
@@ -34,7 +34,7 @@ fn briefing_reduces_into_projection_with_provenance() {
             "title": "chatgpt D2 plan",
             "body": "Proposed split of the increment into D2 phases...",
             "assets": [ { "caption": "architecture", "location": "diagrams/d2.png" } ],
-            "brought_in_by": "owner",
+            "brought_in_by": "ceo",
             "supersedes": null,
         }),
     ))
@@ -105,7 +105,7 @@ fn operating_model_surfaces_advisory_briefings_separately() {
             "title": "D2 plan",
             "body": "Split the increment into D2 phases",
             "assets": [],
-            "brought_in_by": "owner",
+            "brought_in_by": "ceo",
             "supersedes": null,
         }),
     ))

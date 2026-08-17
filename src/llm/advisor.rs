@@ -23,7 +23,7 @@ pub struct AdvisorOutcome {
 /// Generate the advisor's reply to `owner_msg`, given the private thread so far
 /// (the advisor's memory) and the resolver (for the advisor's model binding).
 ///
-/// `owner_msg` is the newest owner→advisor message; `thread` is the full
+/// `owner_msg` is the newest director→advisor message; `thread` is the full
 /// isolated thread (including that message) for context; `context` is the
 /// assembled operating context (objective / governance / risks / decisions)
 /// the advisor grounds its advice in. Returns an `Err` on any provider/parse
@@ -48,7 +48,7 @@ pub async fn advisor_reply(
         ),
     }];
     for m in thread.iter().rev().take(20).rev() {
-        let role = if m.from == "owner" {
+        let role = if m.from == "director" {
             "user"
         } else {
             "assistant"
@@ -203,7 +203,7 @@ pub async fn advisor_summarize(
         ),
     }];
     for m in thread.iter().rev().take(20).rev() {
-        let role = if m.from == "owner" {
+        let role = if m.from == "director" {
             "user"
         } else {
             "assistant"
@@ -247,7 +247,7 @@ pub fn advisor_summarize_deterministic(thread: &[Message]) -> String {
     }
     let owners: Vec<String> = thread
         .iter()
-        .filter(|m| m.from == "owner")
+        .filter(|m| m.from == "director")
         .map(|m| m.body.clone())
         .collect();
     if owners.is_empty() {

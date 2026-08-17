@@ -15,7 +15,7 @@ use anyhow::Result;
 /// testing=testing, architect=architecture, stage=tooling, critic=review.
 fn classify_cost(actor: &str, agents: &[crate::runtime::context::AgentSummary]) -> String {
     // Look up the actor's role in the agent roster. Fall back to the old
-    // heuristic if not found (e.g. system/owner actions).
+    // heuristic if not found (e.g. system/director actions).
     let role = agents
         .iter()
         .find(|a| a.id == actor)
@@ -29,8 +29,8 @@ fn classify_cost(actor: &str, agents: &[crate::runtime::context::AgentSummary]) 
         "Systems Architect" => "architecture",
         "Stage Manager" => "tooling",
         "Critic" => "review",
-        // Fallback: old heuristic for owner/system/unknown actors.
-        "pm" | "owner" | "system" => "pm_overhead",
+        // Fallback: old heuristic for director/system/unknown actors.
+        "pm" | "director" | "system" => "pm_overhead",
         _ => "implementation",
     }
     .into()
@@ -83,9 +83,9 @@ impl LlmOrchestrator {
         self
     }
 
-    /// The full action vocabulary for PM/owner actors.
+    /// The full action vocabulary for PM/director actors.
     /// Includes organizational actions (hire, create requirements, provision
-    /// worktrees, governance) that only the PM/owner can perform.
+    /// worktrees, governance) that only the PM/director can perform.
     fn full_action_vocab() -> String {
         crate::actions::action_vocab_for("pm")
     }
@@ -98,7 +98,7 @@ impl LlmOrchestrator {
     }
 
     pub fn planning_instructions(&self, actor: &str) -> String {
-        let actions = if matches!(actor, "pm" | "owner" | "system") {
+        let actions = if matches!(actor, "pm" | "director" | "system") {
             Self::full_action_vocab()
         } else {
             Self::consultant_action_vocab()
@@ -130,7 +130,7 @@ impl LlmOrchestrator {
             \n\
             Your identity, role, and task-specific workflow are defined in your \
             persona above. Follow your persona's instructions for what actions \
-            to take and how to communicate with the PM/owner.\n\
+            to take and how to communicate with the PM/director.\n\
             \n\
             IMPORTANT: output ONLY the JSON object, no prose, no markdown fences."
         )
@@ -224,7 +224,7 @@ impl Orchestrator for LlmOrchestrator {
                     .unwrap_or("")
                     .to_string();
                 if !ask.is_empty() {
-                    payload_parts.push(format!("Owner request: \"{ask}\""));
+                    payload_parts.push(format!("Director request: \"{ask}\""));
                 }
             }
             if let Some(ref wt) = step.worktree_path {

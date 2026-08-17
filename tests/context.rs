@@ -188,7 +188,7 @@ fn owner_context_sees_everything() {
     owner_directive(&state, "d-tdd", "TDD", &["engineering"]);
 
     let proj = Projection::build(&state.store, "proj-ctx").unwrap();
-    let owner = proj.context_for("owner");
+    let owner = proj.context_for("director");
     // Owner encapsulates but has no "my_tasks" of their own.
     assert!(owner.active_directives.iter().any(|s| s.contains("TDD")));
     assert!(owner.my_tasks.is_empty());

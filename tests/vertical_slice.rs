@@ -5,10 +5,10 @@
 //! The old scripted planning functions (`plan_onboard`, etc.) were removed in
 //! c244d15 — they were the demo tape. These tests seed the required state
 //! directly (project, agents, requirements, tasks) and verify the current
-//! MockOrchestrator behavior: ack on owner message, create-task / propose-
+//! MockOrchestrator behavior: ack on director message, create-task / propose-
 //! decision when an objective exists, per-actor lifecycle for assigned tasks.
 
-use casting::event::{Actor, Event, EventType};
+use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::{AppState, PM_CONSUMER};
 use casting::projection::{DecisionStatus, Projection, TaskStatus};
 use casting::runtime::orchestrator::MockOrchestrator;
@@ -35,7 +35,7 @@ fn owner_message(body: &str) -> Event {
         EventType::MessageSent,
         casting::event::Aggregate {
             kind: "message".into(),
-            id: "msg-owner".into(),
+            id: "msg-director".into(),
         },
         serde_json::json!({ "to": "pm", "body": body }),
     )
@@ -44,7 +44,7 @@ fn owner_message(body: &str) -> Event {
 /// Seed project + agents + requirement so the MockOrchestrator sees an
 /// objective and can plan actions (CreateTask or ProposeDecision).
 /// The cursor is advanced past these seed events so the PM only reacts
-/// to the subsequent owner message.
+/// to the subsequent director message.
 fn seed_company(state: &AppState) {
     state
         .append(Event::new(
@@ -211,8 +211,22 @@ async fn pm_acknowledges_owner_message_and_cursor_advances() {
     let state = make_state();
     seed_company(&state);
 
-    // Send one owner message and drive the PM.
-    state.append(owner_message("Build me a todo app")).unwrap();
+    // Send one director decision trigger (not a MessageSent, which takes the
+    // deterministic chat-interface path and bypasses the orchestrator).
+    state
+        .append(Event::new(
+            "proj-test",
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
+            EventType::DecisionMade,
+            Aggregate {
+                kind: "decision".into(),
+                id: "owner-decision-1".into(),
+            },
+            serde_json::json!({"subject": "test", "approved": true, "note": "Build me a todo app", "body": "Build me a todo app"}),
+        ))
+        .unwrap();
     let authored = casting::pm::drive_pm(&state).await.unwrap();
     // The MockOrchestrator sees an existing objective and the PM role, with
     // no other priorities — it creates task-mock-1 (1 action). Plus any
@@ -220,9 +234,12 @@ async fn pm_acknowledges_owner_message_and_cursor_advances() {
     assert!(authored >= 1, "PM should author a response, got {authored}");
 
     let proj = Projection::build(&state.store, "proj-test").unwrap();
-    // The mock created task-mock-1 under the PM's objective.
+    // The mock created a task under the adopted decision (the task id for
+    // decision triggers is "task-adopt-{decision_id}").
     assert!(
-        proj.tasks.iter().any(|t| t.id == "task-mock-1"),
+        proj.tasks
+            .iter()
+            .any(|t| t.id == "task-adopt-owner-decision-1"),
         "mock PM should create a task from the objective"
     );
 
@@ -291,10 +308,10 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
     assert_eq!(dec.status, DecisionStatus::Rejected);
     assert_eq!(dec.owner_verdict.as_deref(), Some("keep it simple"));
     // Ask-class decision: the DIRECTOR decided it.
-    assert_eq!(dec.decided_by.as_deref(), Some("owner"));
+    assert_eq!(dec.decided_by.as_deref(), Some("director"));
     // PM acknowledged (declined path), so there's a reply to the director.
     assert!(
-        proj.messages.iter().any(|m| m.to == "owner"),
+        proj.messages.iter().any(|m| m.to == "director"),
         "PM should acknowledge the decision"
     );
 }

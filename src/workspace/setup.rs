@@ -1,8 +1,8 @@
 //! The **setup engine** (`cast init`) — onboarding as a shared, deterministic
-//! flow (owner decision 2026-08-10: "offer both CLI wizard and UI, one engine").
+//! flow (director decision 2026-08-10: "offer both CLI wizard and UI, one engine").
 //!
 //! A fresh company is configured here: name, initial cast (roles from the
-//! catalog), an optional owner token, and optional starting governance
+//! catalog), an optional director token, and optional starting governance
 //! directives. `SetupPlan` writes these as the initial event sequence into the
 //! state store — **idempotently** (re-running never double-hires or re-creates).
 //!
@@ -30,7 +30,7 @@ pub struct SetupSpec {
     /// Role ids from the catalog to hire (e.g. ["engineer","qa"]). Empty =
     /// default cast.
     pub roles: Vec<String>,
-    /// Optional owner bearer token (enables auth). Empty = auth off.
+    /// Optional director bearer token (enables auth). Empty = auth off.
     pub director_token: Option<String>,
     /// Optional starting governance directives (`ProjectDirectiveCreated`).
     pub directives: Vec<StartDirective>,
@@ -63,7 +63,7 @@ impl SetupPlan {
 
     /// Apply the setup to a state dir: open (or create) the DBs, append the
     /// initial events idempotently, and persist the runtime config (name +
-    /// optional owner token) that `cast run` reads. Returns the number of
+    /// optional director token) that `cast run` reads. Returns the number of
     /// events written (0 if the company is already set up — in which case the
     /// existing config is left untouched).
     pub fn apply(&self, dir: &std::path::Path) -> Result<u32> {
@@ -147,7 +147,7 @@ pub fn ensure_hires(
     Ok(issued)
 }
 
-/// Persist the runtime config (name + owner token) that `cast run` reads.
+/// Persist the runtime config (name + director token) that `cast run` reads.
 pub fn persist_config(
     dir: &std::path::Path,
     name: &str,
@@ -162,7 +162,7 @@ pub fn persist_config(
     write_config(dir, &spec)
 }
 
-/// Persist setup-time LLM api key and owner preferences (name, experience level)
+/// Persist setup-time LLM api key and director preferences (name, experience level)
 /// into the existing config, MERGING so nothing is clobbered.
 pub fn persist_setup_prefs(
     dir: &std::path::Path,
@@ -261,7 +261,7 @@ fn apply_to_store(
         written += 1;
     }
 
-    // 4. Optionally write starting governance directives (owner-authored).
+    // 4. Optionally write starting governance directives (director-authored).
     for d in &spec.directives {
         store.append(actions::director_directive_created(
             "ceo",
@@ -342,14 +342,14 @@ fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
     Ok(())
 }
 
-/// Read the persisted runtime config (owner token + name), if present.
+/// Read the persisted runtime config (director token + name), if present.
 pub fn read_config(dir: &std::path::Path) -> Option<RuntimeConfig> {
     let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
 /// Persist the Telegram channel config, MERGING into any existing config (so
-/// an already-persisted owner token / name is never clobbered). If no config
+/// an already-persisted director token / name is never clobbered). If no config
 /// exists yet we create a minimal one with an empty name. Mirrors the setup
 /// "fresh-only" rule in the reverse direction: a UI Telegram configure never
 /// wipes the director token that `cast init`/setup already wrote.

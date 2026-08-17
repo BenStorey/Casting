@@ -57,7 +57,7 @@ pub(crate) struct SetupIn {
 /// as a message so `plan_onboard` kicks off the build.
 ///
 /// FAIL-CLOSED against silent token rotation: persist_config would otherwise
-/// overwrite an already-persisted owner token. We refuse to replace a token
+/// overwrite an already-persisted director token. We refuse to replace a token
 /// that is already persisted with a different one unless the request presents
 /// the CURRENT token (the one already on disk). First-run (no previously
 /// persisted token) may still SET a token.
@@ -82,7 +82,7 @@ pub(crate) async fn setup_handler(
     if let Some(dir) = &state.state_dir {
         let director_token = input.director_token.as_deref().filter(|t| !t.is_empty());
         // Fail-closed against silent token rotation: never replace an
-        // already-persisted owner token with a *different* one unless the
+        // already-persisted director token with a *different* one unless the
         // request presents the current (persisted) token. First-run SET is
         // still allowed (no prior token). Requires that a state dir has been
         // attached (as `cast run` does), so this mirrors exactly what will be
@@ -95,7 +95,7 @@ pub(crate) async fn setup_handler(
             if replacing && !crate::workspace::auth::authorized(&headers, &existing) {
                 return Err((
                     StatusCode::UNAUTHORIZED,
-                    "refusing to replace owner token: current token required".into(),
+                    "refusing to replace director token: current token required".into(),
                 ));
             }
         }

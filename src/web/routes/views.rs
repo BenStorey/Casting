@@ -75,7 +75,7 @@ pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<A
 }
 
 /// GET /api/context/{actor} — the assembled operating context for an actor
-/// (agent id, "owner", or "pm"): objective, priorities, their tasks, the
+/// (agent id, "director", or "pm"): objective, priorities, their tasks, the
 /// governance directives that apply to them, risks, and open decisions.
 pub(crate) async fn context_handler(
     State(state): State<AppState>,

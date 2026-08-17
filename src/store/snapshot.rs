@@ -14,7 +14,7 @@ use anyhow::Result;
 
 /// The projection-snapshot abstraction (pure optimization, never authoritative).
 /// Concrete backends (SQLite, Postgres) implement this; callers never touch a
-/// concrete type directly (owner principle: every store read/write goes
+/// concrete type directly (director principle: every store read/write goes
 /// through the abstraction).
 pub trait SnapshotStore: Send + Sync {
     /// Persist a snapshot of the projection folded up to `sequence`.

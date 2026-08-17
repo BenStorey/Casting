@@ -1,7 +1,7 @@
-//! Tests for the ExternalRequest intake surface (owner 2026-08-10): the
+//! Tests for the ExternalRequest intake surface (director 2026-08-10): the
 //! product's pickup of issues/PRs raised outside — recorded with provenance,
 //! triaged deterministically (classification/severity/dedup), NEVER as the
-//! owner's own intent.
+//! director's own intent.
 
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
@@ -53,7 +53,7 @@ fn external_request_reduces_with_provenance_and_triage() {
     assert_eq!(r.classification, "bug");
     assert_eq!(r.severity, "medium");
     assert_eq!(r.status, ExternalRequestStatus::Open);
-    // Provenance preserved, distinct from owner intent.
+    // Provenance preserved, distinct from director intent.
     assert!(r.external_id.is_some());
 }
 

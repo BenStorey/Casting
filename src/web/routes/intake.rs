@@ -93,7 +93,7 @@ pub(crate) async fn brief_handler(
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::actions::validate(&action, "owner", &proj, None)
+    crate::actions::validate(&action, "director", &proj, None)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let cause = Event::new(
@@ -109,7 +109,7 @@ pub(crate) async fn brief_handler(
         serde_json::json!({}),
     );
     let ev = action
-        .to_events(&state.project, "owner", &cause, "brief")
+        .to_events(&state.project, "director", &cause, "brief")
         .into_iter()
         .next()
         .ok_or_else(|| {

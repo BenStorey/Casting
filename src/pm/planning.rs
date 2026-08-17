@@ -126,7 +126,7 @@ pub(crate) fn insert_worktree_provisions(
                     ..
                 } = a
                 {
-                    if tid == task_id && assignee != "owner" {
+                    if tid == task_id && assignee != "director" {
                         Some(assignee.clone())
                     } else {
                         None
@@ -142,7 +142,7 @@ pub(crate) fn insert_worktree_provisions(
                     .iter()
                     .find(|t| t.id == *task_id)
                     .and_then(|t| t.assignee.clone())
-                    .filter(|a| a != "owner")
+                    .filter(|a| a != "director")
             });
             if let Some(ref who) = assignee {
                 let port = find_free_port(&projection, claimed_ports);
@@ -224,7 +224,7 @@ pub(crate) fn expand_playbooks(
                 ..
             } = a
             {
-                if tid == &parent_task_id && assignee != "owner" {
+                if tid == &parent_task_id && assignee != "director" {
                     Some(assignee.clone())
                 } else {
                     None
@@ -239,7 +239,7 @@ pub(crate) fn expand_playbooks(
                 .iter()
                 .find(|t| t.id == parent_task_id)
                 .and_then(|t| t.assignee.clone())
-                .filter(|a| a != "owner")
+                .filter(|a| a != "director")
         });
         let Some(assignee) = assignee else {
             log::warn!(
@@ -347,7 +347,7 @@ pub(crate) fn expand_playbooks(
                 matches!(a, PmAction::ProvisionWorktree { task_id: tid, .. } if *tid == parent_task_id)
             });
 
-        if !has_worktree && assignee != "owner" {
+        if !has_worktree && assignee != "director" {
             let port = find_free_port(&projection, claimed_ports);
             claimed_ports.insert(port);
             let claimed_slots: std::collections::HashSet<usize> =

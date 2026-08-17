@@ -68,7 +68,7 @@ pub enum DirectiveStatus {
 }
 
 /// A first-class project directive — the authoritative "how we operate" state.
-/// Creation may need the PM/LLM to *interpret* owner language, but lifecycle
+/// Creation may need the PM/LLM to *interpret* director language, but lifecycle
 /// transitions are deterministic reducers through the authority gate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Directive {

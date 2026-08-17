@@ -17,7 +17,24 @@ use casting::workspace::secrets::SecretStore;
 fn make_state() -> AppState {
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
-    AppState::new(store, cursors, "proj-secrets")
+    let st = AppState::new(store, cursors, "proj-secrets");
+    // Seed a budget so the budget gate doesn't block the executor path with
+    // an ActivityFailed event (which would embed the raw secret before the
+    // no-secret check runs).
+    st.append(casting::event::Event::new(
+        "proj-secrets",
+        casting::event::Actor::Director {
+            user_id: "ceo".into(),
+        },
+        casting::event::EventType::BudgetSet,
+        casting::event::Aggregate {
+            kind: "budget".into(),
+            id: "budget".into(),
+        },
+        serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+    ))
+    .unwrap();
+    st
 }
 
 fn shell(id: &str, cmd: &str) -> Activity {

@@ -1,4 +1,4 @@
-//! Tests for the two week-1 metrics: owner engagement (response rate / muting
+//! Tests for the two week-1 metrics: director engagement (response rate / muting
 //! signal) and code diff quality (language-agnostic git churn). Both are pure
 //! derivations off the projection exposed through `/api/model`, so they're
 //! tested by folding a hand-built projection through `operating_model()`.
@@ -34,7 +34,7 @@ fn owner_engagement_counts_backlog_and_rate() {
         // One the PM handled itself -> delegated.
         decisions: vec![
             owner_decision("a", OwnerInvolvement::Ask, None),
-            owner_decision("b", OwnerInvolvement::Ask, Some("owner")),
+            owner_decision("b", OwnerInvolvement::Ask, Some("director")),
             owner_decision("c", OwnerInvolvement::Pm, Some("pm")),
             // A Pm-tier decision still proposed by the PM is NOT an escalation.
             owner_decision("d", OwnerInvolvement::Pm, None),
@@ -45,14 +45,14 @@ fn owner_engagement_counts_backlog_and_rate() {
     assert_eq!(m.engagement.awaiting_owner, 1);
     assert_eq!(m.engagement.owner_decided, 1);
     assert_eq!(m.engagement.delegated_decided, 1);
-    // owner(1) / (owner(1) + awaiting(1)) = 0.5
+    // director(1) / (director(1) + awaiting(1)) = 0.5
     assert!((m.engagement.response_rate - 0.5).abs() < 1e-9);
 }
 
 #[test]
 fn owner_engagement_is_caught_up_when_nothing_awaits() {
     let proj = Projection {
-        decisions: vec![owner_decision("a", OwnerInvolvement::Ask, Some("owner"))],
+        decisions: vec![owner_decision("a", OwnerInvolvement::Ask, Some("director"))],
         ..Default::default()
     };
     let m: OperatingModel = proj.operating_model();

@@ -71,7 +71,7 @@ fn context_priorities_carry_relevance_scores() {
         "marcus's own task should be flagged is_mine"
     );
     // Owner sees everything as relevant (no negative role penalty).
-    let owner_ctx = proj.context_for("owner");
+    let owner_ctx = proj.context_for("director");
     let all_positive = owner_ctx
         .scored_priorities
         .iter()
@@ -85,7 +85,7 @@ fn context_priorities_carry_relevance_scores() {
         .find(|s| s.is_mine)
         .map(|s| s.relevance);
     assert!(mine_score.is_some());
-    // Sanity: a non-owner's own high-priority task scores > a passive observer.
+    // Sanity: a non-director's own high-priority task scores > a passive observer.
     let passive = proj.context_for("maya-patel").scored_priorities.clone();
     let _ = (owner_scores, passive); // structural sanity only
 }

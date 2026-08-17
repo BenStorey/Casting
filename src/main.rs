@@ -172,7 +172,7 @@ fn main() -> Result<()> {
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company\n\n\
-                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--director-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run [<project-dir>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (defaults to current dir)\n  cast purge [<project-dir>] [--force]\n                                delete .casting/ state directory (reset to clean slate)\n                                (defaults to current dir)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_DIRECTOR_TOKEN owner auth token (or set via `cast init --director-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
+                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--director-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run [<project-dir>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (defaults to current dir)\n  cast purge [<project-dir>] [--force]\n                                delete .casting/ state directory (reset to clean slate)\n                                (defaults to current dir)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_DIRECTOR_TOKEN director auth token (or set via `cast init --director-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
@@ -240,7 +240,7 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
             assets: Vec::new(),
         };
         let proj = state.projection()?;
-        casting::actions::validate(&action, "owner", &proj, None)?;
+        casting::actions::validate(&action, "director", &proj, None)?;
 
         // Build the event through the action, then append it (advisory, never
         // authoritative — recorded with its `source` so provenance is explicit).
@@ -266,7 +266,7 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
                     )
                 });
             let ev = action
-                .to_events(&state.project, "owner", &cause, "brief")
+                .to_events(&state.project, "director", &cause, "brief")
                 .into_iter()
                 .next()
                 .expect("ImportBriefing produces one event");
@@ -564,7 +564,7 @@ fn do_init(mut args: InitArgs) -> Result<()> {
         println!("   📣 To kick off the build, send \u{201c}{obj}\u{201d} as your first message in the UI.");
     }
     if args.interactive && args.director_token.is_none() {
-        println!("   ⚠️  no owner token set — owner-mutating writes are OPEN (set one via --director-token / CAST_DIRECTOR_TOKEN)");
+        println!("   ⚠️  no director token set — director-mutating writes are OPEN (set one via --director-token / CAST_DIRECTOR_TOKEN)");
     }
     Ok(())
 }
@@ -658,7 +658,9 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         let token = persisted_token.or_else(|| std::env::var("CAST_DIRECTOR_TOKEN").ok());
         let state = match token {
             Some(tok) if !tok.is_empty() => {
-                println!("🔐 owner auth enabled (send 'Authorization: Bearer <token>' to mutate)");
+                println!(
+                    "🔐 director auth enabled (send 'Authorization: Bearer <token>' to mutate)"
+                );
                 state.with_owner_auth(tok)
             }
             _ => state,
@@ -696,7 +698,7 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         // The loop also triggers the git observer on each drain pass.
         tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));
 
-        // Telegram owner channel (2026-08-14): enabled from (in priority order)
+        // Telegram director channel (2026-08-14): enabled from (in priority order)
         // a persisted `.casting/config.json` (set via the UI
         // POST /api/telegram/configure) then the `CAST_TELEGRAM_TOKEN`/CHAT_ID
         // env vars. Attaches the channel + spawns the cursor-driven run loop
@@ -831,7 +833,7 @@ fn do_log(log: LogArgs) -> Result<()> {
 
 /// Idempotently seed a fresh project: ProjectCreated + hire the PM, so the
 /// board/team starts with the management layer visible. Safe to re-run (the
-/// PM's cursor starts at 0 and these aren't owner-input events, so the loop
+/// PM's cursor starts at 0 and these aren't director-input events, so the loop
 /// won't react to them).
 fn seed_project(state: &AppState) -> Result<()> {
     let project = state.project.clone();

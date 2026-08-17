@@ -1,8 +1,8 @@
 //! Project Manager — the control loop that drives the company's event stream.
 //!
 //! The PM is a control loop over the event stream that holds a durable cursor
-//! and turns owner input into organizational work. On each drain pass, the loop
-//! checks new events since its cursor, processes PM-level triggers (owner
+//! and turns director input into organizational work. On each drain pass, the loop
+//! checks new events since its cursor, processes PM-level triggers (director
 //! messages/decisions) through the configured orchestrator
 //! (`crate::runtime::orchestrator::Orchestrator` — either an LLM or test mock),
 //! then runs per-actor turns for consultants with actionable work. All
@@ -33,7 +33,7 @@ pub const PM_CONSUMER: &str = "pm";
 const SNAPSHOT_CATCHUP: i64 = 64;
 
 /// A proposed action plus the actor performing it. `who` is a label
-/// (agent id, "owner", or "system") — converted to `Actor` at execution.
+/// (agent id, "director", or "system") — converted to `Actor` at execution.
 pub type PlannedAction = (String, PmAction);
 
 /// Shared runtime state: the event store, durable cursors, the active project,
@@ -54,7 +54,7 @@ pub struct AppState {
     /// Pause inserted between appended events so the UI animates the company
     /// working. Zero in tests for speed. (brief §35)
     pub step_delay: Duration,
-    /// Optional D2 orchestrator. When present, the PM routes new owner messages
+    /// Optional D2 orchestrator. When present, the PM routes new director messages
     /// through it (instead of the scripted plan) — the LLM seam. **Off by
     /// default**: the real provider stays unplugged until the director enables it.
     pub orchestrator: Option<Arc<dyn crate::runtime::orchestrator::Orchestrator>>,
@@ -67,7 +67,7 @@ pub struct AppState {
     /// `with_owner_auth` / the `CAST_DIRECTOR_TOKEN` env var.
     pub auth_token: Option<Arc<str>>,
     /// The state dir (set by `cast run`). Lets the web setup endpoint persist
-    /// `config.json` (name + owner token). `None` in tests.
+    /// `config.json` (name + director token). `None` in tests.
     pub state_dir: Option<std::path::PathBuf>,
     /// Every N appended events, the drift reconciler wakes and cleans up
     /// derived state. Cursor-gated, mirrors the PM loop. Set low in tests.
@@ -96,7 +96,7 @@ pub struct AppState {
     /// D2 orchestrator / `/api/consultants`. Configuration, never authority.
     pub consultants: Arc<crate::consultants::ConsultantRegistry>,
     /// the director-facing external channel (2026-08-14): a best-effort transport
-    /// for owner messaging (Telegram reference adapter). `NoopChannel` by
+    /// for director messaging (Telegram reference adapter). `NoopChannel` by
     /// default — a pipe to nowhere, off until configured. Never authoritative;
     /// the event log / projection stay the only truth.
     pub channel: Arc<dyn crate::runtime::channel::OwnerChannel>,
@@ -236,7 +236,7 @@ impl AppState {
         self
     }
 
-    /// Builder-style: enable owner auth with a bearer token. the director-mutating
+    /// Builder-style: enable director auth with a bearer token. the director-mutating
     /// API endpoints then require `Authorization: Bearer <token>`.
     pub fn with_owner_auth(mut self, token: impl Into<String>) -> Self {
         self.auth_token = Some(Arc::from(token.into()));
@@ -451,7 +451,7 @@ async fn drain(state: &AppState) -> Result<u32> {
 /// actions, which `run_planned` validates and executes.
 ///
 /// Design: per-actor turns (the review's "one orchestrator call site per actor
-/// that has work"). Phase 1 processes PM trigger events (owner messages and
+/// that has work"). Phase 1 processes PM trigger events (director messages and
 /// decisions). Phase 2 iterates over every actor with actionable work and lets
 /// each plan their own turn — the PM no longer impersonates consultants.
 /// The multi-pass loop continues until no actor has further work, so that
@@ -460,7 +460,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
     let mut authored = 0u32;
 
     // ========================================================================
-    // Phase 1: PM trigger processing (owner messages and decisions)
+    // Phase 1: PM trigger processing (director messages and decisions)
     // ========================================================================
     for e in new_events {
         let (is_owner_message, body) = match e.event_type {
@@ -999,7 +999,7 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                     }
                 }
             }
-            // WRITE-TIME worktree teardown (2026-08-12, owner request): the
+            // WRITE-TIME worktree teardown (2026-08-12, director request): the
             // moment a task BECOMES Done (or its ChangeSet is merged), tear
             // down its worktree immediately — physical remove + WorktreeRemoved
             // event (frees the port). This is expected behavior ("cleanup as

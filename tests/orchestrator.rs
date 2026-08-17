@@ -108,20 +108,37 @@ async fn mock_does_not_record_cost() {
 async fn orchestrator_records_a_planning_run_in_diagnostics() {
     // The planning diagnostic (OrchestrationRun event) is always recorded,
     // regardless of metering. Only the metering-specific fields change.
+    // Use a DecisionMade trigger (not MessageSent) because owner messages
+    // now take the deterministic chat-interface path and skip the orchestrator.
     let state = make_state();
     seed_requirement(&state);
+    // Seed a budget so the budget gate doesn't block the orchestrator call.
     state
         .append(Event::new(
             "proj-orch",
             Actor::Director {
                 user_id: "ceo".into(),
             },
-            EventType::MessageSent,
+            EventType::BudgetSet,
             Aggregate {
-                kind: "message".into(),
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
+    state
+        .append(Event::new(
+            "proj-orch",
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
+            EventType::DecisionMade,
+            Aggregate {
+                kind: "decision".into(),
                 id: "msg-1".into(),
             },
-            serde_json::json!({ "body": "Build me a thing" }),
+            serde_json::json!({ "subject": "test", "approved": true, "note": "Build me a thing", "body": "Build me a thing" }),
         ))
         .unwrap();
 
@@ -134,7 +151,7 @@ async fn orchestrator_records_a_planning_run_in_diagnostics() {
         "one orchestrator planning pass should be recorded"
     );
     let run = &proj.orchestration[0];
-    assert_eq!(run.trigger, "MessageSent");
+    assert_eq!(run.trigger, "DecisionMade");
     assert_eq!(run.actor, "pm");
     assert!(
         run.context_summary.contains("objective="),

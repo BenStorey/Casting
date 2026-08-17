@@ -1,7 +1,7 @@
 //! Deterministic, collision-free API port allocation for consultant worktrees.
 //!
 //! Each provisioned worktree gets a distinct network port so every consultant's
-//! dev server can run in parallel without colliding (owner requirement,
+//! dev server can run in parallel without colliding (director requirement,
 //! 2026-08-12). Allocation is DETERMINISTIC and driven by the projection: pick
 //! the lowest free port in a configured range that no existing worktree uses.
 //!

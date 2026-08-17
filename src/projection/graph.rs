@@ -33,7 +33,7 @@ pub enum TaskState {
     Working,
     /// Submitted, awaiting review.
     InReview,
-    /// Blocked — waiting on the human owner (a pause node in the graph).
+    /// Blocked — waiting on the human director (a pause node in the graph).
     AwaitingHuman,
     /// Review rejected — rework due.
     Rejected,

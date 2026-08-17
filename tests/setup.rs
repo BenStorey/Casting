@@ -1,5 +1,5 @@
 //! Tests for the setup engine (`cast init`) — onboarding as a shared,
-//! deterministic flow (owner decision 2026-08-10: CLI + UI share one engine).
+//! deterministic flow (director decision 2026-08-10: CLI + UI share one engine).
 
 use casting::projection::Projection;
 use casting::runtime::directive::{DirectiveKind, DirectiveStrength};
@@ -170,7 +170,7 @@ async fn setup_then_onboard_does_not_double_hire() {
     plan.apply(tmp.path()).unwrap();
 
     // Boot an AppState over the setup state dir and drive the PM with the
-    // owner's first message (which triggers plan_onboard).
+    // director's first message (which triggers plan_onboard).
     use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
     use casting::runtime::orchestrator::MockOrchestrator;

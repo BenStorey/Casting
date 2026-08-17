@@ -22,7 +22,7 @@ pub struct OperatingModel {
     /// Tasks ranked by priority (Critical..Low).
     pub priorities: Vec<PlannedItem>,
     /// The governance posture: what's allowed/required and what's awaiting the
-    /// owner.
+    /// director.
     pub governance: GovernanceView,
     /// Knowledge the company has recorded (the "don't re-derive" layer).
     pub knowledge: KnowledgeView,
@@ -33,7 +33,7 @@ pub struct OperatingModel {
     /// Diagrams drawn + saved in the app (visual artifacts).
     pub diagrams: DiagramsView,
     /// Cost attribution (HARNESS #6) — total spend + per-agent, so budget is
-    /// visible to the PM/owner, not (only) tracked implicitly.
+    /// visible to the PM/director, not (only) tracked implicitly.
     pub spend: SpendView,
     /// Harness guard rails (2026-08-13): the budget-breaker phase + any active
     /// pause. the director reads this to see whether the cast is self-halted and
@@ -137,16 +137,16 @@ pub struct DiagnosticsView {
 }
 
 /// Owner engagement — "is the director engaging, or muting?" (a week-1 metric,
-/// from the meta-pattern: measure owner response rate). Purely derived from the
+/// from the meta-pattern: measure director response rate). Purely derived from the
 /// decision log. The signal: a growing `awaiting_owner` backlog with a falling
-/// `response_rate` is escalation fatigue / owner abandonment — the PM is asking
+/// `response_rate` is escalation fatigue / director abandonment — the PM is asking
 /// things the director isn't answering.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct OwnerEngagementView {
     /// Open decisions that still REQUIRE the director (involvement Ask, not yet
     /// decided or superseded). Work is blocked on each of these.
     pub awaiting_owner: usize,
-    /// Decisions the director has ruled on (decided_by == owner).
+    /// Decisions the director has ruled on (decided_by == director).
     pub owner_decided: usize,
     /// Decisions handled autonomously (decided by the PM/agent, not the director).
     pub delegated_decided: usize,
@@ -417,7 +417,7 @@ impl crate::projection::Projection {
 
         let actor_ids = {
             let mut v: Vec<String> = self.agents.iter().map(|a| a.id.clone()).collect();
-            v.push("owner".to_string());
+            v.push("director".to_string());
             v
         };
         let actor_contexts = actor_ids
@@ -563,7 +563,7 @@ fn owner_engagement(proj: &crate::projection::Projection) -> OwnerEngagementView
     let mut delegated = 0usize;
     for d in &proj.decisions {
         match d.decided_by.as_deref() {
-            Some("owner") => owner_decided += 1,
+            Some("director") => owner_decided += 1,
             Some(_) => delegated += 1,
             None => {}
         }

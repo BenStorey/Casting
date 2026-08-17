@@ -3,7 +3,7 @@
 //!
 //! The PM *optimizes*; the guard *refuses*. These tests prove the guard rails
 //! hold deterministically and OUTSIDE the PM's control: budget is derived from
-//! spend (never decreases, not resumable), pause is a resumable owner/watchdog
+//! spend (never decreases, not resumable), pause is a resumable director/watchdog
 //! flag, and every LLM/side-effect dispatch point consults the gate.
 
 use casting::actions::{validate, PmAction, PolicyError};
@@ -188,7 +188,7 @@ fn budget_halt_is_not_resumable_by_work_resume() {
     assert!(guard::llm_dispatch_allowed(&proj(&state)).is_ok());
 }
 
-// --- Pause (owner / watchdog), resumable ---
+// --- Pause (director / watchdog), resumable ---
 
 #[test]
 fn pause_and_resume_block_and_unblock_dispatch() {

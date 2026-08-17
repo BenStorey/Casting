@@ -202,7 +202,7 @@ async fn configure_rejects_invalid_token() {
 }
 
 /// persist_telegram_config merges into an existing config (never wipes the
-/// owner token), and read_config returns the Telegram fields.
+/// director token), and read_config returns the Telegram fields.
 #[test]
 fn persist_merges_and_reads_back() {
     let dir = tempfile::tempdir().unwrap();
@@ -220,7 +220,7 @@ fn persist_merges_and_reads_back() {
     assert_eq!(
         cfg.director_token.as_deref(),
         Some("sekret"),
-        "owner token preserved"
+        "director token preserved"
     );
     assert_eq!(cfg.telegram_token.as_deref(), Some("token-123"));
     assert_eq!(cfg.telegram_chat_id, Some(777));

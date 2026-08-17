@@ -95,7 +95,7 @@ impl EventStore for SqliteEventStore {
         event.sequence = max.unwrap_or(0) + 1;
 
         let (actor_type, actor_id) = match &event.actor {
-            Actor::Director { .. } => ("owner", None),
+            Actor::Director { .. } => ("director", None),
             Actor::Agent { id } => ("agent", Some(id.clone())),
             Actor::System => ("system", None),
         };
@@ -200,7 +200,7 @@ impl EventStore for SqliteEventStore {
                 .with_context(|| format!("invalid timestamp column: {timestamp_str:?}"))?
                 .with_timezone(&chrono::Utc);
             let actor = match actor_type.as_str() {
-                "owner" => Actor::Director {
+                "director" | "owner" => Actor::Director {
                     user_id: "ceo".into(),
                 },
                 "system" => Actor::System,

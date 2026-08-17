@@ -251,7 +251,7 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
     // Valid: task exists, assigned to a hired consultant, no worktree yet.
     assert!(validate(&act, "pm", &st, None).is_ok());
 
-    // Reject: owner-assigned tasks never get a Casting worktree (the human
+    // Reject: director-assigned tasks never get a Casting worktree (the human
     // works through their own harness).
     st.tasks[0].assignee = Some("director".into());
     assert_eq!(

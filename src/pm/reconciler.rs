@@ -2,7 +2,7 @@
 //!
 //! Knowledge accumulates and *drifts*: opinions don't go stale in a burst, they
 //! slowly become inconsistent. Write-time supersession is eager and brittle
-//! (the writer must know every target). Instead (owner framing 2026-08-10):
+//! (the writer must know every target). Instead (director framing 2026-08-10):
 //! **keep writes simple; reconcile periodically.** This is a reusable primitive
 //! — the same cursor-gated trigger drives MANY reconciliation types.
 //!
@@ -13,7 +13,7 @@
 //! LLM reviewer); the skeleton does the mechanically-obvious cleanup
 //! deterministically.
 //!
-//! ## Many reconciliation types (owner, 2026-08-12)
+//! ## Many reconciliation types (director, 2026-08-12)
 //!
 //! Reconciliation is pluggable: a `ReconcilePass` is any named, deterministic
 //! cleanup that runs on the cadence. Passes are registered on `AppState`

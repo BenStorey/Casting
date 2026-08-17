@@ -22,7 +22,7 @@ pub struct Cursor {
 }
 
 /// The cursor-storage abstraction. Concrete backends (SQLite, Postgres)
-/// implement this; callers never touch a concrete type directly (owner
+/// implement this; callers never touch a concrete type directly (director
 /// principle: every store read/write goes through the abstraction).
 pub trait CursorStore: Send + Sync {
     /// Current position for a consumer, or `last_seen = 0` if never seen.

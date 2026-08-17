@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::Json;
 
 /// GET /api/provenance/commit/:sha — the "why does this code exist?" chain for
-/// a commit: commit → changeSet → task → requirement → decision → owner intent
+/// a commit: commit → changeSet → task → requirement → decision → director intent
 /// (ADDENDUM §24–25).
 pub(crate) async fn provenance_commit_handler(
     State(state): State<AppState>,

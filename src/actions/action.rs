@@ -8,7 +8,7 @@ use serde_json::Value;
 /// The pseudo-assignee representing a DIRECTOR of the company. When a task is
 /// assigned to `"director"`, the human — possibly working through their own
 /// harness — executes and delivers it, rather than a hired agent. Named
-/// "director" (not "owner") because there may be more than one; for day 1
+/// "director" (not "director") because there may be more than one; for day 1
 /// there is only the CEO.
 pub const DIRECTOR: &str = "director";
 
@@ -26,9 +26,9 @@ pub const DIRECTOR: &str = "director";
 /// and future non-implementer roles stay blocked.
 pub const SPECIAL_ACTORS: &[&str] = &["advisor"];
 
-/// True if `candidate` is a valid task assignee: either the human owner, the
+/// True if `candidate` is a valid task assignee: either the human director, the
 /// PM (for self-assigned small work via the chat-interface playbook), or a
-/// hired agent — and never one of the other reserved special roles. (owner
+/// hired agent — and never one of the other reserved special roles. (director
 /// 2026-08-10 — human-as-consultant delivery.)
 pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
     if candidate == DIRECTOR || candidate == "pm" {
@@ -55,7 +55,7 @@ pub enum PmAction {
         agent_id: String,
         role: String,
     },
-    /// Record a requirement derived from owner intent.
+    /// Record a requirement derived from director intent.
     CreateRequirement {
         id: String,
         title: String,
@@ -80,7 +80,7 @@ pub enum PmAction {
     },
     /// Reclassify a task's merge authority (the escape hatch when scope grows
     /// past its assignment label, e.g. a "trivial" change turned out to touch
-    /// the core). PM/owner authority only. Records a `MergeAuthorityChanged`
+    /// the core). PM/director authority only. Records a `MergeAuthorityChanged`
     /// event so the merge decision stays auditable. `self -> pm` escalates the
     /// gate; `pm -> self` downgrades it (allowed, but a deliberate call).
     SetMergeAuthority {
@@ -88,7 +88,7 @@ pub enum PmAction {
         #[serde(default)]
         merge_authority: crate::types::MergeAuthority,
     },
-    /// Provision an isolated worktree for a task (owner 2026-08-12): the
+    /// Provision an isolated worktree for a task (director 2026-08-12): the
     /// platform gives a summoned consultant a dedicated working tree on its own
     /// branch with a private build target + distinct API port. This is the
     /// *structural* isolation guarantee — the agent is handed a ready workspace,
@@ -185,7 +185,7 @@ pub enum PmAction {
         by_opinion_id: String,
     },
     /// Import external advisor content (text + optional image/diagram refs) as
-    /// an ADVISORY briefing — never authoritative (owner 2026-08-10).
+    /// an ADVISORY briefing — never authoritative (director 2026-08-10).
     ImportBriefing {
         id: String,
         source: String,
@@ -196,7 +196,7 @@ pub enum PmAction {
     },
     /// Receive an EXTERNAL request (e.g. a GitHub issue/PR) — the product's
     /// intake surface. Recorded with provenance + deterministic triage, NEVER
-    /// as authoritative owner intent. (owner 2026-08-10)
+    /// as authoritative director intent. (director 2026-08-10)
     ReceiveExternalRequest {
         id: String,
         source: String,
@@ -267,10 +267,10 @@ pub enum PmAction {
         subject: String,
         options: Value,
         recommendation: String,
-        /// The decision's class — drives which owner involvement the policy
+        /// The decision's class — drives which director involvement the policy
         /// engine requires (and thus who the decision-maker is).
         class: DecisionClass,
-        /// The resolved owner involvement claimed by the producer. `validate`
+        /// The resolved director involvement claimed by the producer. `validate`
         /// rejects this if it undercuts what the policy requires for `class`
         /// (authority-downgrade guard).
         involvement: OwnerInvolvement,
@@ -283,12 +283,12 @@ pub enum PmAction {
         id: String,
         subject: String,
         role_id: String,
-        /// Resolved owner-involvement for the AddConsultant class (from policy).
+        /// Resolved director-involvement for the AddConsultant class (from policy).
         involvement: OwnerInvolvement,
     },
     /// Resolve a decision. The universal decision-maker step: the actor is who
     /// decided — `Owner` after being asked, or a delegated PM/agent (per policy).
-    /// Produces `DecisionMade`; there is no separate owner-decision event.
+    /// Produces `DecisionMade`; there is no separate director-decision event.
     MakeDecision {
         decision_id: String,
         approved: bool,
@@ -343,12 +343,12 @@ pub enum PmAction {
         #[serde(default)]
         warn_at: Option<f64>,
     },
-    /// Pause all side-effecting work (owner action, or the liveness watchdog as
+    /// Pause all side-effecting work (director action, or the liveness watchdog as
     /// system). Resumable via `ResumeWork`.
     PauseWork {
         reason: String,
     },
-    /// Clear a `WorkPaused` (owner action). A BUDGET halt is NOT resumable by
+    /// Clear a `WorkPaused` (director action). A BUDGET halt is NOT resumable by
     /// this — spend doesn't decrease; only a higher budget limit un-halts it.
     ResumeWork,
 }
@@ -389,7 +389,7 @@ struct ActionVocabEntry {
 /// Additions and removals here should mirror PmAction changes; the field-name
 /// correspondence is checked at review time.
 const ACTION_VOCAB: &[ActionVocabEntry] = &[
-    // ── ORGANISATIONAL ACTIONS (PM/owner only) ──────────────────────────
+    // ── ORGANISATIONAL ACTIONS (PM/director only) ──────────────────────────
     ActionVocabEntry {
         name: "hire_agent",
         section: "--- ORGANISATIONAL ACTIONS ---",
@@ -520,7 +520,7 @@ const ACTION_VOCAB: &[ActionVocabEntry] = &[
             ("priority", "\"low\"|\"medium\"|\"high\"|\"critical\""),
         ],
     },
-    // ── DECISIONS (PM/owner only) ────────────────────────────────────────
+    // ── DECISIONS (PM/director only) ────────────────────────────────────────
     ActionVocabEntry {
         name: "propose_decision",
         section: "--- DECISIONS ---",
@@ -628,7 +628,7 @@ const ACTION_VOCAB: &[ActionVocabEntry] = &[
             ("pm_action_required", "bool"),
         ],
     },
-    // ── GOVERNANCE (PM/owner only) ──────────────────────────────────────
+    // ── GOVERNANCE (PM/director only) ──────────────────────────────────────
     ActionVocabEntry {
         name: "create_directive",
         section: "--- GOVERNANCE ---",
@@ -741,12 +741,12 @@ const ACTION_VOCAB: &[ActionVocabEntry] = &[
 /// Returns a structured string listing all actions the actor may perform,
 /// with their JSON schema shapes. The provided actor string determines the
 /// set of actions returned:
-/// - `"pm"`, `"owner"`, or `"system"` — ALL actions (org, task, decisions,
+/// - `"pm"`, `"director"`, or `"system"` — ALL actions (org, task, decisions,
 ///   knowledge, governance, comms, harness, and special).
 /// - Any other actor (consultant) — only task, knowledge, communication,
 ///   and special actions they are permitted to perform.
 pub fn action_vocab_for(actor: &str) -> String {
-    let is_pm = matches!(actor, "pm" | "owner" | "system");
+    let is_pm = matches!(actor, "pm" | "director" | "system");
     let mut lines: Vec<String> = Vec::new();
     let mut current_section: Option<&'static str> = None;
 

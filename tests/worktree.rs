@@ -1,6 +1,6 @@
 //! Tests for worktree provisioning — each summoned consultant's isolated
 //! workspace: a git worktree on its own branch, a private Rust build target,
-//! and a distinct API port so concurrent consultants can't collide (owner
+//! and a distinct API port so concurrent consultants can't collide (director
 //! requirements 2026-08-12).
 //!
 //! All use throwaway repos under tempdir; none touch the real artifact repo.
@@ -362,7 +362,10 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
         "worktrees must have distinct ports"
     );
     for wt in &proj.worktrees {
-        assert!(wt.branch.starts_with("casting/task-"), "branch {wt:?}");
+        assert!(
+            wt.branch.starts_with("casting/task-") || wt.branch.starts_with("casting/chat-"),
+            "branch {wt:?}"
+        );
     }
 }
 

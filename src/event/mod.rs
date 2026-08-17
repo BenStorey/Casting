@@ -74,7 +74,7 @@ pub enum EventType {
     ConstraintRecorded,
     /// A project OPINION was recorded — a subjective judgment / rationale /
     /// preference (e.g. "Postgres is a good default for our log"). Subjective
-    /// and changeable: superseded, never edited. (owner concept 2026-08-10:
+    /// and changeable: superseded, never edited. (director concept 2026-08-10:
     /// knowledge worth not re-deriving is opinion, not objective fact)
     OpinionRecorded,
     /// A previously-recorded opinion is superseded by a newer one -> status
@@ -83,7 +83,7 @@ pub enum EventType {
     /// A project FACT was recorded — an objective, measured point-in-time datapoint
     /// (e.g. "the repo is 1,342 lines"). Objective measures are usually
     /// derived from state, but recording one captures a point-in-time snapshot
-    /// worth preserving. (owner concept 2026-08-10)
+    /// worth preserving. (director concept 2026-08-10)
     FactRecorded,
     /// Cost incurred by an agent/model call (harness responsibility #6 — cost
     /// attribution & token budgeting, docs/HARNESS.md). Carries provider
@@ -104,7 +104,7 @@ pub enum EventType {
     DecisionProposed,
     /// A decision was resolved — by the DIRECTOR (after being asked) OR by a
     /// delegated PM/agent. This is the universal decision-maker event: there
-    /// is no separate "owner decision" type; the actor on this event is who
+    /// is no separate "director decision" type; the actor on this event is who
     /// decided (docs/CASTING_PROJECT_BRIEF.md §5, HANDOFF decision log).
     DecisionMade,
     /// A decision was superseded by another (history preserved, never deleted).
@@ -130,7 +130,7 @@ pub enum EventType {
     /// A batch of work is ready for review (task + branch + commits assembled
     /// into a ChangeSet). Emitted by the ChangeSet layer (increment 3).
     ChangeSetReady,
-    /// An isolated worktree was provisioned for a task (owner 2026-08-12): the
+    /// An isolated worktree was provisioned for a task (director 2026-08-12): the
     /// platform gave a summoned consultant a dedicated working tree on its own
     /// branch, with a private build target and a distinct API port. Carries the
     /// task_id, branch, path, cargo_target_dir, and port. Isolation is a PLATFORM
@@ -157,7 +157,7 @@ pub enum EventType {
     /// Carries: { consultant, slot, task_id }.
     WorktreeReleased,
 
-    // --- External advisory context (owner, 2026-08-10) ---
+    // --- External advisory context (director, 2026-08-10) ---
     /// Advisor content (text and/or image/diagram references) brought INTO the
     /// project from OUTSIDE Casting (e.g. a ChatGPT plan Ben pastes in). It is
     /// explicitly **advisory, NOT authoritative** — it can inform context but
@@ -168,23 +168,23 @@ pub enum EventType {
     /// A request arrived from an EXTERNAL source (e.g. a GitHub issue/PR a
     /// product user opened). The product's intake surface. Carries provenance
     /// (source, external_id, reporter) so the PM can triage it; NOT the director's
-    /// own intent. (owner 2026-08-10)
+    /// own intent. (director 2026-08-10)
     ExternalRequestReceived,
     /// A diagram was drawn and saved inside the app (Excalidraw canvas) — a durable
     /// visual artifact captured directly from the editor, not a re-uploaded
-    /// image. Stored as serialized Excalidraw JSON (`data`) the PM/owner can view
-    /// and reload. (owner 2026-08-10)
+    /// image. Stored as serialized Excalidraw JSON (`data`) the PM/director can view
+    /// and reload. (director 2026-08-10)
     DiagramSaved,
     /// A message in the director↔advisor thread — the director's private chat with the
     /// direction-advisor (a special second role the director interacts with
     /// directly). This thread is ISOLATED from the PM's context by design: it
     /// only reaches the PM when the director explicitly hands it off via
-    /// `AdvisorHandoff` (which becomes an AdvisoryBriefing). (owner 2026-08-10)
+    /// `AdvisorHandoff` (which becomes an AdvisoryBriefing). (director 2026-08-10)
     AdvisorMessageSent,
     /// the director asked the advisor thread to be summarized and handed off to the
     /// PM — converting the private strategic conversation into an
     /// `AdvisoryBriefing` (provenanced "advisor") the PM DOES read. This is the
-    /// explicit integration point between the two direct owner roles.
+    /// explicit integration point between the two direct director roles.
     AdvisorHandoff,
     // --- Durable execution (durability first PR, docs/plans/2026-08-13) ---
     /// Intent to run a discrete side-effecting action (an LLM call, a git push,

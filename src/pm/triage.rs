@@ -8,7 +8,7 @@
 //!   - the `PmAction::ReceiveExternalRequest` event mapper (so the recorded
 //!     event carries the same verdict).
 //!
-//! Keeping it here means the two can never drift out of sync (owner refactor
+//! Keeping it here means the two can never drift out of sync (director refactor
 //! 2026-08-10; prior review flagged the inlined copy as a latent bug).
 
 /// Classify an external request: returns (classification, severity).

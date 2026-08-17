@@ -1,5 +1,5 @@
 //! Integration tests for the Postgres storage backend — behind the SAME traits
-//! as SQLite (owner principle: swap backends freely behind the abstraction).
+//! as SQLite (director principle: swap backends freely behind the abstraction).
 //!
 //! Run against a real Postgres (not a mock), via the __CAST_PG_URL` env var
 //! (or a default localhost config). Skipped when Postgres is unreachable so the
@@ -159,7 +159,7 @@ fn postgres_all_stores_back_the_abstraction() {
 #[test]
 fn company_boots_and_onboards_entirely_on_postgres() {
     // End-to-end: an AppState running its whole lifecycle (seed -> PM loop ->
-    // owner message -> onboarding) on the Postgres backend, exactly as a hosted
+    // director message -> onboarding) on the Postgres backend, exactly as a hosted
     // company would. This is the strongest proof the swap is seamless.
     let Some(store) = connect() else { return };
     use casting::pm::AppState;

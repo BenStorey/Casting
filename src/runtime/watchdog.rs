@@ -2,11 +2,11 @@
 //! feature 3). The OTHER half of observability: durable execution recovers from
 //! *crashes*; this detects when the system is *alive but not making progress*.
 //!
-//! Self-actuating, guardian-owned (owner message / dashboard notify is deferred
+//! Self-actuating, guardian-owned (director message / dashboard notify is deferred
 //! until messaging wiring): on a detected stall it issues a `WorkPaused` (by
 //! `system`), which is the SAME resumable pause rail as the director's `/api/pause`
 //! and the shared halt gate in `guard.rs`. The cast halts itself; a human or the
-//! owner resumes via `/api/resume`.
+//! director resumes via `/api/resume`.
 //!
 //! Why a wall-clock monitor and not a cursor-gated reconciler pass: "no events
 //! for N hours" is a TIME-based signal, and the reconciler's cadence only fires
@@ -198,7 +198,7 @@ pub fn audit(state: &AppState, config: &WatchConfig, now: DateTime<Utc>) -> Resu
     };
     let proj = state.projection()?;
     if crate::pm::guard::is_paused(&proj) {
-        // Already paused (owner or a previous watchdog fire) — leave it.
+        // Already paused (director or a previous watchdog fire) — leave it.
         return Ok(None);
     }
     let cause = last_or_boot(state);

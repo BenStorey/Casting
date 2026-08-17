@@ -80,7 +80,7 @@ fn detect_flags_no_progress_only_with_in_flight_work() {
     let sig = watchdog::detect(&cfg, &stalled).expect("no-progress detected");
     assert_eq!(sig.kind, SignalKind::NoProgress);
 
-    // Idle board (all done / waiting on owner) is NOT a stall — don't false-
+    // Idle board (all done / waiting on director) is NOT a stall — don't false-
     // positive a legitimately-quiet cast.
     let idle = WatchModel {
         has_started: true,

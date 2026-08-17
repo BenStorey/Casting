@@ -107,7 +107,7 @@ fn is_secret_key(key: &str) -> bool {
         .any(|k| lower == *k || lower.ends_with(&format!(".{k}")))
         || lower.contains("password")
         || lower.contains("secret")
-        || lower.contains("token")
+        || lower.contains("token") && !lower.ends_with("_tokens")
         || lower.contains("credential")
         || lower.contains("api.key")
         || lower.contains("private.key")

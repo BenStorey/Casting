@@ -20,7 +20,7 @@ pub fn director_decision_made(
 /// The single shared `DecisionMade` builder. Both the director-authored path
 /// (`director_decision_made`) and the generic action→event path (MakeDecision in
 /// to_events) go through here so the event SHAPE can never drift between
-/// PM/agent-made and owner-made decisions. `note` is emitted as a string field
+/// PM/agent-made and director-made decisions. `note` is emitted as a string field
 /// (None => ""), which the reducer reads via string_field.
 pub(crate) fn decision_made_event(
     actor: Actor,
@@ -46,8 +46,8 @@ pub(crate) fn decision_made_event(
     )
 }
 
-/// Build the director-authored `DecisionPolicyChanged` event (owner configures the
-/// owner-involvement required for a decision class).
+/// Build the director-authored `DecisionPolicyChanged` event (director configures the
+/// director-involvement required for a decision class).
 pub fn director_policy_changed(
     project: &str,
     class: crate::pm::DecisionClass,
@@ -68,7 +68,7 @@ pub fn director_policy_changed(
     )
 }
 
-/// Build the director-authored `ProjectDirectiveCreated` event (owner sets
+/// Build the director-authored `ProjectDirectiveCreated` event (director sets
 /// governance). `created_by` is hardcoded to the director because a directive,
 /// once created, is attributed to its author regardless of later security.
 pub fn director_directive_created(

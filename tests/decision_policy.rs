@@ -1,7 +1,7 @@
 //! Pure unit tests for the decision policy engine (`src/policy.rs`).
 //!
 //! The engine is the *delegated authority* layer (brief §5): a deterministic
-//! map from decision class → owner involvement, with a fail-safe default. It is
+//! map from decision class → director involvement, with a fail-safe default. It is
 //! deliberately pure (no I/O, no store) so it is trivially testable and safe to
 //! run in front of an arbitrary producer — exactly the guarantee the LLM seam
 //! needs once a real provider is wired in.

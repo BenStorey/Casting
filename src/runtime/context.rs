@@ -68,7 +68,7 @@ pub struct ActiveStepContext {
 }
 
 /// A targeted operating context for a single actor (an agent, the PM, or the
-/// owner). Surfaces what is *relevant to them*, filtered by governance scope.
+/// director). Surfaces what is *relevant to them*, filtered by governance scope.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AgentContext {
     pub actor: String,
@@ -172,7 +172,7 @@ pub fn summary(ctx: &AgentContext) -> String {
 }
 
 impl crate::projection::Projection {
-    /// Assemble the operating context for `actor` (agent id, "owner", or "pm").
+    /// Assemble the operating context for `actor` (agent id, "director", or "pm").
     pub fn context_for(&self, actor: &str) -> AgentContext {
         let plan = self.plan();
 
@@ -234,7 +234,7 @@ impl crate::projection::Projection {
         let external_requests = self
             .external_requests
             .iter()
-            .filter(|_| actor == "pm" || actor == "owner" || actor == "system")
+            .filter(|_| actor == "pm" || actor == "director" || actor == "system")
             .map(|r| {
                 let body = truncate(&r.body, 5000);
                 format!(
@@ -304,7 +304,7 @@ impl crate::projection::Projection {
     }
 
     /// Deterministic relevance score (0..~5) of one planned item to `actor`.
-    /// Own-task and urgent items rank highest; owner/PM see everything as relevant.
+    /// Own-task and urgent items rank highest; director/PM see everything as relevant.
     fn score_for(&self, actor: &str, p: &PlannedItem) -> f64 {
         let is_mine = self
             .tasks
@@ -331,9 +331,9 @@ impl crate::projection::Projection {
             _ => 0.0,
         };
         let mine: f64 = if is_mine { 1.0 } else { 0.0 };
-        // Owner/PM genuinely care about everything; non-owners get a mild boost
+        // Owner/PM genuinely care about everything; non-directors get a mild boost
         // only for their own scope.
-        let role: f64 = if actor == "owner" || actor == "pm" || actor == "system" {
+        let role: f64 = if actor == "director" || actor == "pm" || actor == "system" {
             0.0
         } else {
             -0.5
@@ -344,7 +344,7 @@ impl crate::projection::Projection {
     /// The governance areas an actor operates in: their task kinds (as scope
     /// tokens) plus the scope of their catalog role. Owner/PM see everything.
     pub fn scopes_for(&self, actor: &str) -> Vec<&str> {
-        if actor == "owner" || actor == "pm" || actor == "system" {
+        if actor == "director" || actor == "pm" || actor == "system" {
             return vec!["engineering", "qa", "architecture", "finance", "product"];
         }
         let mut scopes: Vec<&str> = self

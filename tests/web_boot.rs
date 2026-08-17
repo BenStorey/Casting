@@ -57,7 +57,7 @@ fn provenance_routes_are_mounted_and_answer() {
         "/api/directive",
         "/api/hire",
         "/api/setup/status",
-        "/api/context/owner",
+        "/api/context/director",
         "/api/model",
         "/api/graph",
         "/api/consultants",

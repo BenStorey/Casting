@@ -385,12 +385,12 @@ fn supersede_requires_an_existing_active_target() {
     assert!(matches!(err, PolicyError::DirectiveNotFound(_)));
 }
 
-// --- Task 4: owner-set directives surfaced in plan ---
+// --- Task 4: director-set directives surfaced in plan ---
 
 #[test]
 fn owner_set_directive_is_surfaced_in_the_plan() {
     let state = make_state();
-    // The DIRECTOR sets governance (owner-only); the plan surfaces it.
+    // The DIRECTOR sets governance (director-only); the plan surfaces it.
     state
         .append(Event::new(
             "proj-dir",
@@ -472,7 +472,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
         state.append(ev).unwrap();
     }
 
-    // It should appear as an open GovernanceChange decision (owner inbox).
+    // It should appear as an open GovernanceChange decision (director inbox).
     let proj = Projection::build(&state.store, "proj-dir").unwrap();
     let dec = proj.decisions.iter().find(|d| d.id == "dg-1").unwrap();
     assert_eq!(
@@ -505,7 +505,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
     casting::pm::drive_pm(&state).await.unwrap();
 
     // Manually apply the governance change (the mock orchestrator handles
-    // owner decisions with a simple follow-up; the real LLM would read the
+    // director decisions with a simple follow-up; the real LLM would read the
     // decision options and emit CreateDirective + SupersedeDirective itself).
     state
         .append(Event::new(
@@ -546,7 +546,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
         .unwrap();
 
     let proj = Projection::build(&state.store, "proj-dir").unwrap();
-    // The new directive was created (authored by owner) and supersedes v1.
+    // The new directive was created (authored by director) and supersedes v1.
     let created = proj
         .directives
         .iter()

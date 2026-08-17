@@ -125,7 +125,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/budget", axum::routing::post(budget_handler))
         .route("/api/pause", axum::routing::post(pause_handler))
         .route("/api/resume", axum::routing::post(resume_handler))
-        // POST /api/setup and POST /api/telegram/configure are also owner-
+        // POST /api/setup and POST /api/telegram/configure are also director-
         // mutating writes (they persist the director token / a bot secret), so
         // they get the same bearer guard. require_auth is a NO-OP when no
         // token is configured, so the first-run SetupWizard (which posts to

@@ -14,7 +14,7 @@
 //! story, and because every package is self-contained + id-namespaced, the same
 //! files are what a sharing/marketplace layer would later distribute.
 //!
-//! Design decisions (owner-aligned):
+//! Design decisions (director-aligned):
 //! - **No tool allowlists / blocked paths / minions / token budgets.** Isolation
 //!   is a platform property (worktrees); agents act only through the validated
 //!   `PmAction` vocabulary; cost flows through the existing `CostIncurred` /

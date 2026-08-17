@@ -44,7 +44,7 @@ fn owner_message(body: &str) -> Event {
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
-            id: "msg-owner".into(),
+            id: "msg-director".into(),
         },
         serde_json::json!({ "to": "pm", "body": body }),
     )
@@ -61,7 +61,7 @@ fn count(state: &AppState, pred: impl Fn(&Event) -> bool) -> usize {
 }
 
 /// Mid-drain failure (cursor NEVER advanced) → the next drain re-reads the SAME
-/// owner message and re-plans the SAME onboard. The events the failed first
+/// director message and re-plans the SAME onboard. The events the failed first
 /// drain already persisted (a real-entity TaskCreated + TaskAssigned for
 /// task-design, with the run-{seq} correlation) must NOT be re-emitted, while
 /// the requirement/decision are created exactly once.
@@ -69,7 +69,7 @@ fn count(state: &AppState, pred: impl Fn(&Event) -> bool) -> usize {
 async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
     let state = make_state();
 
-    // The cause: one owner message. Its run-{seq} correlation is the unique
+    // The cause: one director message. Its run-{seq} correlation is the unique
     // per-cause planning key the idempotency guard keys on.
     let cause = state.append(owner_message("Build a todo app")).unwrap();
     let corr = format!("run-{}", cause.sequence);

@@ -2,7 +2,7 @@
 //!
 //! One deployment picks ONE backend (SQLite or Postgres); `AppState` only ever
 //! sees trait objects, so swapping is a one-line config change. This is the
-//! owner's "freely swap one for the other" seam made concrete.
+//! director's "freely swap one for the other" seam made concrete.
 
 use crate::store::CursorStore;
 use crate::store::EventStore;

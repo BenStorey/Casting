@@ -13,7 +13,7 @@
 //! The old scripted planning functions (`plan_onboard`, `plan_acknowledge`,
 //! `plan_owner_decision`) have been removed — they were the demo tape.
 //! Without an orchestrator attached, the system is properly inert: the event
-//! log records owner messages and decisions, but no action is taken until a
+//! log records director messages and decisions, but no action is taken until a
 //! provider is configured.
 
 use crate::actions::PmAction;
@@ -83,7 +83,7 @@ pub trait Orchestrator: Send + Sync {
 }
 
 /// A deterministic stand-in for the LLM. Drives a minimal, scripted PM loop:
-/// acknowledge owner messages and (after the first build) propose a follow-up
+/// acknowledge director messages and (after the first build) propose a follow-up
 /// decision. Turns the seam on end-to-end with no live model. Stateless (the
 /// mock derives everything deterministically from the context).
 #[derive(Debug, Clone, Copy, Default)]
@@ -92,7 +92,7 @@ pub struct MockOrchestrator;
 #[async_trait::async_trait]
 impl Orchestrator for MockOrchestrator {
     async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
-        // Handle owner decision triggers: create a follow-up task on approval,
+        // Handle director decision triggers: create a follow-up task on approval,
         // acknowledge on rejection — mimics the old plan_owner_decision logic.
         if cause.event_type == EventType::DecisionMade
             && cause.actor
@@ -125,7 +125,7 @@ impl Orchestrator for MockOrchestrator {
             actions.push((
                 "pm".into(),
                 PmAction::SendMessage {
-                    to: "owner".into(),
+                    to: "director".into(),
                     body: format!("{verdict}: \"{subject}\"{suffix}"),
                 },
             ));
@@ -157,7 +157,7 @@ impl Orchestrator for MockOrchestrator {
             actions.push((
                 "pm".into(),
                 PmAction::SendMessage {
-                    to: "owner".into(),
+                    to: "director".into(),
                     body: format!("On it — \u{201c}{body}\u{201d}. I'll scope it into tasks."),
                 },
             ));

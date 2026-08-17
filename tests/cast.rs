@@ -109,7 +109,7 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
         },
         serde_json::json!({}),
     );
-    for e in action.to_events("proj-cast", "owner", &cause, "hire") {
+    for e in action.to_events("proj-cast", "director", &cause, "hire") {
         state.append(e).unwrap();
     }
 
@@ -184,7 +184,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
     assert_eq!(dec.class, casting::pm::policy::DecisionClass::AddConsultant);
 
     // Owner approves; manually apply the hire (the mock orchestrator handles
-    // owner decisions with a simple follow-up task; the real LLM would read
+    // director decisions with a simple follow-up task; the real LLM would read
     // the decision options and emit HireAgent itself).
     state
         .append(casting::event::Event::new(

@@ -3,7 +3,7 @@
 //! Starting from a commit, Casting can answer:
 //!
 //! ```text
-//! commit → changeSet → task → requirement → decision → owner intent
+//! commit → changeSet → task → requirement → decision → director intent
 //! ```
 //!
 //! Or starting from a decision:
@@ -43,7 +43,7 @@ pub struct ProvenanceLink {
     pub description: String,
 }
 
-/// The full provenance chain from a commit back to owner intent.
+/// The full provenance chain from a commit back to director intent.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProvenanceChain {
     /// The commit sha we started from.
@@ -58,7 +58,7 @@ pub struct ProvenanceChain {
     pub decision_id: Option<String>,
     /// the director message that initiated the chain.
     pub owner_message: Option<String>,
-    /// The ordered chain of events from commit back to owner intent.
+    /// The ordered chain of events from commit back to director intent.
     pub chain: Vec<ProvenanceLink>,
 }
 
@@ -281,7 +281,7 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
                 .map(|e| e.aggregate.id.clone());
         }
 
-        // Follow causation_id to owner message.
+        // Follow causation_id to director message.
         if let Some(cause_id) = task_ev.metadata.causation_id {
             if let Some(cause_ev) = events.iter().find(|e| e.event_id == cause_id) {
                 if cause_ev.event_type == EventType::MessageSent {
@@ -349,18 +349,18 @@ pub struct DecisionAudit {
     pub involvement: crate::pm::OwnerInvolvement,
     pub status: String,
     pub proposed_by: String,
-    /// The decider once `DecisionMade` is recorded (owner or agent id).
+    /// The decider once `DecisionMade` is recorded (director or agent id).
     pub decided_by: Option<String>,
     /// The note attached when the decision was made (often the director's verdict).
     pub note: Option<String>,
     /// the director's original message that motivated this decision, if traceable.
     pub owner_message: Option<String>,
-    /// The ordered chain of link events: proposal → decision → owner message.
+    /// The ordered chain of link events: proposal → decision → director message.
     pub chain: Vec<ProvenanceLink>,
 }
 
 /// Build the audit for a decision: walk the log for its proposal and any
-/// resolution, then trace back to the initiating owner message.
+/// resolution, then trace back to the initiating director message.
 pub fn for_decision<S: EventStore>(
     store: &S,
     project: &str,
@@ -445,7 +445,7 @@ pub fn for_decision<S: EventStore>(
         });
     }
 
-    // Trace to the initiating owner message via the proposal's causation chain.
+    // Trace to the initiating director message via the proposal's causation chain.
     let mut owner_message = None;
     let mut cause_id = proposed.metadata.causation_id;
     let mut guard = 0;
@@ -503,7 +503,7 @@ pub fn for_decision<S: EventStore>(
 
 fn actor_label(a: &crate::event::Actor) -> String {
     match a {
-        crate::event::Actor::Director { .. } => "owner".into(),
+        crate::event::Actor::Director { .. } => "director".into(),
         crate::event::Actor::Agent { id } => id.clone(),
         crate::event::Actor::System => "system".into(),
     }

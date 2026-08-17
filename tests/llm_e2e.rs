@@ -124,6 +124,22 @@ fn seed(state: &AppState) {
             json!({}),
         ))
         .unwrap();
+    // Seed a budget so the budget gate (llm_dispatch_allowed) doesn't block
+    // orchestrator calls for owner-decision-triggered tests.
+    state
+        .append(Event::new(
+            "proj-llm",
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
+            EventType::BudgetSet,
+            Aggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
     for (id, role) in [
         ("pm", "Project Manager"),
         ("marcus-reed", "Engineer"),
@@ -157,6 +173,26 @@ fn msg_body(state: &AppState, id: &str, body: &str) {
                 id: id.into(),
             },
             json!({ "body": body }),
+        ))
+        .unwrap();
+}
+
+/// Send a DecisionMade trigger that routes through the orchestrator (unlike
+/// MessageSent which takes the deterministic chat-interface path). The data
+/// includes a "body" field so the orchestrator's ask extraction works.
+fn decision_trigger(state: &AppState, id: &str, body: &str) {
+    state
+        .append(Event::new(
+            "proj-llm",
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
+            EventType::DecisionMade,
+            Aggregate {
+                kind: "decision".into(),
+                id: id.into(),
+            },
+            json!({ "subject": "test", "approved": true, "note": body, "body": body }),
         ))
         .unwrap();
 }
@@ -366,7 +402,7 @@ fn prompt_contract_matches_serde_shape() {
     }
 
     // Internal actions the model shouldn't hand-author (authority-only):
-    // create_directive / supersede_directive are owner/PM-authority paths, not
+    // create_directive / supersede_directive are director/PM-authority paths, not
     // LLM planning vocabulary. (Sanity guard that we did not over-expose them.)
     // (No assert needed — the point is the ones above all round-trip.)
 }
@@ -497,7 +533,7 @@ async fn gate_rejects_illegal_llm_action_and_audits() {
         .with_orchestrator(Arc::new(orch_for(stub.base_url, false)))
         .with_step_delay(std::time::Duration::ZERO);
     seed(&state);
-    msg_body(&state, "m1", "Build me a product.");
+    decision_trigger(&state, "m1", "Build me a product.");
 
     drive_pm(&state).await.unwrap();
 
@@ -545,7 +581,7 @@ async fn paused_skips_provider_call_no_spend() {
         .with_orchestrator(Arc::new(orch_for(stub.base_url, false)))
         .with_step_delay(std::time::Duration::ZERO);
     seed(&state);
-    // Pause BEFORE the message triggers planning (owner WorkPaused event).
+    // Pause BEFORE the message triggers planning (director WorkPaused event).
     state
         .append(Event::new(
             "proj-llm",
@@ -644,7 +680,7 @@ async fn budget_halt_skips_provider_call_no_spend() {
     );
 }
 
-// === E. Not hijacked — non-owner triggers don't route through the orchestrator ===
+// === E. Not hijacked — non-director triggers don't route through the orchestrator ===
 
 #[tokio::test]
 async fn non_owner_triggers_do_not_call_provider() {
@@ -659,7 +695,7 @@ async fn non_owner_triggers_do_not_call_provider() {
         .with_step_delay(std::time::Duration::ZERO);
     seed(&state);
 
-    // A non-owner MessageSent (e.g. an agent speaking) must NOT route through
+    // A non-director MessageSent (e.g. an agent speaking) must NOT route through
     // the orchestrator — orchestration is scoped to DIRECTOR messages.
     state
         .append(Event::new(
@@ -701,7 +737,7 @@ async fn cost_metering_derives_usd_and_cache_split() {
         .with_orchestrator(Arc::new(orch_for(stub.base_url, true)))
         .with_step_delay(std::time::Duration::ZERO);
     seed(&state);
-    msg_body(&state, "m1", "Build me a product.");
+    decision_trigger(&state, "m1", "Build me a product.");
     drive_pm(&state).await.unwrap();
 
     let spend = state.store.read_since("proj-llm", 0).unwrap();
@@ -738,7 +774,7 @@ async fn provider_http_error_is_audited_no_panic() {
         .with_orchestrator(Arc::new(orch_for(stub.base_url, false)))
         .with_step_delay(std::time::Duration::ZERO);
     seed(&state);
-    msg_body(&state, "m1", "Build me a product.");
+    decision_trigger(&state, "m1", "Build me a product.");
 
     let authored = drive_pm(&state).await.unwrap();
     assert_eq!(authored, 0, "a provider error produces no domain actions");

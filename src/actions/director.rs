@@ -1,4 +1,4 @@
-//! Director-authored event shapes. Previously called "owner" — renamed to
+//! Director-authored event shapes. Previously called "director" — renamed to
 //! "director" so the system can support multiple directors in future (the CEO
 //! is one director, for day 1 the only one). Carries user identity through
 //! `Actor::Director { user_id }`.
@@ -62,7 +62,7 @@ pub(crate) fn decision_made_event(
 }
 
 /// Build the director-authored `DecisionPolicyChanged` event (director configures
-/// the owner-involvement required for a decision class).
+/// the director-involvement required for a decision class).
 pub fn director_policy_changed(
     user_id: &str,
     project: &str,

@@ -313,7 +313,7 @@ fn provenance_task_answers() {
 
 // --- STEP 3: POST mutating endpoints against a seeded company ---
 
-/// POST /api/message — owner message persists as a MessageSent event.
+/// POST /api/message — director message persists as a MessageSent event.
 #[test]
 fn post_message_persists() {
     let state = seeded_state();
@@ -328,7 +328,7 @@ fn post_message_persists() {
     assert_eq!(json["event_type"], serde_json::json!("MessageSent"));
 }
 
-/// POST /api/decision — owner verdict on the open decision persists.
+/// POST /api/decision — director verdict on the open decision persists.
 #[test]
 fn post_decision_verdict() {
     let state = seeded_state();
@@ -347,7 +347,7 @@ fn post_decision_verdict() {
     assert_eq!(json["event_type"], serde_json::json!("DecisionMade"));
 }
 
-/// POST /api/policy — owner sets decision involvement for a class.
+/// POST /api/policy — director sets decision involvement for a class.
 #[test]
 fn post_policy_changes_class() {
     let state = seeded_state();
@@ -365,7 +365,7 @@ fn post_policy_changes_class() {
     );
 }
 
-/// POST /api/directive — owner authors governance.
+/// POST /api/directive — director authors governance.
 #[test]
 fn post_directive_creates_governance() {
     let state = seeded_state();
@@ -389,7 +389,7 @@ fn post_directive_creates_governance() {
     );
 }
 
-/// POST /api/hire — owner hires a catalog role; a new AgentHired event lands.
+/// POST /api/hire — director hires a catalog role; a new AgentHired event lands.
 #[test]
 fn post_hire_catalog_role() {
     let state = seeded_state();
@@ -404,7 +404,7 @@ fn post_hire_catalog_role() {
     assert_eq!(json["event_type"], serde_json::json!("AgentHired"));
 }
 
-/// POST /api/brief — owner imports advisory content.
+/// POST /api/brief — director imports advisory content.
 #[test]
 fn post_brief_imports_advice() {
     let state = seeded_state();
@@ -459,7 +459,7 @@ fn post_diagram_saves() {
     assert_eq!(json["event_type"], serde_json::json!("DiagramSaved"));
 }
 
-/// POST /api/advisor/message — owner→advisor message appends to the thread.
+/// POST /api/advisor/message — director→advisor message appends to the thread.
 #[test]
 fn post_advisor_message() {
     let state = seeded_state();
@@ -623,7 +623,7 @@ fn advisor_summarize_returns_deterministic_summary() {
     assert!(json.get("summary").is_some(), "summarize returns a summary");
 }
 
-/// POST /api/login with the correct owner token verifies ok; wrong token 401.
+/// POST /api/login with the correct director token verifies ok; wrong token 401.
 #[test]
 fn login_verifies_director_token() {
     let state = seeded_state().with_owner_auth("secret-token");
@@ -657,14 +657,14 @@ fn graph_task_context_known_and_unknown() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-/// GET /api/context/owner — the director's operating context serializes (owner is
+/// GET /api/context/director — the director's operating context serializes (director is
 /// a valid actor alias, distinct from any hired agent).
 #[test]
 fn owner_context_answers() {
     let state = seeded_state();
     let app = app(state);
-    let resp = get(&app, "/api/context/owner");
+    let resp = get(&app, "/api/context/director");
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp);
-    assert_eq!(json["actor"], serde_json::json!("owner"));
+    assert_eq!(json["actor"], serde_json::json!("director"));
 }

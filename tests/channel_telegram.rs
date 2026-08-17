@@ -1,4 +1,4 @@
-//! Telegram owner channel tests (docs/plans/2026-08-14_telegram-channel.md).
+//! Telegram director channel tests (docs/plans/2026-08-14_telegram-channel.md).
 //!
 //! Everything runs against a LOCAL stub Telegram HTTP server (127.0.0.1:0), so
 //! the whole seam is pinned down with no live bot, no network, CI-safe — the
@@ -38,7 +38,7 @@ fn director_bound_msg(state: &AppState, body: &str) {
                 kind: "message".into(),
                 id: format!("msg-out-{}", uuid::Uuid::new_v4()),
             },
-            json!({ "to": "owner", "body": body }),
+            json!({ "to": "director", "body": body }),
         ))
         .unwrap();
 }
@@ -113,7 +113,7 @@ async fn boot(
     (state, channel, rx, stub)
 }
 
-// Outbound durable cursor: a PM->owner MessageSent is pushed via sendMessage.
+// Outbound durable cursor: a PM->director MessageSent is pushed via sendMessage.
 #[tokio::test]
 async fn outbound_pushes_owner_bound_message() {
     let (state, channel, rx, stub) = boot(12345).await;
@@ -124,7 +124,7 @@ async fn outbound_pushes_owner_bound_message() {
         .unwrap();
 
     let s = stub.lock().unwrap();
-    assert_eq!(s.sent.len(), 1, "one owner-bound message pushed");
+    assert_eq!(s.sent.len(), 1, "one director-bound message pushed");
     assert_eq!(s.sent[0].0, 12345, "targets the director chat");
     assert_eq!(s.sent[0].1, "Please approve the database choice");
 }
@@ -150,7 +150,7 @@ async fn outbound_skips_non_owner_and_owner_originated() {
             json!({ "to": "marcus-reed", "body": "internal note" }),
         ))
         .unwrap();
-    // Owner -> PM (the director's own inbound): must NOT be echoed back to owner.
+    // Owner -> PM (the director's own inbound): must NOT be echoed back to director.
     state
         .append(Event::new(
             &state.project,
@@ -160,7 +160,7 @@ async fn outbound_skips_non_owner_and_owner_originated() {
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
-                id: "msg-owner-in".into(),
+                id: "msg-director-in".into(),
             },
             json!({ "to": "pm", "body": "hello from owner" }),
         ))
@@ -174,7 +174,7 @@ async fn outbound_skips_non_owner_and_owner_originated() {
     assert_eq!(
         s.sent.len(),
         0,
-        "no relay for non-owner or owner-originated messages"
+        "no relay for non-director or director-originated messages"
     );
 }
 
@@ -193,7 +193,7 @@ async fn notify_queue_is_drained() {
     assert_eq!(s.sent[0].1, "⚠️ budget warning");
 }
 
-/// Inbound: a message from the configured owner chat becomes a MessageSent the
+/// Inbound: a message from the configured director chat becomes a MessageSent the
 /// PM will see (the event is appended, which wakes the PM via broadcast).
 #[tokio::test]
 async fn inbound_appends_owner_message_event() {
@@ -224,7 +224,7 @@ async fn inbound_appends_owner_message_event() {
     assert_eq!(owner_msgs[0].to, "pm");
 }
 
-/// Inbound auth: a message from a NON-owner chat is ignored (a stranger DMing
+/// Inbound auth: a message from a NON-director chat is ignored (a stranger DMing
 /// the bot is never trusted).
 #[tokio::test]
 async fn inbound_ignores_stranger_chat() {

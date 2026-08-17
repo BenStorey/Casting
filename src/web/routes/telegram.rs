@@ -1,4 +1,4 @@
-//! Telegram owner-channel web routes (2026-08-14).
+//! Telegram director-channel web routes (2026-08-14).
 //!
 //! `POST /api/telegram/configure` — a user of Casting pastes their BotFather
 //! token; the server validates it, brands the bot as the PM (display name +
@@ -45,7 +45,7 @@ pub(crate) async fn telegram_configure_handler(
             )
         })?;
 
-    // Persist + start once the chat is linked. If not linked yet (owner hasn't
+    // Persist + start once the chat is linked. If not linked yet (director hasn't
     // DM'd the bot), we still validate/brand; the loop waits for the DM.
     let started = match outcome.chat_id {
         Some(chat_id) => {

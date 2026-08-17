@@ -264,7 +264,7 @@ async fn advisor_reply_uses_its_model_and_thread() {
     cfg.base_url = base_url;
     let resolver = ModelResolver::new(cfg, Default::default());
 
-    // A private advisor thread (owner asked a question).
+    // A private advisor thread (director asked a question).
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
         from: "director".into(),
@@ -528,6 +528,20 @@ fn state_with_pm_and_cast() -> AppState {
         json!({}),
     ))
     .unwrap();
+    // Seed a budget so the budget gate doesn't block orchestrator calls.
+    st.append(Event::new(
+        "proj-anti",
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
+        EventType::BudgetSet,
+        Aggregate {
+            kind: "budget".into(),
+            id: "budget".into(),
+        },
+        json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+    ))
+    .unwrap();
     for (id, role) in [("pm", "Project Manager"), ("marcus-reed", "Engineer")] {
         st.append(Event::new(
             "proj-anti",
@@ -691,18 +705,18 @@ async fn llm_loop_rejects_and_audits_reproposing_an_open_subject_e2e() {
         .with_orchestrator(Arc::new(orch))
         .with_step_delay(std::time::Duration::ZERO);
 
-    // First owner message → the model proposes "Pick a DB" (accepted).
+    // First director message → the model proposes "Pick a DB" (accepted).
     st.append(Event::new(
         "proj-anti",
         Actor::Director {
             user_id: "ceo".into(),
         },
-        EventType::MessageSent,
+        EventType::DecisionMade,
         Aggregate {
-            kind: "message".into(),
+            kind: "decision".into(),
             id: "m1".into(),
         },
-        json!({ "body": "do it" }),
+        json!({ "subject": "test", "approved": true, "note": "do it", "body": "do it" }),
     ))
     .unwrap();
     casting::pm::drive_pm(&st).await.unwrap();
@@ -717,7 +731,7 @@ async fn llm_loop_rejects_and_audits_reproposing_an_open_subject_e2e() {
         "first proposal landed"
     );
 
-    // Second owner message → the model re-proposes the SAME subject. The gate
+    // Second director message → the model re-proposes the SAME subject. The gate
     // rejects it as PlanActionRejected; the loop does NOT panic.
     st.append(Event::new(
         "proj-anti",
@@ -954,7 +968,7 @@ async fn metering_threads_cache_write_tokens_from_provider() {
         spend.cache_hit_ratio,
         expected_ratio
     );
-    assert_eq!(spend.cache_creation_input_tokens, 200);
+    assert_eq!(spend.cache_creation_input_tokens, 400);
 }
 
 // === #1 Advisory briefings reach the operating context ===

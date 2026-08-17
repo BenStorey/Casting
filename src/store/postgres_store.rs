@@ -332,7 +332,7 @@ impl EventStore for PostgresBackend {
             Box::pin(async move {
                 let project_id = event.project_id.clone();
                 let (actor_type, actor_id) = match &event.actor {
-                    Actor::Director { .. } => ("owner", None),
+                    Actor::Director { .. } => ("director", None),
                     Actor::Agent { id } => ("agent", Some(id.clone())),
                     Actor::System => ("system", None),
                 };
@@ -434,7 +434,7 @@ impl EventStore for PostgresBackend {
                     let actor_type: String = r.get(4);
                     let actor_id: Option<String> = r.get(5);
                     let actor = match actor_type.as_str() {
-                        "owner" => Actor::Director {
+                        "director" => Actor::Director {
                             user_id: "ceo".into(),
                         },
                         "system" => Actor::System,

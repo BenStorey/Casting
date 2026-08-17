@@ -71,7 +71,7 @@ fn opinion_reduces_into_projection() {
     assert_eq!(proj.opinions.len(), 1);
     assert_eq!(proj.opinions[0].id, "op-1");
     assert_eq!(proj.opinions[0].category, "rationale");
-    assert_eq!(proj.opinions[0].recorded_by, "owner");
+    assert_eq!(proj.opinions[0].recorded_by, "director");
     assert_eq!(proj.opinions[0].supersedes, None);
 }
 
@@ -247,7 +247,7 @@ fn supersede_opinion_action_through_gate_and_events() {
         opinion_id: "op-old".into(),
         by_opinion_id: "op-new".into(),
     }
-    .to_events(&state.project, "owner", &cause, "corr-1");
+    .to_events(&state.project, "director", &cause, "corr-1");
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::OpinionSuperseded);
     assert_eq!(evs[0].aggregate.id, "op-old");
@@ -274,7 +274,7 @@ fn fact_reduces_with_point_in_time() {
     assert_eq!(proj.facts.len(), 1);
     assert_eq!(proj.facts[0].id, "f-1");
     assert_eq!(proj.facts[0].kind, "loc");
-    assert_eq!(proj.facts[0].recorded_by, "owner");
+    assert_eq!(proj.facts[0].recorded_by, "director");
     assert!(
         !proj.facts[0].recorded_at.is_empty(),
         "point-in-time stamp set"
@@ -289,7 +289,7 @@ fn record_opinion_and_fact_pass_the_gate() {
             id: "op-9".into(),
             subject: "auth".into(),
             category: "lesson".into(),
-            statement: "Single-owner auth is enough".into(),
+            statement: "Single-director auth is enough".into(),
             supersedes: None,
         },
         "owner",
@@ -318,10 +318,10 @@ fn record_opinion_action_to_events() {
         id: "op-9".into(),
         subject: "auth".into(),
         category: "lesson".into(),
-        statement: "Single-owner auth is enough".into(),
+        statement: "Single-director auth is enough".into(),
         supersedes: None,
     }
-    .to_events(&state.project, "owner", &cause, "corr-1");
+    .to_events(&state.project, "director", &cause, "corr-1");
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::OpinionRecorded);
     assert_eq!(evs[0].aggregate.id, "op-9");

@@ -1,6 +1,6 @@
-//! Tests for owner auth (docs/PLAN: owner-auth).
+//! Tests for director auth (docs/PLAN: director-auth).
 //!
-//! Bearer-token guarding of owner-mutating endpoints, opt-in. When no token is
+//! Bearer-token guarding of director-mutating endpoints, opt-in. When no token is
 //! configured auth is a no-op (backward compatible); when enabled, mutations
 //! require `Authorization: Bearer <token>`.
 

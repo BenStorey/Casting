@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// How expensive a playbook is — drives owner involvement through decision policy.
+/// How expensive a playbook is — drives director involvement through decision policy.
 /// Missing cost_band in an ad-hoc recipe defaults to Expensive (fail-closed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

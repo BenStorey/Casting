@@ -116,7 +116,7 @@ pub enum MergeAuthority {
     PmMerge,
 }
 
-/// A recordable decision and its eventual owner verdict.
+/// A recordable decision and its eventual director verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecisionStatus {
     #[serde(rename = "proposed")]
@@ -145,7 +145,7 @@ pub struct Decision {
     pub owner_verdict: Option<String>,
 }
 
-/// Human-readable message (owner <-> PM, agents). Structured, not real email.
+/// Human-readable message (director <-> PM, agents). Structured, not real email.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Message {
     pub id: String,
@@ -328,7 +328,7 @@ pub struct Constraint {
     pub recorded_by: String,
 }
 
-/// Lifecycle of an external advisor briefing (owner 2026-08-10). Mirrors
+/// Lifecycle of an external advisor briefing (director 2026-08-10). Mirrors
 /// directive/opinion supersession: active until a newer briefing supersedes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum BriefingStatus {
@@ -381,7 +381,7 @@ pub struct BriefingAsset {
 
 /// A request raised from an EXTERNAL source (e.g. a GitHub issue/PR a product
 /// user opened). This is the product's INTAKE surface — the analog of a
-/// Requirement (owner message) and an AdvisoryBriefing (advisor import) but for
+/// Requirement (director message) and an AdvisoryBriefing (advisor import) but for
 /// "what a user reported". Deliberately NOT authoritative: it's a request from
 /// outside, recorded with provenance (`source`, `external_id`, `reporter`) so
 /// the PM can triage it without it pretending to be the director's own intent.
@@ -426,8 +426,8 @@ pub enum ExternalRequestStatus {
 
 /// A diagram drawn and saved inside the app (Excalidraw canvas). A durable visual
 /// artifact — the serialized Excalidraw document (`data`) captured DIRECTLY from
-/// the editor at save time (owner 2026-08-10), so there's no export/re-upload.
-/// The PM/owner can view and reload it. It is a documented artifact (like a
+/// the editor at save time (director 2026-08-10), so there's no export/re-upload.
+/// The PM/director can view and reload it. It is a documented artifact (like a
 /// briefing asset), not authoritative state.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Diagram {
@@ -436,7 +436,7 @@ pub struct Diagram {
     pub title: String,
     /// Serialized Excalidraw JSON (the full returned doc) — reloadable into Excalidraw.
     pub data: String,
-    /// Who saved it (owner/agent id/system).
+    /// Who saved it (director/agent id/system).
     pub saved_by: String,
     pub saved_at: String,
 }
@@ -516,7 +516,7 @@ pub struct ChangeSet {
     pub status: ChangeSetStatus,
 }
 
-/// An isolated worktree provisioned for a summoned consultant (owner,
+/// An isolated worktree provisioned for a summoned consultant (director,
 /// 2026-08-12). The "consultant's desk": a dedicated working tree on its own
 /// branch, with a private build target and a distinct API port so concurrent
 /// consultants cannot collide. Isolation is a PLATFORM property — the platform

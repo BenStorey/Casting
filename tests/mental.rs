@@ -126,11 +126,11 @@ fn operating_model_surfaces_priorities_governance_knowledge_and_context() {
     assert_eq!(m.context.task_counts.open, 2);
 
     // Per-actor contexts include the director (objective + priorities visible).
-    assert!(m.actor_contexts.iter().any(|c| c.actor == "owner"));
+    assert!(m.actor_contexts.iter().any(|c| c.actor == "director"));
     let owner = m
         .actor_contexts
         .iter()
-        .find(|c| c.actor == "owner")
+        .find(|c| c.actor == "director")
         .unwrap();
     assert_eq!(owner.priorities.len(), 2);
 }

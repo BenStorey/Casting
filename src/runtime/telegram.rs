@@ -1,4 +1,4 @@
-//! Telegram owner channel (2026-08-14, docs/plans/2026-08-14_telegram-channel.md).
+//! Telegram director channel (2026-08-14, docs/plans/2026-08-14_telegram-channel.md).
 //!
 //! The reference adapter for the [`crate::runtime::channel::OwnerChannel`] seam. Runs as
 //! an INDEPENDENT cursor-driven consumer (like the reconciler / watchdog — never
@@ -6,10 +6,10 @@
 //! channel is a best-effort mirror:
 //!
 //! - **Outbound:** since its durable `telegram:out` cursor, every new
-//!   `MessageSent` event addressed `to:"owner"` (from a non-owner actor) is
+//!   `MessageSent` event addressed `to:"director"` (from a non-director actor) is
 //!   pushed to the director's chat via `sendMessage`. The immediate `notify` queue
 //!   is drained in the same pass (for one-off push e.g. guard alerts).
-//! - **Inbound:** long-poll `getUpdates`; each owner message becomes the SAME
+//! - **Inbound:** long-poll `getUpdates`; each director message becomes the SAME
 //!   `MessageSent` event (`Actor::Director { user_id: "ceo".into() }`) that `POST /api/message` produces, so
 //!   the PM wakes on it for free (Tier-0 broadcast) — zero new plumbing.
 //!
@@ -19,7 +19,7 @@
 //! Env-gated, mirrors the LLM seam (off by default, no network, no cost):
 //! `CAST_TELEGRAM_TOKEN` (required), `CAST_TELEGRAM_CHAT_ID` (required for v1 —
 //! binds "who is the director" so a stranger DMing the bot is never treated as the
-//! owner; also the sendMessage target), `CAST_TELEGRAM_POLL_SECS` (default 30).
+//! director; also the sendMessage target), `CAST_TELEGRAM_POLL_SECS` (default 30).
 
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::pm::AppState;
@@ -433,8 +433,8 @@ fn spawn_loop(state: &AppState, cfg: TelegramConfig) {
     *state.telegram_handle.lock().unwrap() = Some(handle);
 }
 
-/// One full channel pass: outbound (immediate queue + durable owner-message
-/// cursor) then inbound (getUpdates → append owner MessageSent). Errors are
+/// One full channel pass: outbound (immediate queue + durable director-message
+/// cursor) then inbound (getUpdates → append director MessageSent). Errors are
 /// surfaced; the event log is never corrupted by a transport failure.
 pub async fn drain(
     state: AppState,
@@ -459,14 +459,14 @@ pub async fn drain(
         }
     }
 
-    // ---- Outbound 2: durable owner-message cursor ----
+    // ---- Outbound 2: durable director-message cursor ----
     let mut out = state.cursors.get(&state.project, OUT_CURSOR)?.last_seen;
     let latest = state.store.latest_sequence(&state.project)?;
     if latest > out {
         let events = state.store.read_since(&state.project, out)?;
         for ev in &events {
             // Push only NEW MessageSent events addressed to the director, from a
-            // non-owner (never echo the director's own inbound message back).
+            // non-director (never echo the director's own inbound message back).
             if ev.event_type == EventType::MessageSent
                 && ev.actor
                     != (Actor::Director {
@@ -493,7 +493,7 @@ pub async fn drain(
         state.cursors.advance(&state.project, OUT_CURSOR, out)?;
     }
 
-    // ---- Inbound: getUpdates → append owner MessageSent ----
+    // ---- Inbound: getUpdates → append director MessageSent ----
     let in_seq = state.cursors.get(&state.project, IN_CURSOR)?.last_seen as u64;
     // Long-poll: ask Telegram to hold the connection briefly (1s poll offset;
     // our own sleep keeps cadence). Tests set poll_secs low so a sender is
@@ -502,7 +502,7 @@ pub async fn drain(
     let last_update = updates.iter().map(|u| u.update_id).max();
     for u in &updates {
         if let Some(msg) = &u.message {
-            // Only the configured owner chat is treated as the director. This is
+            // Only the configured director chat is treated as the director. This is
             // the Telegram-side auth: a stranger DMing the bot is never trusted.
             if msg.chat.id == channel.config.chat_id {
                 if let Some(text) = msg.text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
@@ -534,7 +534,7 @@ pub async fn drain(
 
 /// Does this `MessageSent` event address the director?
 fn owner_bound(ev: &Event) -> bool {
-    string_field(ev, "to").as_deref() == Some("owner")
+    string_field(ev, "to").as_deref() == Some("director")
 }
 
 fn string_field(ev: &Event, key: &str) -> Option<String> {

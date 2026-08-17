@@ -35,11 +35,11 @@ pub enum PolicyError {
     /// A `pm`-merge task cannot be completed straight to Done by a consultant —
     /// it must pass through the PM's review first (tiered merge policy).
     PmMergeRequiresReview(String),
-    /// The actor lacks authority for a PM/owner-only action.
+    /// The actor lacks authority for a PM/director-only action.
     ActionNotAuthorized(String),
     /// The authority-downgrade guard fired: a decision was proposed with less
-    /// owner involvement than its class's policy requires (from `policy.rs`).
-    /// A producer may never under-claim owner involvement — it would silently
+    /// director involvement than its class's policy requires (from `policy.rs`).
+    /// A producer may never under-claim director involvement — it would silently
     /// bypass the human.
     AuthorityDowngrade {
         class: crate::pm::DecisionClass,
@@ -60,16 +60,16 @@ pub enum PolicyError {
     DirectiveNotFound(String),
     /// A referenced opinion doesn't exist (or isn't supersede-able).
     OpinionNotFound(String),
-    /// A plain agent (not owner/PM/system) trying to change governance.
+    /// A plain agent (not director/PM/system) trying to change governance.
     DirectiveAuthority(String),
     /// Hiring/proposing a role that isn't in the catalog.
     UnknownRole(String),
     /// Creating an entity whose id already exists (fail-closed id uniqueness for
     /// all create actions, not just tasks/agents).
     DuplicateEntity(String),
-    /// A non-authoritative actor (not owner, or not system for a watchdog
+    /// A non-authoritative actor (not director, or not system for a watchdog
     /// pause) trying to change the harness guards (budget / pause / resume).
-    /// Budget + resume are owner-only; pause also permits the system watchdog.
+    /// Budget + resume are director-only; pause also permits the system watchdog.
     GuardAuthority(String),
     /// Starting a task that has no provisioned worktree (fail-closed isolation:
     /// a consultant cannot work un-isolated — the platform provisions the
@@ -201,7 +201,7 @@ impl std::error::Error for PolicyError {}
 /// Pure and infallible on the store — returns `Ok(())` when the action may
 /// proceed.
 ///
-/// `who` is the label from a `PlannedAction` ("system", "owner", or an agent
+/// `who` is the label from a `PlannedAction` ("system", "director", or an agent
 /// id). StartTask/CompleteTask/BlockTask additionally require that `who` IS
 /// the task's assignee — the gate stops the wrong agent (or an LLM mistake)
 /// from mutating someone else's task.
@@ -366,8 +366,8 @@ pub fn validate(
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
             }
             // The assignee is either a hired agent, the PM (for self-assigned
-            // small work via the chat-interface playbook), or the human owner
-            // (owner can take a task on personally and deliver via their harness).
+            // small work via the chat-interface playbook), or the human director
+            // (director can take a task on personally and deliver via their harness).
             // Anything else is rejected — and a reserved special role (Advisor)
             // is rejected with a distinct, clearer error.
             if SPECIAL_ACTORS.contains(&assignee.as_str()) {
@@ -381,7 +381,7 @@ pub fn validate(
         PmAction::StartTask { task_id } => {
             check_assignee(task_id, who, state)?;
             // Fail-closed: a task can only be started from Backlog state.
-            // System and owner bypass this check (trusted actors).
+            // System and director bypass this check (trusted actors).
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             if task.status != crate::projection::TaskStatus::Backlog && who != "system" {
                 return Err(PolicyError::TaskStatusError(format!(
@@ -471,7 +471,7 @@ pub fn validate(
             // Tiered merge gate (2026-08-14): a `pm`-merge task cannot be
             // completed straight to Done by a consultant — it must pass
             // through the PM's review (RequestReview → ReviewTask). `self`-merge
-            // tasks, owner-delivered tasks, and system tasks may complete
+            // tasks, director-delivered tasks, and system tasks may complete
             // directly (the fast path).
             let is_owner_or_system = task.assignee.as_deref() == Some(DIRECTOR) || who == "system";
             if task.merge_authority == crate::types::MergeAuthority::PmMerge && !is_owner_or_system
@@ -482,7 +482,7 @@ pub fn validate(
         }
         PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
         // Reclassifying merge authority is the escape hatch (scope grew past its
-        // assignment label). PM/owner/system authority only; the task must exist.
+        // assignment label). PM/director/system authority only; the task must exist.
         PmAction::SetMergeAuthority { task_id, .. } => {
             if !matches!(who, "pm" | "director" | "system") {
                 return Err(PolicyError::ActionNotAuthorized(who.to_string()));
@@ -541,10 +541,10 @@ pub fn validate(
                 Err(PolicyError::RiskNotFound(risk_id.clone()))
             }
         }
-        // A fresh proposal must not under-claim owner involvement for its class
+        // A fresh proposal must not under-claim director involvement for its class
         // (the authority-downgrade guard from policy.rs). The claim is checked
         // against the project's EVENT-SOURCED policy (state.policy, folded from
-        // DecisionPolicyChanged) — so owner-configured autonomy is enforced.
+        // DecisionPolicyChanged) — so director-configured autonomy is enforced.
         PmAction::ProposeDecision {
             class,
             involvement,
@@ -573,8 +573,8 @@ pub fn validate(
                 return Err(PolicyError::DecisionNotOpen(decision_id.clone()));
             }
             // Authority check: the decider must be authorized for this decision
-            // class's involvement level (C1). Ask-class decisions require owner
-            // or system; Pm/Notify/Never can be decided by pm, owner, or system.
+            // class's involvement level (C1). Ask-class decisions require director
+            // or system; Pm/Notify/Never can be decided by pm, director, or system.
             use crate::pm::policy::OwnerInvolvement;
             if dec.involvement == OwnerInvolvement::Ask && !matches!(who, "director" | "system") {
                 return Err(PolicyError::ActionNotAuthorized(who.to_string()));
@@ -596,7 +596,7 @@ pub fn validate(
             }
             Ok(())
         }
-        // Governance (directives) is owner/PM-authority. A plain agent can only
+        // Governance (directives) is director/PM-authority. A plain agent can only
         // raise an Observation (propose); it may not change directive state.
         PmAction::CreateDirective { .. } => check_directive_authority(who),
         PmAction::SuspendDirective { directive_id } => {
@@ -657,7 +657,7 @@ pub fn validate(
         // is applied only on approval. Encodes the desired change for later.
         PmAction::ProposeDirectiveChange { .. } => Ok(()),
         // Proposing a consultant hire is a proposal, not the hire — the team
-        // change happens on owner approval (or PM auto-decision per policy).
+        // change happens on director approval (or PM auto-decision per policy).
         // The role must exist in the catalog so a bad role is rejected early.
         PmAction::ProposeConsultant { role_id, .. } => {
             if crate::workspace::role_by_id(role_id).is_none() {
@@ -746,7 +746,7 @@ fn check_unique_entity(exists: bool, err: PolicyError) -> Result<(), PolicyError
     }
 }
 
-/// PM authority check: only owner, pm, or system may perform organizational
+/// PM authority check: only director, pm, or system may perform organizational
 /// planning actions (HireAgent, CreateTask, AssignTask, DecomposeTask,
 /// ProvisionWorktree, SetTaskPriority, ProposeDecision, SupersedeDecision).
 /// Consultants/agents cannot reorganize the project plan — they execute within
@@ -761,7 +761,7 @@ fn check_pm_authority(who: &str) -> Result<(), PolicyError> {
 /// Governance is DIRECTOR-only authority: only the director may create or change
 /// directives. The PM/system and plain agents cannot mutate governance —
 /// governance is the project's constitution, too important to delegate. Any
-/// non-owner actor is rejected (they may still *propose* via an Observation).
+/// non-director actor is rejected (they may still *propose* via an Observation).
 fn check_directive_authority(who: &str) -> Result<(), PolicyError> {
     match who {
         "director" => Ok(()),
@@ -771,7 +771,7 @@ fn check_directive_authority(who: &str) -> Result<(), PolicyError> {
 
 /// Guard control (budget set / resume) is DIRECTOR-only — the hard rails sit
 /// OUTSIDE the PM's control (the PM can be confused, compromised, or just
-/// wrong). PauseWork is handled inline (owner OR the system watchdog).
+/// wrong). PauseWork is handled inline (director OR the system watchdog).
 fn check_guard_authority(who: &str) -> Result<(), PolicyError> {
     match who {
         "director" => Ok(()),

@@ -1,5 +1,5 @@
-//! Tests for the Direction Advisor (owner 2026-08-10): a special second role the
-//! owner chats with directly. The advisor thread is ISOLATED from PM context by
+//! Tests for the Direction Advisor (director 2026-08-10): a special second role the
+//! director chats with directly. The advisor thread is ISOLATED from PM context by
 //! design until an explicit handoff, which becomes an AdvisoryBriefing the PM
 //! reads (provenanced "advisor").
 
@@ -34,7 +34,7 @@ fn advisor_message(st: &AppState, body: &str) {
 #[test]
 fn advisor_thread_is_recorded_separately_from_pm_messages() {
     let st = state();
-    // An owner message to the PM and a director message to the advisor.
+    // An director message to the PM and a director message to the advisor.
     st.append(Event::new(
         &st.project,
         Actor::Director {
@@ -63,7 +63,7 @@ fn advisor_thread_is_recorded_separately_from_pm_messages() {
         2,
         "advisor thread has the 2 advisory messages"
     );
-    assert_eq!(proj.advisor_thread[0].from, "owner");
+    assert_eq!(proj.advisor_thread[0].from, "director");
     assert_eq!(proj.advisor_thread[0].to, "advisor");
 }
 

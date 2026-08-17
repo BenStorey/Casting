@@ -1,8 +1,8 @@
 //! Integration tests for the provenance graph (Git slice increment 4).
 //!
 //! Provenance answers "why does this code exist?" by walking the event log:
-//!   commit → changeSet → task → requirement → decision → owner intent
-//! (ADDENDUM §24–25). These tests build a realistic event chain (owner message
+//!   commit → changeSet → task → requirement → decision → director intent
+//! (ADDENDUM §24–25). These tests build a realistic event chain (director message
 //! → PM creates requirement + task → git branch + commit observed) and verify
 //! the provenance query functions can walk it in both directions.
 
@@ -78,7 +78,7 @@ fn provenance_traces_commit_to_owner_message() {
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
-                id: "msg-owner-1".into(),
+                id: "msg-director-1".into(),
             },
             serde_json::json!({ "to": "pm", "body": "Build me a todo app" }),
         ))
@@ -154,7 +154,7 @@ fn provenance_traces_commit_to_owner_message() {
     let chain = provenance::for_commit(&store, project, sha).unwrap();
 
     // The chain should have at least: CommitObserved → TaskCreated →
-    // RequirementCreated → MessageSent (owner).
+    // RequirementCreated → MessageSent (director).
     assert_eq!(chain.commit, *sha);
     assert_eq!(chain.task_id.as_deref(), Some("task-501"));
     assert_eq!(chain.changeset_id.as_deref(), Some("changeset-task-501"));
@@ -201,7 +201,7 @@ fn provenance_for_task_traces_to_requirement_and_commits() {
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
-                id: "msg-owner-2".into(),
+                id: "msg-director-2".into(),
             },
             serde_json::json!({ "to": "pm", "body": "Build a REST API" }),
         ))
@@ -326,7 +326,7 @@ fn appends_owner_message(store: &SqliteEventStore, body: &str) -> Event {
         .unwrap()
 }
 
-/// Append a decision proposal causally linked to `cause` (owner message), so
+/// Append a decision proposal causally linked to `cause` (director message), so
 /// the audit can trace back to it.
 fn append_proposal(store: &SqliteEventStore, id: &str, subject: &str, cause: &Event) -> Event {
     let meta = Metadata {
@@ -371,7 +371,7 @@ fn decision_audit_traces_to_owner_message_when_proposed_only() {
     assert_eq!(audit.proposed_by, "pm");
     assert_eq!(audit.decided_by, None);
     assert_eq!(audit.owner_message.as_deref(), Some("Build a thing"));
-    // Chain: proposal → owner message.
+    // Chain: proposal → director message.
     let kinds: Vec<&str> = audit.chain.iter().map(|l| l.entity_kind.as_str()).collect();
     assert!(kinds.contains(&"decision"));
     assert!(kinds.contains(&"message"));
@@ -401,7 +401,7 @@ fn decision_audit_records_decider_and_note_when_decided() {
 
     let audit = provenance::for_decision(&store, "proj", "decision-2").unwrap();
     assert_eq!(audit.status, "approved");
-    assert_eq!(audit.decided_by.as_deref(), Some("owner"));
+    assert_eq!(audit.decided_by.as_deref(), Some("director"));
     assert_eq!(audit.note.as_deref(), Some("Postgres is fine"));
     let kinds: Vec<&str> = audit.chain.iter().map(|l| l.event_type.as_str()).collect();
     assert!(kinds.contains(&"DecisionMade"));

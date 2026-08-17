@@ -103,7 +103,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
                     kind: "advisor_thread".into(),
                     id: format!("am-{}", uuid::Uuid::new_v4()),
                 },
-                serde_json::json!({ "to": "owner", "body": outcome.reply }),
+                serde_json::json!({ "to": "director", "body": outcome.reply }),
             );
             if let Err(e) = state.append(reply_ev) {
                 eprintln!("[advisor] failed to append reply: {e:#}");
@@ -159,7 +159,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
 }
 
 /// POST /api/advisor/handoff input: turn the advisor thread into a Briefing
-/// the PM reads. `summary` is the (owner/LLM) distilled take; we record it as
+/// the PM reads. `summary` is the (director/LLM) distilled take; we record it as
 /// an AdvisoryBriefing provenanced "advisor".
 #[derive(Deserialize)]
 pub(crate) struct AdvisorHandoffIn {

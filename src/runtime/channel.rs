@@ -1,7 +1,7 @@
 //! Owner-channel seam (2026-08-14, docs/plans/2026-08-14_telegram-channel.md).
 //!
 //! the director already reaches the project via the web UI (`POST /api/message`)
-//! and the PM reaches the director via `MessageSent` events addressed `to:"owner"`
+//! and the PM reaches the director via `MessageSent` events addressed `to:"director"`
 //! folded into `Projection.messages`. This seam is the *external transport* for
 //! that conversation, so the director can message the company from a phone.
 //!

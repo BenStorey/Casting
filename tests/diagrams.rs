@@ -1,4 +1,4 @@
-//! Tests for the diagram artifact (owner 2026-08-10): drawing inside the app is
+//! Tests for the diagram artifact (director 2026-08-10): drawing inside the app is
 //! saved DIRECTLY from the tldraw editor as a durable, reloadable visual
 //! artifact — no export/re-upload. DiagramSaved event + projection + endpoint.
 
@@ -28,7 +28,7 @@ fn append_diagram(st: &AppState, id: &str, title: &str, data: &str) {
         serde_json::json!({
             "title": title,
             "data": data,
-            "saved_by": "owner",
+            "saved_by": "ceo",
         }),
     ))
     .unwrap();
@@ -45,7 +45,7 @@ fn diagram_reduces_with_title_and_data() {
     assert_eq!(d.id, "diagram-1");
     assert_eq!(d.title, "Auth flow");
     assert_eq!(d.data, "{\"store\":{}}");
-    assert_eq!(d.saved_by, "owner");
+    assert_eq!(d.saved_by, "ceo");
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn operating_model_lists_diagrams() {
     assert_eq!(m.diagrams.count, 1);
     assert_eq!(m.diagrams.diagrams.len(), 1);
     assert!(m.diagrams.diagrams[0].contains("Auth flow"));
-    assert!(m.diagrams.diagrams[0].contains("owner"));
+    assert!(m.diagrams.diagrams[0].contains("ceo"));
 }
 
 #[tokio::test]
