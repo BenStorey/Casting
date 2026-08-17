@@ -249,9 +249,13 @@ fn main() -> Result<()> {
         // ~/.casting/<slug> to reset it to a clean slate. Defaults to the sole
         // project when exactly one exists. With --force, skip confirmation.
         "purge" => {
+            // The slug is optional; `--force` is a flag, not a positional. Skip
+            // any `--force` token when picking the slug so `cast purge --force`
+            // (auto-select the sole project) doesn't treat "--force" as a slug.
             let slug = args
-                .get(2)
-                .map(|s| s.as_str())
+                .iter()
+                .skip(2)
+                .find(|a| *a != "--force")
                 .map(|s| s.trim_start_matches("--project=").to_string());
             let force = args.iter().any(|a| a == "--force");
             do_purge(slug, force)
