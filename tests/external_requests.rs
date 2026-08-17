@@ -18,7 +18,7 @@ fn state() -> AppState {
 fn append_request(st: &AppState, id: &str, source: &str, title: &str, labels: Vec<&str>) {
     st.append(Event::new(
         &st.project,
-        // The request comes FROM OUTSIDE — the pm records it, not the owner.
+        // The request comes FROM OUTSIDE — the pm records it, not the director.
         Actor::Agent { id: "pm".into() },
         EventType::ExternalRequestReceived,
         Aggregate {

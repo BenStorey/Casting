@@ -3,7 +3,7 @@
 //! consults that event-derived policy (roadmap item "mature the core" #1).
 //!
 //! The point: delegated authority (brief §5) must be durable history, not a
-//! hardcoded default — the owner's per-class autonomy configuration is part of
+//! hardcoded default — the director's per-class autonomy configuration is part of
 //! the append-only event log and is *actually enforced* by the gate.
 
 use casting::event::{Actor, Event, EventType};
@@ -24,7 +24,9 @@ fn make_state() -> AppState {
 fn policy_changed(project: &str, class: DecisionClass, involvement: OwnerInvolvement) -> Event {
     Event::new(
         project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::DecisionPolicyChanged,
         casting::event::Aggregate {
             kind: "decision_policy".into(),
@@ -220,8 +222,8 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
         .unwrap();
 
     let proj = Projection::build(&state.store, "proj-policy").unwrap();
-    // Because the owner escalated TestingLibrary to Ask, the PM must NOT
-    // auto-decide it: the decision is Proposed (in the owner's inbox) and has
+    // Because the director escalated TestingLibrary to Ask, the PM must NOT
+    // auto-decide it: the decision is Proposed (in the director's inbox) and has
     // decided_by None — delegated authority now honours the configured policy.
     let tl = proj
         .decisions
@@ -233,7 +235,7 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
     assert_eq!(tl.decided_by, None);
 
     // Under the (now-escalated) policy, the PM should not have created the
-    // testing-library follow-up task (it's awaiting the owner).
+    // testing-library follow-up task (it's awaiting the director).
     assert!(
         !proj.tasks.iter().any(|t| t.id == "task-testing-lib"),
         "PM must not auto-create a task for an Ask-required decision"

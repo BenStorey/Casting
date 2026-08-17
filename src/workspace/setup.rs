@@ -7,7 +7,7 @@
 //! state store — **idempotently** (re-running never double-hires or re-creates).
 //!
 //! The engine is deliberately separate from _onboarding_: it seeds the company
-//! and cast but does NOT fire the objective/message. That stays the owner's
+//! and cast but does NOT fire the objective/message. That stays the director's
 //! first real message, which triggers `plan_onboard`. Because the engine and
 //! onboarding both hire cast members, `plan_onboard` skips already-hired
 //! agents (see pm.rs). This keeps setup and onboarding from fighting.
@@ -22,7 +22,7 @@ use crate::store::SqliteEventStore;
 use anyhow::{Context, Result};
 use std::os::unix::fs::PermissionsExt;
 
-/// What the owner wants for a fresh company.
+/// What the director wants for a fresh company.
 #[derive(Debug, Clone, Default)]
 pub struct SetupSpec {
     /// Human-readable company/product name.
@@ -31,12 +31,12 @@ pub struct SetupSpec {
     /// default cast.
     pub roles: Vec<String>,
     /// Optional owner bearer token (enables auth). Empty = auth off.
-    pub owner_token: Option<String>,
+    pub director_token: Option<String>,
     /// Optional starting governance directives (`ProjectDirectiveCreated`).
     pub directives: Vec<StartDirective>,
 }
 
-/// A starting governance directive (reuses the owner-authored event builder).
+/// A starting governance directive (reuses the director-authored event builder).
 #[derive(Debug, Clone)]
 pub struct StartDirective {
     pub id: String,
@@ -148,11 +148,15 @@ pub fn ensure_hires(
 }
 
 /// Persist the runtime config (name + owner token) that `cast run` reads.
-pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&str>) -> Result<()> {
+pub fn persist_config(
+    dir: &std::path::Path,
+    name: &str,
+    director_token: Option<&str>,
+) -> Result<()> {
     let spec = SetupSpec {
         name: name.to_string(),
         roles: vec![],
-        owner_token: owner_token.map(str::to_string),
+        director_token: director_token.map(str::to_string),
         directives: vec![],
     };
     write_config(dir, &spec)
@@ -162,26 +166,26 @@ pub fn persist_config(dir: &std::path::Path, name: &str, owner_token: Option<&st
 /// into the existing config, MERGING so nothing is clobbered.
 pub fn persist_setup_prefs(
     dir: &std::path::Path,
-    owner_name: Option<&str>,
+    director_name: Option<&str>,
     experience_level: Option<&str>,
     api_key: Option<&str>,
 ) -> Result<()> {
     let prior = read_config(dir).unwrap_or(RuntimeConfig {
         name: String::new(),
-        owner_name: None,
+        director_name: None,
         experience_level: None,
-        owner_token: None,
+        director_token: None,
         api_key: None,
         telegram_token: None,
         telegram_chat_id: None,
     });
     let cfg = RuntimeConfig {
         name: prior.name,
-        owner_name: owner_name.map(|s| s.to_string()).or(prior.owner_name),
+        director_name: director_name.map(|s| s.to_string()).or(prior.director_name),
         experience_level: experience_level
             .map(|s| s.to_string())
             .or(prior.experience_level),
-        owner_token: prior.owner_token,
+        director_token: prior.director_token,
         api_key: api_key.map(|s| s.to_string()).or(prior.api_key),
         telegram_token: prior.telegram_token,
         telegram_chat_id: prior.telegram_chat_id,
@@ -259,7 +263,8 @@ fn apply_to_store(
 
     // 4. Optionally write starting governance directives (owner-authored).
     for d in &spec.directives {
-        store.append(actions::owner_directive_created(
+        store.append(actions::director_directive_created(
+            "ceo",
             project,
             &d.id,
             d.kind,
@@ -293,15 +298,15 @@ fn apply_to_store(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeConfig {
     pub name: String,
-    /// What the owner wants to be called (e.g. "Ben").
+    /// What the director wants to be called (e.g. "Ben").
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner_name: Option<String>,
-    /// How familiar the owner is with software dev — "novice" | "somewhat" | "confident".
+    pub director_name: Option<String>,
+    /// How familiar the director is with software dev — "novice" | "somewhat" | "confident".
     /// Used by the PM to calibrate how technically it explains things.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experience_level: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner_token: Option<String>,
+    pub director_token: Option<String>,
     /// LLM provider API key (e.g. OpenRouter). Persisted at setup so the user
     /// doesn't need the CAST_LLM_API_KEY env var for the default provider.
     /// Falls through as a fallback to the env var in the LLM config loader.
@@ -322,9 +327,9 @@ const CONFIG_FILE: &str = "config.json";
 fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
     let cfg = RuntimeConfig {
         name: spec.name.clone(),
-        owner_name: None,
+        director_name: None,
         experience_level: None,
-        owner_token: spec.owner_token.clone(),
+        director_token: spec.director_token.clone(),
         api_key: None,
         telegram_token: None,
         telegram_chat_id: None,
@@ -347,7 +352,7 @@ pub fn read_config(dir: &std::path::Path) -> Option<RuntimeConfig> {
 /// an already-persisted owner token / name is never clobbered). If no config
 /// exists yet we create a minimal one with an empty name. Mirrors the setup
 /// "fresh-only" rule in the reverse direction: a UI Telegram configure never
-/// wipes the owner token that `cast init`/setup already wrote.
+/// wipes the director token that `cast init`/setup already wrote.
 pub fn persist_telegram_config(
     dir: &std::path::Path,
     token: impl Into<String>,
@@ -355,18 +360,18 @@ pub fn persist_telegram_config(
 ) -> Result<()> {
     let prior = read_config(dir).unwrap_or(RuntimeConfig {
         name: String::new(),
-        owner_name: None,
+        director_name: None,
         experience_level: None,
-        owner_token: None,
+        director_token: None,
         api_key: None,
         telegram_token: None,
         telegram_chat_id: None,
     });
     let cfg = RuntimeConfig {
         name: prior.name,
-        owner_name: prior.owner_name,
+        director_name: prior.director_name,
         experience_level: prior.experience_level,
-        owner_token: prior.owner_token,
+        director_token: prior.director_token,
         api_key: prior.api_key,
         telegram_token: Some(token.into()),
         telegram_chat_id: Some(chat_id),
@@ -385,7 +390,7 @@ pub fn persist_telegram_config(
 pub fn write_template(dir: &std::path::Path, name: &str) -> Result<()> {
     let cfg = serde_json::json!({
         "name": name,
-        "owner_token": "<set at cast init; never commit a real token>",
+        "director_token": "<set at cast init; never commit a real token>",
     });
     let json = serde_json::to_string_pretty(&cfg)?;
     std::fs::write(dir.join("casting.example.json"), json).context("write casting.example.json")

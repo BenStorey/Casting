@@ -17,7 +17,9 @@ fn state() -> AppState {
 fn append_diagram(st: &AppState, id: &str, title: &str, data: &str) {
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::DiagramSaved,
         Aggregate {
             kind: "diagram".into(),

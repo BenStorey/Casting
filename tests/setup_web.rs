@@ -1,6 +1,6 @@
 //! Tests for the web first-run setup wizard (owner decision: CLI + UI share one
 //! engine). GET /api/setup/status says whether a cast is configured; POST
-//! /api/setup hires the cast (idempotently), persists the owner token, and fires
+//! /api/setup hires the cast (idempotently), persists the director token, and fires
 //! the objective message so onboarding kicks off.
 
 use casting::pm::AppState;
@@ -122,14 +122,14 @@ async fn status_is_unconfigured_then_configured_after_setup() {
         .collect();
     assert!(agents.contains(&"engineer-1"));
     assert!(agents.contains(&"devops-1"));
-    // The objective fired as an owner message.
+    // The objective fired as a director message.
     assert!(
         state["messages"]
             .as_array()
             .unwrap()
             .iter()
             .any(|m| m["from"] == "owner" && m["body"].as_str().unwrap_or("").contains("todo app")),
-        "objective fired as the owner's first message"
+        "objective fired as the director's first message"
     );
     assert_eq!(status, StatusCode::OK);
 }
@@ -186,7 +186,7 @@ async fn setup_is_idempotent_and_persists_token() {
     let (status, _) = post_json(
         &app,
         "/api/setup",
-        r#"{"name":"Acme","objective":"x","cast":["engineer"],"owner_token":"s3cr3t"}"#,
+        r#"{"name":"Acme","objective":"x","cast":["engineer"],"director_token":"s3cr3t"}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -202,7 +202,7 @@ async fn setup_is_idempotent_and_persists_token() {
     assert_eq!(engineers, 1, "no duplicate hires on re-setup");
 }
 
-// FAIL-CLOSED against silent token rotation: once an owner token is persisted,
+// FAIL-CLOSED against silent token rotation: once a director token is persisted,
 // POST /api/setup can only REPLACE it with a different value when the request
 // presents the CURRENT token. An unauthenticated POST must never rotate it.
 #[tokio::test]
@@ -213,7 +213,7 @@ async fn setup_refuses_silent_token_rotation_without_current_token() {
     // Simulate a repo whose setup already persisted a token (`cast init`).
     std::fs::write(
         dir.path().join("config.json"),
-        r#"{"name":"Acme Inc","owner_token":"old-secret"}"#,
+        r#"{"name":"Acme Inc","director_token":"old-secret"}"#,
     )
     .unwrap();
 
@@ -223,7 +223,7 @@ async fn setup_refuses_silent_token_rotation_without_current_token() {
     let app = casting::web::router(state);
 
     // Try to rotate the token with a DIFFERENT token and NO bearer: must be 401.
-    let body = r#"{"name":"Acme Inc","objective":"x","cast":[],"owner_token":"attacker-token"}"#;
+    let body = r#"{"name":"Acme Inc","objective":"x","cast":[],"director_token":"attacker-token"}"#;
     let (status, _) = post_json(&app, "/api/setup", body).await;
     assert_eq!(
         status,
@@ -233,7 +233,7 @@ async fn setup_refuses_silent_token_rotation_without_current_token() {
 
     // The persisted token is left untouched.
     let cfg = read_config(dir.path()).unwrap();
-    assert_eq!(cfg.owner_token.as_deref(), Some("old-secret"));
+    assert_eq!(cfg.director_token.as_deref(), Some("old-secret"));
 
     // With the CURRENT token presented, rotation is allowed.
     let res = app
@@ -245,7 +245,7 @@ async fn setup_refuses_silent_token_rotation_without_current_token() {
                 .header("content-type", "application/json")
                 .header("authorization", "Bearer old-secret")
                 .body(Body::from(
-                    r#"{"name":"Acme Inc","objective":"x","cast":[],"owner_token":"new-secret"}"#
+                    r#"{"name":"Acme Inc","objective":"x","cast":[],"director_token":"new-secret"}"#
                         .to_string(),
                 ))
                 .unwrap(),
@@ -254,7 +254,7 @@ async fn setup_refuses_silent_token_rotation_without_current_token() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK, "rotation w/ current token ok");
     let cfg = read_config(dir.path()).unwrap();
-    assert_eq!(cfg.owner_token.as_deref(), Some("new-secret"));
+    assert_eq!(cfg.director_token.as_deref(), Some("new-secret"));
 }
 
 // First-run with NO previously-persisted token may still SET a token.
@@ -272,11 +272,11 @@ async fn setup_may_set_token_on_first_run() {
     let (status, _) = post_json(
         &app,
         "/api/setup",
-        r#"{"name":"Acme","objective":"x","cast":[],"owner_token":"first-secret"}"#,
+        r#"{"name":"Acme","objective":"x","cast":[],"director_token":"first-secret"}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "first-run may set a token");
 
     let cfg = read_config(dir.path()).unwrap();
-    assert_eq!(cfg.owner_token.as_deref(), Some("first-secret"));
+    assert_eq!(cfg.director_token.as_deref(), Some("first-secret"));
 }

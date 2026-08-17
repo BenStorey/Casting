@@ -1,5 +1,4 @@
-//! The PM's structured action vocabulary + policy gate (review refactor
-//! 2026-08-10: split from a single God-file into four coherent submodules).
+//! Casting actions — the validated action vocabulary (docs/HARNESS.md D3b).
 //!
 //! This is the seam between *reasoning* and *execution* (docs/ADDENDUM.md §16):
 //!
@@ -16,23 +15,29 @@
 //! This module is a thin FACADE: it just re-exports the public surface from the
 //! submodules so every existing `crate::actions::X` reference resolves
 //! unchanged. The bulk lives in:
-//!   - `action`  — the typed action vocabulary (`PmAction`, `OWNER`, …)
+//!   - `action`  — the typed action vocabulary (`PmAction`, `DIRECTOR`, …)
 //!   - `policy`  — the pure validation gate (`validate`, `PolicyError`, …)
 //!   - `events`  — mapping a validated action into domain events (`to_events`)
-//!   - `owner`   — shared owner-authored event-shape builders
+//!   - `director`   — shared director-authored event-shape builders
 
 mod action;
+mod director;
 mod events;
-mod owner;
 pub mod policy;
 
-pub use action::{action_vocab_for, is_valid_assignee, PmAction, TaskSpec, OWNER};
-pub use owner::{
-    owner_budget_set, owner_decision_made, owner_directive_created, owner_policy_changed,
-    owner_work_paused, owner_work_resumed,
+pub use action::{action_vocab_for, is_valid_assignee, PmAction, TaskSpec, DIRECTOR};
+pub use director::{
+    director_budget_set, director_decision_made, director_directive_created,
+    director_policy_changed, director_work_paused, director_work_resumed,
 };
 pub use policy::{validate, PolicyError};
 
-/// Resolve the acting `Actor` from a `who` label ("owner" / agent id). Used by
-/// the event builders.
-pub use events::actor_for;
+pub mod actions {
+    //! Backward-compat re-exports so callers using the old `crate::actions::actions::*` paths
+    //! (introduced during the module rename) keep resolving. Remove after a cleanup pass.
+    pub use super::{
+        action_vocab_for, director_budget_set, director_decision_made, director_directive_created,
+        director_policy_changed, director_work_paused, director_work_resumed, is_valid_assignee,
+        validate, PmAction, PolicyError, TaskSpec, DIRECTOR,
+    };
+}

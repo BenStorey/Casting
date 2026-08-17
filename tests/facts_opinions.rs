@@ -26,7 +26,9 @@ fn append(
     state
         .append(Event::new(
             &state.project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             etype,
             Aggregate {
                 kind: kind.to_string(),
@@ -40,7 +42,9 @@ fn append(
 fn cause_for(state: &AppState) -> Event {
     Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -99,7 +103,7 @@ fn opinion_supersedes_keeps_history() {
 
 #[test]
 fn superseding_flips_status_and_active_view_reports_only_valid() {
-    // The owner's exact scenario: op-1 and op-2 are about DIFFERENT things;
+    // the director's exact scenario: op-1 and op-2 are about DIFFERENT things;
     // op-2 supersedes op-1; a third op-3 is unrelated. Readers must get the
     // currently-valid set, not everything ever recorded.
     let state = make_state();
@@ -139,7 +143,9 @@ fn superseding_flips_status_and_active_view_reports_only_valid() {
     state
         .append(Event::new(
             &state.project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::OpinionSuperseded,
             Aggregate {
                 kind: "opinion".into(),
@@ -204,7 +210,7 @@ fn supersede_opinion_action_through_gate_and_events() {
             opinion_id: "op-old".into(),
             by_opinion_id: "op-new".into(),
         },
-        "owner",
+        "director",
         &proj,
         None,
     )

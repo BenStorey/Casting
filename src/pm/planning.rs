@@ -2,7 +2,7 @@
 //!
 //! Extracted out of `pm.rs` (2026-08-14, de-monolith pass) to shrink the PM
 //! control loop's coordination surface. This module owns the pure/static
-//! plan-construction logic: given plain inputs (an owner message, a decided
+//! plan-construction logic: given plain inputs (a director message, a decided
 //! cause, a decision policy, a `&AppState` for projection/workspace reads) it
 //! returns the SAME typed `Vec<PlannedAction>` a provider would otherwise
 //! emit (docs/ADDENDUM.md §16). The control loop in `pm.rs` feeds these
@@ -65,7 +65,7 @@ pub(crate) fn plan_rejected_event(
 }
 
 /// Insert `ProvisionWorktree` actions before each `StartTask` in a plan,
-/// unless the task is assigned to the owner or system. This is the
+/// unless the task is assigned to the director or system. This is the
 /// deterministic worktree elaborator — the platform's structural isolation
 /// guarantee, kept as a deterministic rewriter so both scripted and LLM
 /// plans automatically get worktree provisioning without each producer
@@ -389,7 +389,7 @@ pub(crate) fn actors_with_work(projection: &crate::projection::Projection) -> Ve
             continue;
         }
         if let Some(ref assignee) = task.assignee {
-            if assignee == "owner" {
+            if assignee == "director" {
                 continue;
             }
             // Only include actors who are actually hired. The PM is a special

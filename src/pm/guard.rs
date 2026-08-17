@@ -12,7 +12,7 @@
 //! 1. **Budget** — derived straight from `proj.spend` (which never decreases),
 //!    so a halt is a permanent, always-recomputed state. NOT resumable via
 //!    `ResumeWork` (spend doesn't go down); only a higher budget limit
-//!    un-halts it. Set by the owner via `BudgetSet`.
+//!    un-halts it. Set by the director via `BudgetSet`.
 //! 2. **Pause** — a resumable flag (`WorkPaused`/`WorkResumed`) used by the
 //!    owner or by the liveness watchdog to stop all side-effecting work.
 

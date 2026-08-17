@@ -18,7 +18,9 @@ fn append(state: &AppState, etype: EventType, id: &str, kind: &str, data: serde_
     state
         .append(Event::new(
             &state.project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             etype,
             Aggregate {
                 kind: kind.into(),
@@ -65,7 +67,7 @@ fn operating_model_surfaces_priorities_governance_knowledge_and_context() {
             "statement": "Ensure write-time integrity",
             "scope": ["engineering"],
             "strength": "required",
-            "created_by": "owner",
+            "created_by": "ceo",
         }),
     );
     // An assumption + an opinion + a fact (knowledge).
@@ -123,7 +125,7 @@ fn operating_model_surfaces_priorities_governance_knowledge_and_context() {
     assert_eq!(m.context.task_counts.total, 2);
     assert_eq!(m.context.task_counts.open, 2);
 
-    // Per-actor contexts include the owner (objective + priorities visible).
+    // Per-actor contexts include the director (objective + priorities visible).
     assert!(m.actor_contexts.iter().any(|c| c.actor == "owner"));
     let owner = m
         .actor_contexts

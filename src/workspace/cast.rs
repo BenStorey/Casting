@@ -4,7 +4,7 @@
 //! This module makes that configuration explicit: a curated **role catalog**
 //! (each role carries its governance scope — and, later, its model + base
 //! setup prompt for D2) plus a **default cast** seed the onboarded company
-//! starts with. The owner can add agents (pick a role) and authorize the PM to
+//! starts with. the director can add agents (pick a role) and authorize the PM to
 //! do so via the TeamChange policy class.
 //!
 //! This is **configuration/data**, never authoritative state — the projection

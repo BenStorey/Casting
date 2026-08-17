@@ -64,7 +64,9 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
     state
         .append(EvEvent::new(
             "proj",
-            EvActor::Owner,
+            EvActor::Director {
+                user_id: "ceo".into(),
+            },
             EvEventType::BudgetSet,
             EvAggregate {
                 kind: "budget".into(),
@@ -256,7 +258,9 @@ async fn default_onboard_without_decompose_stays_flat() {
     state
         .append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Owner,
+            casting::event::Actor::Director {
+                user_id: "ceo".into(),
+            },
             casting::event::EventType::MessageSent,
             casting::event::Aggregate {
                 kind: "message".into(),

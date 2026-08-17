@@ -34,7 +34,7 @@ pub struct PlannedItem {
 }
 
 /// The derived, current plan: what we're building, in priority order, and what's
-/// waiting on the owner. Always recomputed from the projection — never stored.
+/// waiting on the director. Always recomputed from the projection — never stored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ProjectPlan {
     /// The current objective — the most recent open requirement's title.
@@ -47,6 +47,6 @@ pub struct ProjectPlan {
     pub open_risks: Vec<String>,
     /// The active governing directives (docs/INTENT.md), ordered by strength.
     pub active_directives: Vec<String>,
-    /// Subjects of decisions still awaiting the owner.
+    /// Subjects of decisions still awaiting the director.
     pub open_decisions: Vec<String>,
 }

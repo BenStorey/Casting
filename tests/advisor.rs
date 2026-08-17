@@ -18,7 +18,9 @@ fn state() -> AppState {
 fn advisor_message(st: &AppState, body: &str) {
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisorMessageSent,
         Aggregate {
             kind: "advisor_thread".into(),
@@ -32,10 +34,12 @@ fn advisor_message(st: &AppState, body: &str) {
 #[test]
 fn advisor_thread_is_recorded_separately_from_pm_messages() {
     let st = state();
-    // An owner message to the PM and an owner message to the advisor.
+    // An owner message to the PM and a director message to the advisor.
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -79,7 +83,9 @@ fn advisor_thread_does_not_enter_operating_context_until_handoff() {
     // Hand off: it becomes an advisor briefing the PM reads.
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisorHandoff,
         Aggregate {
             kind: "briefing".into(),

@@ -142,7 +142,7 @@ fn policy_endpoint_records_and_folds_an_owner_policy_change() {
         &proj,
         None,
     )
-    .expect_err("under-claiming a class the owner escalated to Ask must be rejected");
+    .expect_err("under-claiming a class the director escalated to Ask must be rejected");
     assert!(matches!(
         err,
         PolicyError::AuthorityDowngrade {

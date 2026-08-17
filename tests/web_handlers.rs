@@ -68,7 +68,7 @@ fn seeded_state() -> AppState {
             "statement": "pinned deps",
             "scope": serde_json::json!(["*.rs"]),
             "strength": "required",
-            "created_by": "owner",
+            "created_by": "ceo",
         }),
     );
     append(
@@ -546,10 +546,10 @@ fn malformed_body_on_post_is_4xx() {
     );
 }
 
-/// With an owner token configured, a mutating POST without the bearer is 401;
+/// With a director token configured, a mutating POST without the bearer is 401;
 /// with the correct bearer it passes through (non-401).
 #[test]
-fn owner_token_guards_mutations() {
+fn director_token_guards_mutations() {
     let state = seeded_state().with_owner_auth("secret-token");
     let app = app(state);
 
@@ -625,7 +625,7 @@ fn advisor_summarize_returns_deterministic_summary() {
 
 /// POST /api/login with the correct owner token verifies ok; wrong token 401.
 #[test]
-fn login_verifies_owner_token() {
+fn login_verifies_director_token() {
     let state = seeded_state().with_owner_auth("secret-token");
     let app = app(state);
 
@@ -657,7 +657,7 @@ fn graph_task_context_known_and_unknown() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-/// GET /api/context/owner — the owner's operating context serializes (owner is
+/// GET /api/context/owner — the director's operating context serializes (owner is
 /// a valid actor alias, distinct from any hired agent).
 #[test]
 fn owner_context_answers() {

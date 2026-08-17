@@ -20,7 +20,9 @@ fn briefing_reduces_into_projection_with_provenance() {
     let st = state();
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisoryBriefingImported,
         Aggregate {
             kind: "briefing".into(),
@@ -61,11 +63,13 @@ fn import_briefing_action_through_gate_and_to_events() {
         assets: vec![],
     };
     // Not authoritative — passes the gate (no cross-entity invariant).
-    casting::actions::validate(&action, "owner", &Projection::default(), None).unwrap();
+    casting::actions::validate(&action, "director", &Projection::default(), None).unwrap();
 
     let cause = Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -87,7 +91,9 @@ fn operating_model_surfaces_advisory_briefings_separately() {
     let st = state();
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisoryBriefingImported,
         Aggregate {
             kind: "briefing".into(),

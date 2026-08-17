@@ -63,13 +63,15 @@ fn pause(state: &AppState) {
     state
         .append(Event::new(
             "proj-se",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::WorkPaused,
             Aggregate {
                 kind: "guard".into(),
                 id: "work-pause".into(),
             },
-            serde_json::json!({ "reason": "manual", "by": "owner" }),
+            serde_json::json!({ "reason": "manual", "by": "director" }),
         ))
         .unwrap();
 }
@@ -78,7 +80,9 @@ fn halt_budget(state: &AppState) {
     state
         .append(Event::new(
             "proj-se",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::BudgetSet,
             Aggregate {
                 kind: "budget".into(),
@@ -145,7 +149,9 @@ fn workspace_activity_for_maps_provision_and_commit() {
     // Unrelated events carry no workspace side effect.
     assert!(workspace_activity_for(&Event::new(
         "proj-se",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -194,7 +200,9 @@ fn run_side_effect_runs_when_unguarded() {
     state
         .append(Event::new(
             "proj-se",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::BudgetSet,
             Aggregate {
                 kind: "budget".into(),

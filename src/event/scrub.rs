@@ -170,7 +170,9 @@ mod tests {
     fn make_event(data: serde_json::Value) -> Event {
         Event::new(
             "proj",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -307,7 +309,9 @@ mod tests {
     fn briefing_body_is_scrubbed() {
         let mut ev = Event::new(
             "proj",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::AdvisoryBriefingImported,
             Aggregate {
                 kind: "briefing".into(),
@@ -329,7 +333,9 @@ mod tests {
     fn decision_note_is_scrubbed() {
         let mut ev = Event::new(
             "proj",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::DecisionMade,
             Aggregate {
                 kind: "decision".into(),

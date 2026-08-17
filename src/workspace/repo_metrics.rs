@@ -2,7 +2,7 @@
 //! lines by language, best-effort test coverage), captured when a PR lands
 //! (a `MergeCompleted`). 2026-08-14.
 //!
-//! Design constraints (from the owner):
+//! Design constraints (from the director):
 //! - **Helpers zero-config** — no config file, no `cargo init`/plugin, nothing
 //!   checked into the user's project. We only ever READ the repo.
 //! - **Language-agnostic** — the platform never names a language. Line counts

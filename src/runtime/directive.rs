@@ -124,7 +124,7 @@ pub fn relevant<'a>(projection: &'a Projection, areas: &[&str]) -> Vec<&'a Direc
 }
 
 /// Select ALL currently-Active directives (no scope filter), strongest-first.
-/// For the owner's operating picture / governance surface.
+/// For the director's operating picture / governance surface.
 pub fn active(projection: &Projection) -> Vec<&Directive> {
     let mut out: Vec<&Directive> = projection
         .directives

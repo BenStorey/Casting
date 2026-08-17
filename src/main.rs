@@ -172,7 +172,7 @@ fn main() -> Result<()> {
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company\n\n\
-                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run [<project-dir>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (defaults to current dir)\n  cast purge [<project-dir>] [--force]\n                                delete .casting/ state directory (reset to clean slate)\n                                (defaults to current dir)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_OWNER_TOKEN owner auth token (or set via `cast init --owner-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
+                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--director-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run [<project-dir>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (defaults to current dir)\n  cast purge [<project-dir>] [--force]\n                                delete .casting/ state directory (reset to clean slate)\n                                (defaults to current dir)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_DIRECTOR_TOKEN owner auth token (or set via `cast init --director-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
@@ -254,7 +254,9 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
                 .unwrap_or_else(|| {
                     Event::new(
                         &state.project,
-                        Actor::Owner,
+                        Actor::Director {
+                            user_id: "ceo".into(),
+                        },
                         EventType::MessageSent,
                         Aggregate {
                             kind: "message".into(),
@@ -282,7 +284,7 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
 
 /// `cast request` — receive an EXTERNAL request (a GitHub issue/PR, an email,
 /// a form submission) into the product's intake surface. Recorded with
-/// provenance + deterministic triage; NOT the owner's own intent.
+/// provenance + deterministic triage; NOT the director's own intent.
 fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
     let (mut source, mut reporter) = ("external".to_string(), "external".to_string());
     let mut labels: Vec<String> = Vec::new();
@@ -379,7 +381,7 @@ struct InitArgs {
     name: Option<String>,
     objective: Option<String>,
     cast: Vec<String>,
-    owner_token: Option<String>,
+    director_token: Option<String>,
     directives: Vec<(String, String)>, // (statement, scope)
 }
 
@@ -389,7 +391,7 @@ fn parse_init(args: &[String]) -> Result<InitArgs> {
     let mut name = None;
     let mut objective = None;
     let mut cast = Vec::new();
-    let mut owner_token = None;
+    let mut director_token = None;
     let mut directives = Vec::new();
 
     let mut i = 0;
@@ -418,10 +420,10 @@ fn parse_init(args: &[String]) -> Result<InitArgs> {
                     .collect();
                 i += 1;
             }
-            "--owner-token" => {
-                owner_token = Some(
+            "--director-token" => {
+                director_token = Some(
                     args.get(i + 1)
-                        .context("--owner-token requires a value")?
+                        .context("--director-token requires a value")?
                         .clone(),
                 );
                 i += 1;
@@ -442,12 +444,12 @@ fn parse_init(args: &[String]) -> Result<InitArgs> {
     }
 
     Ok(InitArgs {
-        dir: dir.context("usage: cast init <state-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--owner-token=..]")?,
+        dir: dir.context("usage: cast init <state-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--director-token=..]")?,
         interactive,
         name,
         objective,
         cast,
-        owner_token,
+        director_token,
         directives,
     })
 }
@@ -486,16 +488,16 @@ fn do_init(mut args: InitArgs) -> Result<()> {
                 .filter(|s| !s.is_empty())
                 .collect();
         }
-        if args.owner_token.is_none() {
+        if args.director_token.is_none() {
             let tok = prompt("Owner auth token? (blank = auth off)", None).unwrap_or_default();
-            args.owner_token = if tok.is_empty() { None } else { Some(tok) };
+            args.director_token = if tok.is_empty() { None } else { Some(tok) };
         }
     }
 
     let spec = casting::workspace::setup::SetupSpec {
         name: args.name.clone().unwrap_or_else(|| "Casting demo".into()),
         roles: args.cast.clone(),
-        owner_token: args.owner_token.clone(),
+        director_token: args.director_token.clone(),
         directives: args
             .directives
             .into_iter()
@@ -561,8 +563,8 @@ fn do_init(mut args: InitArgs) -> Result<()> {
     if let Some(obj) = args.objective {
         println!("   📣 To kick off the build, send \u{201c}{obj}\u{201d} as your first message in the UI.");
     }
-    if args.interactive && args.owner_token.is_none() {
-        println!("   ⚠️  no owner token set — owner-mutating writes are OPEN (set one via --owner-token / CAST_OWNER_TOKEN)");
+    if args.interactive && args.director_token.is_none() {
+        println!("   ⚠️  no owner token set — owner-mutating writes are OPEN (set one via --director-token / CAST_DIRECTOR_TOKEN)");
     }
     Ok(())
 }
@@ -647,13 +649,13 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
             // default (off by default, no spend, backwards compatible).
             .pipe_llm_orchestrator();
         // Owner auth: the token comes from the persisted setup config.json
-        // first (set via `cast init --owner-token`), else CAST_OWNER_TOKEN env.
+        // first (set via `cast init --director-token`), else CAST_DIRECTOR_TOKEN env.
         // Off by default. Owner-mutating endpoints require Authorization:
         // Bearer <token>.
         let persisted_token = casting::workspace::setup::read_config(ws.casting_dir())
-            .and_then(|c| c.owner_token)
+            .and_then(|c| c.director_token)
             .filter(|t| !t.is_empty());
-        let token = persisted_token.or_else(|| std::env::var("CAST_OWNER_TOKEN").ok());
+        let token = persisted_token.or_else(|| std::env::var("CAST_DIRECTOR_TOKEN").ok());
         let state = match token {
             Some(tok) if !tok.is_empty() => {
                 println!("🔐 owner auth enabled (send 'Authorization: Bearer <token>' to mutate)");
@@ -889,7 +891,9 @@ fn do_smoke(dir: &Path) -> Result<()> {
     // Owner asks for a thing.
     store.append(Event::new(
         project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "project".into(),

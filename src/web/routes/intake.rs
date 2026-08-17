@@ -12,7 +12,7 @@ pub(crate) struct MessageIn {
     body: String,
 }
 
-/// POST /api/message — the owner sends a message to the PM. Persisted as a
+/// POST /api/message — the director sends a message to the PM. Persisted as a
 /// durable `MessageSent` event; the PM loop is notified via the broadcast.
 pub(crate) async fn message_handler(
     State(state): State<AppState>,
@@ -29,7 +29,9 @@ pub(crate) async fn message_handler(
     }
     let ev = Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -41,7 +43,7 @@ pub(crate) async fn message_handler(
 }
 
 /// POST /api/brief input: external advisor content. `source` marks provenance
-/// (e.g. "ChatGPT advisor") so it's never confusable with the owner's intent.
+/// (e.g. "ChatGPT advisor") so it's never confusable with the director's intent.
 #[derive(Deserialize)]
 pub(crate) struct BriefIn {
     source: Option<String>,
@@ -53,7 +55,7 @@ pub(crate) struct BriefIn {
     assets: Vec<crate::projection::BriefingAsset>,
 }
 
-/// POST /api/brief — the owner imports EXTERNAL advisor content (text + optional
+/// POST /api/brief — the director imports EXTERNAL advisor content (text + optional
 /// image/diagram refs) as an ADVISORY briefing. Explicitly advisory, NOT
 /// authoritative: `source` records provenance, and it can inform context but
 /// never sets rules (directives remain the only authority mechanism).
@@ -96,7 +98,9 @@ pub(crate) async fn brief_handler(
 
     let cause = Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -119,7 +123,7 @@ pub(crate) async fn brief_handler(
 
 /// POST /api/request input: an EXTERNAL request (e.g. a GitHub issue/PR a
 /// product user opened). `source` + `external_id` + `reporter` record where it
-/// came from so the PM can triage it. NOT the owner's own intent.
+/// came from so the PM can triage it. NOT the director's own intent.
 #[derive(Deserialize)]
 pub(crate) struct RequestIn {
     /// e.g. "github" | "email" | "web".
@@ -143,7 +147,7 @@ fn default_external() -> String {
 
 /// POST /api/request — an EXTERNAL request (e.g. a GitHub issue/PR a user
 /// opened). Recorded with provenance + deterministic triage; the PM can triage
-/// it without it pretending to be the owner's own intent.
+/// it without it pretending to be the director's own intent.
 pub(crate) async fn request_handler(
     State(state): State<AppState>,
     Json(input): Json<RequestIn>,
@@ -237,7 +241,9 @@ pub(crate) async fn diagram_handler(
 
     let cause = Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::DiagramSaved,
         Aggregate {
             kind: "diagram".into(),

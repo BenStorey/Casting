@@ -38,7 +38,9 @@ fn make_state() -> AppState {
 fn owner_message(body: &str) -> Event {
     Event::new(
         "proj-idem",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),

@@ -325,7 +325,7 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
             ))
             .unwrap();
     }
-    // Advance cursor past seeds so the PM reacts to the owner message only.
+    // Advance cursor past seeds so the PM reacts to the director message only.
     state
         .cursors
         .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
@@ -333,7 +333,9 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
     state
         .append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Owner,
+            casting::event::Actor::Director {
+                user_id: "ceo".into(),
+            },
             casting::event::EventType::MessageSent,
             casting::event::Aggregate {
                 kind: "message".into(),
@@ -470,7 +472,9 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
     state
         .append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Owner,
+            casting::event::Actor::Director {
+                user_id: "ceo".into(),
+            },
             casting::event::EventType::MessageSent,
             casting::event::Aggregate {
                 kind: "message".into(),
@@ -701,7 +705,7 @@ fn reconciler_releases_done_worktrees_and_unbinds_slot() {
 }
 
 /// The consultant's isolated workspace surfaces in the agent context AND the
-/// operating picture (so D2/the owner can see the desk the agent works in).
+/// operating picture (so D2/the director can see the desk the agent works in).
 #[test]
 fn worktree_surfaces_in_context_and_operating_model() {
     use casting::runtime::context::WorktreeInfo;

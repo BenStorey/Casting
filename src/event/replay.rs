@@ -111,7 +111,7 @@ fn check_precondition(
 
 fn actor_label(a: &crate::event::Actor) -> String {
     match a {
-        crate::event::Actor::Owner => "owner".into(),
+        crate::event::Actor::Director { .. } => "owner".into(),
         crate::event::Actor::Agent { id } => id.clone(),
         crate::event::Actor::System => "system".into(),
     }

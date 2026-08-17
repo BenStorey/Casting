@@ -201,7 +201,9 @@ fn company_boots_and_onboards_entirely_on_postgres() {
     state
         .append(Event::new(
             &project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),

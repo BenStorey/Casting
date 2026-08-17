@@ -218,7 +218,9 @@ model_id = "cheap-model"
     };
     let cause = Event::new(
         "proj",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -265,7 +267,7 @@ async fn advisor_reply_uses_its_model_and_thread() {
     // A private advisor thread (owner asked a question).
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
-        from: "owner".into(),
+        from: "director".into(),
         to: "advisor".into(),
         body: "What should we build?".into(),
     }];
@@ -301,7 +303,7 @@ async fn advisor_reply_stays_isolated_from_pm_context() {
     let resolver = ModelResolver::new(cfg, Default::default());
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
-        from: "owner".into(),
+        from: "director".into(),
         to: "advisor".into(),
         body: "hi".into(),
     }];
@@ -374,7 +376,7 @@ async fn advisor_reply_builds_grounding_into_system_prompt() {
     };
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
-        from: "owner".into(),
+        from: "director".into(),
         to: "advisor".into(),
         body: "advise me".into(),
     }];
@@ -456,7 +458,9 @@ max_tokens = 500
     };
     let cause = Event::new(
         "proj",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -623,7 +627,9 @@ fn prompt_mentions_anti_thrash_rule() {
 fn cause() -> Event {
     Event::new(
         "proj-anti",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -688,7 +694,9 @@ async fn llm_loop_rejects_and_audits_reproposing_an_open_subject_e2e() {
     // First owner message → the model proposes "Pick a DB" (accepted).
     st.append(Event::new(
         "proj-anti",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -713,7 +721,9 @@ async fn llm_loop_rejects_and_audits_reproposing_an_open_subject_e2e() {
     // rejects it as PlanActionRejected; the loop does NOT panic.
     st.append(Event::new(
         "proj-anti",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -831,7 +841,9 @@ async fn metering_reports_nonzero_usd_with_real_prices() {
         .with_step_delay(std::time::Duration::ZERO);
     st.append(Event::new(
         "proj-anti",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -902,7 +914,9 @@ async fn metering_threads_cache_write_tokens_from_provider() {
         .with_step_delay(std::time::Duration::ZERO);
     st.append(Event::new(
         "proj-anti",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -953,7 +967,9 @@ fn pm_context_carries_advisory_briefings() {
     let st = state_with_pm_and_cast();
     st.append(Event::new(
         "proj-anti",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisoryBriefingImported,
         Aggregate {
             kind: "briefing".into(),
@@ -1029,14 +1045,14 @@ async fn advisor_summarize_uses_the_model_but_never_hard_fails() {
     let thread = vec![
         casting::types::Message {
             id: "m1".into(),
-            from: "owner".into(),
+            from: "director".into(),
             to: "advisor".into(),
             body: "open-core or closed?".into(),
         },
         casting::types::Message {
             id: "m2".into(),
             from: "advisor".into(),
-            to: "owner".into(),
+            to: "director".into(),
             body: "Consider open-core.".into(),
         },
     ];

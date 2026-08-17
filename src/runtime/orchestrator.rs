@@ -5,7 +5,7 @@
 //! [`MockOrchestrator`] so the whole seam is built, tested, and gate-checked
 //! with **zero LLM and zero spend**.
 //!
-//! The real OpenRouter provider stays UNSET here (the owner connects it later,
+//! The real OpenRouter provider stays UNSET here (the director connects it later,
 //! while travelling the LLM is deliberately unplugged). When it's plugged in,
 //! it just has to implement [`Orchestrator`]: read the assembled context, return
 //! `PmAction`s, and the existing gate + append path do the rest.
@@ -34,7 +34,7 @@ pub struct CostMetering {
     /// The task this call is attributed to, if any.
     pub task_id: Option<String>,
     /// Cost classification: "pm_overhead" | "implementation" | "review" |
-    /// "research" | "tooling". Lets the owner answer "where did the money go?"
+    /// "research" | "tooling". Lets the director answer "where did the money go?"
     pub cost_class: String,
     /// Model tier, e.g. "flash" | "pro" (from the provider).
     pub model_tier: String,
@@ -94,7 +94,12 @@ impl Orchestrator for MockOrchestrator {
     async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
         // Handle owner decision triggers: create a follow-up task on approval,
         // acknowledge on rejection — mimics the old plan_owner_decision logic.
-        if cause.event_type == EventType::DecisionMade && cause.actor == Actor::Owner {
+        if cause.event_type == EventType::DecisionMade
+            && cause.actor
+                == (Actor::Director {
+                    user_id: "ceo".into(),
+                })
+        {
             let approved = cause
                 .data
                 .get("approved")

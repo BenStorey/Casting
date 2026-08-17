@@ -99,7 +99,9 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
     };
     let cause = casting::event::Event::new(
         "proj-cast",
-        casting::event::Actor::Owner,
+        casting::event::Actor::Director {
+            user_id: "ceo".into(),
+        },
         casting::event::EventType::MessageSent,
         casting::event::Aggregate {
             kind: "message".into(),
@@ -150,7 +152,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
         .unwrap();
 
     // The PM proposes adding a devops consultant. AddConsultant defaults to Pm,
-    // so the PM can decide it itself; but to exercise the owner-approval path
+    // so the PM can decide it itself; but to exercise the director-approval path
     // we show the proposal is valid and routes as a decision.
     let cause = casting::event::Event::new(
         "proj-cast",
@@ -187,7 +189,9 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
     state
         .append(casting::event::Event::new(
             "proj-cast",
-            casting::event::Actor::Owner,
+            casting::event::Actor::Director {
+                user_id: "ceo".into(),
+            },
             casting::event::EventType::DecisionMade,
             casting::event::Aggregate {
                 kind: "decision".into(),

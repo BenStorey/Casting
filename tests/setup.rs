@@ -16,7 +16,7 @@ fn setup_creates_company_and_default_cast() {
     let plan = SetupPlan::build(SetupSpec {
         name: "Acme Inc".into(),
         roles: vec![], // default cast
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     })
     .unwrap();
@@ -44,7 +44,7 @@ fn setup_with_custom_roles_hires_them() {
     let plan = SetupPlan::build(SetupSpec {
         name: "SecCo".into(),
         roles: vec!["security".into(), "devops".into()],
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     })
     .unwrap();
@@ -67,7 +67,7 @@ fn setup_is_idempotent_on_rerun() {
     let spec = SetupSpec {
         name: "Acme".into(),
         roles: vec![],
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     };
     let plan = SetupPlan::build(spec).unwrap();
@@ -87,32 +87,32 @@ fn setup_is_idempotent_on_rerun() {
 }
 
 #[test]
-fn setup_writes_owner_token_config() {
+fn setup_writes_director_token_config() {
     let tmp = tmp_dir();
     let plan = SetupPlan::build(SetupSpec {
         name: "Acme".into(),
         roles: vec![],
-        owner_token: Some("s3cr3t".into()),
+        director_token: Some("s3cr3t".into()),
         directives: vec![],
     })
     .unwrap();
     plan.apply(tmp.path()).unwrap();
     let cfg = setup::read_config(tmp.path()).expect("config written");
     assert_eq!(cfg.name, "Acme");
-    assert_eq!(cfg.owner_token.as_deref(), Some("s3cr3t"));
+    assert_eq!(cfg.director_token.as_deref(), Some("s3cr3t"));
 
     // A re-run (no-op) must NOT clobber the persisted token/config.
     let again = SetupPlan::build(SetupSpec {
         name: "Acme".into(),
         roles: vec![],
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     })
     .unwrap();
     assert_eq!(again.apply(tmp.path()).unwrap(), 0, "re-run is a no-op");
     let cfg = setup::read_config(tmp.path()).expect("config still present");
     assert_eq!(
-        cfg.owner_token.as_deref(),
+        cfg.director_token.as_deref(),
         Some("s3cr3t"),
         "re-run must not wipe the token"
     );
@@ -124,7 +124,7 @@ fn setup_writes_starting_directives() {
     let plan = SetupPlan::build(SetupSpec {
         name: "Acme".into(),
         roles: vec![],
-        owner_token: None,
+        director_token: None,
         directives: vec![StartDirective {
             id: "d-tdd".into(),
             kind: DirectiveKind::Policy,
@@ -146,7 +146,7 @@ fn setup_rejects_unknown_role() {
     let spec = SetupSpec {
         name: "Acme".into(),
         roles: vec!["wizard".into()],
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     };
     assert!(
@@ -157,13 +157,13 @@ fn setup_rejects_unknown_role() {
 
 #[tokio::test]
 async fn setup_then_onboard_does_not_double_hire() {
-    // Setup seeds the cast; then the owner's first message drives onboarding.
+    // Setup seeds the cast; then the director's first message drives onboarding.
     // plan_onboard must skip already-hired agents so we don't get duplicates.
     let tmp = tmp_dir();
     let plan = SetupPlan::build(SetupSpec {
         name: "Acme".into(),
         roles: vec![], // default cast (marcus + maya) hired by setup
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     })
     .unwrap();
@@ -184,7 +184,9 @@ async fn setup_then_onboard_does_not_double_hire() {
     state
         .append(Event::new(
             "project-demo",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -205,13 +207,13 @@ async fn setup_then_onboard_does_not_double_hire() {
 
 #[tokio::test]
 async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
-    // The owner chose a custom cast at setup (engineer + devops only). Onboarding
+    // the director chose a custom cast at setup (engineer + devops only). Onboarding
     // must NOT add default QA on top — the chosen team stands as-is.
     let tmp = tmp_dir();
     let plan = SetupPlan::build(SetupSpec {
         name: "Acme".into(),
         roles: vec!["engineer".into(), "devops".into()],
-        owner_token: None,
+        director_token: None,
         directives: vec![],
     })
     .unwrap();
@@ -229,7 +231,9 @@ async fn setup_custom_cast_is_not_topped_up_by_onboarding() {
     state
         .append(Event::new(
             "project-demo",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),

@@ -132,7 +132,7 @@ pub(crate) async fn graph_task_context_handler(
 
 /// GET /api/model — the operating picture: what the models are currently
 /// seeing (objective, priorities, governance, knowledge, per-actor contexts,
-/// and any mechanical drift signals). The owner's "why is it prioritizing that
+/// and any mechanical drift signals). the director's "why is it prioritizing that
 /// way?" / "what does it believe?" debug surface. Pure derivation.
 pub(crate) async fn model_handler(
     State(state): State<AppState>,

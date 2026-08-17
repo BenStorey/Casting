@@ -89,7 +89,7 @@ pub struct AgentContext {
     pub open_risks: Vec<String>,
     pub assumptions: Vec<String>,
     pub constraints: Vec<String>,
-    /// Decisions awaiting the owner (the whole open-decision set).
+    /// Decisions awaiting the director (the whole open-decision set).
     pub open_decisions: Vec<String>,
     /// EXTERNAL advisor briefings (advisory, never authoritative) scoped to this
     /// actor — e.g. an advisor handoff or a pasted plan. Formatted as
@@ -97,7 +97,7 @@ pub struct AgentContext {
     /// genuinely CONSIDER advice without it ever asserting rules.
     pub advisory_briefings: Vec<String>,
     /// External intake requests (e.g. GitHub issues/PRs) scoped to this actor —
-    /// "what a user reported", triaged but NOT the owner's intent.
+    /// "what a user reported", triaged but NOT the director's intent.
     pub external_requests: Vec<String>,
     /// The consultant's isolated workspace, if one is provisioned for their
     /// current task (2026-08-12). This is the "desk" the platform hands a

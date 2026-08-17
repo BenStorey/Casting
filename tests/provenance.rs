@@ -72,7 +72,9 @@ fn provenance_traces_commit_to_owner_message() {
     let owner_msg = store
         .append(Event::new(
             project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -83,7 +85,7 @@ fn provenance_traces_commit_to_owner_message() {
         .unwrap();
 
     // 2. PM creates a requirement + task, linked via correlation_id +
-    //    causation_id to the owner's message (same shape as the scripted PM).
+    //    causation_id to the director's message (same shape as the scripted PM).
     let correlation = "run-1";
     append_with_meta(
         &store,
@@ -168,10 +170,10 @@ fn provenance_traces_commit_to_owner_message() {
     );
     assert!(
         kinds.contains(&"message"),
-        "chain should include the owner's message"
+        "chain should include the director's message"
     );
 
-    // The owner message description should include the original body.
+    // the director message description should include the original body.
     assert!(
         chain
             .owner_message
@@ -193,7 +195,9 @@ fn provenance_for_task_traces_to_requirement_and_commits() {
     let owner_msg = store
         .append(Event::new(
             project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -309,7 +313,9 @@ fn appends_owner_message(store: &SqliteEventStore, body: &str) -> Event {
     store
         .append(Event::new(
             "proj",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -381,7 +387,9 @@ fn decision_audit_records_decider_and_note_when_decided() {
     store
         .append(Event::new(
             "proj",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::DecisionMade,
             Aggregate {
                 kind: "decision".into(),

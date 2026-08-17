@@ -41,7 +41,7 @@ fn assert_shape(headers: &HeaderMap, body: &serde_json::Value, expect_ask: &str)
     );
     let msgs = body["messages"].as_array().unwrap();
     assert!(msgs.len() >= 2, "system + user messages");
-    // The owner's raw ask must reach the model (abstracted AgentContext has
+    // the director's raw ask must reach the model (abstracted AgentContext has
     // objective=None pre-Requirement).
     let user_msg = msgs[1]["content"].as_str().unwrap_or("");
     assert!(
@@ -148,7 +148,9 @@ fn msg_body(state: &AppState, id: &str, body: &str) {
     state
         .append(Event::new(
             "proj-llm",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -297,7 +299,7 @@ fn prompt_contract_matches_serde_shape() {
         ),
         (
             PmAction::SendMessage {
-                to: "owner".into(),
+                to: "director".into(),
                 body: "b".into(),
             },
             "send_message",
@@ -547,13 +549,15 @@ async fn paused_skips_provider_call_no_spend() {
     state
         .append(Event::new(
             "proj-llm",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::WorkPaused,
             Aggregate {
                 kind: "guard".into(),
                 id: "work-pause".into(),
             },
-            json!({ "reason": "owner requested", "by": "owner" }),
+            json!({ "reason": "owner requested", "by": "director" }),
         ))
         .unwrap();
     msg_body(&state, "m1", "Build me a product.");
@@ -606,7 +610,9 @@ async fn budget_halt_skips_provider_call_no_spend() {
     state
         .append(Event::new(
             "proj-llm",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::BudgetSet,
             Aggregate {
                 kind: "budget".into(),
@@ -654,7 +660,7 @@ async fn non_owner_triggers_do_not_call_provider() {
     seed(&state);
 
     // A non-owner MessageSent (e.g. an agent speaking) must NOT route through
-    // the orchestrator — orchestration is scoped to OWNER messages.
+    // the orchestrator — orchestration is scoped to DIRECTOR messages.
     state
         .append(Event::new(
             "proj-llm",
@@ -674,7 +680,7 @@ async fn non_owner_triggers_do_not_call_provider() {
     assert_eq!(
         stub.req_count.load(Ordering::SeqCst),
         0,
-        "only OWNER messages hit the LLM"
+        "only DIRECTOR messages hit the LLM"
     );
 }
 

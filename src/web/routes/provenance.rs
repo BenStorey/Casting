@@ -28,7 +28,7 @@ pub(crate) async fn provenance_task_handler(
 }
 
 /// GET /api/provenance/decision/{id} — the audit for a decision: who proposed
-/// it, what class/involvement, who decided it, and why (to the owner's message).
+/// it, what class/involvement, who decided it, and why (to the director's message).
 pub(crate) async fn provenance_decision_handler(
     State(state): State<AppState>,
     Path(decision_id): Path<String>,

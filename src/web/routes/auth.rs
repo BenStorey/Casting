@@ -1,3 +1,4 @@
+use crate::event::Actor;
 use crate::pm::AppState;
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
@@ -6,12 +7,14 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 
-/// Auth middleware for owner-mutating endpoints: when `AppState.auth_token` is
+/// Auth middleware for director-mutating endpoints: when `AppState.auth_token` is
 /// set, require `Authorization: Bearer *** otherwise pass through (auth
 /// disabled, backward compatible with tests / local runs).
+/// Injects the authenticated actor into request extensions so handlers can
+/// use it instead of hardcoding an identity.
 pub(crate) async fn require_auth(
     State(state): State<AppState>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     if let Some(expected) = state.auth_token.clone() {
@@ -19,6 +22,13 @@ pub(crate) async fn require_auth(
             return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
         }
     }
+    // Inject the authenticated actor identity so handlers don't hardcode it.
+    // The default CEO identity ("ceo") is used since we have one director for
+    // day 1. When multiple directors exist, this would come from a token → user
+    // lookup. Auth disabled (no token) → still inject for convenience.
+    req.extensions_mut().insert(Actor::Director {
+        user_id: "ceo".into(),
+    });
     next.run(req).await
 }
 
@@ -27,7 +37,7 @@ pub(crate) struct LoginIn {
     token: String,
 }
 
-/// POST /api/login {token} — verify an owner token (200 ok) or not (401). Lets a
+/// POST /api/login {token} — verify a director token (200 ok) or not (401). Lets a
 /// UI validate the token the user pasted before using it for mutations.
 pub(crate) async fn login_handler(
     State(state): State<AppState>,

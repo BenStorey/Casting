@@ -24,7 +24,9 @@ fn append_opinion(state: &AppState, id: &str, subject: &str) {
     state
         .append(Event::new(
             &state.project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::OpinionRecorded,
             Aggregate {
                 kind: "opinion".into(),
@@ -63,7 +65,9 @@ fn drift_ignores_superseded_and_empty_subject() {
     // op-a1 gets explicitly superseded (no longer Active) -> not re-flagged.
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::OpinionSuperseded,
         Aggregate {
             kind: "opinion".into(),

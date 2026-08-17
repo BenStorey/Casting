@@ -16,8 +16,10 @@ use uuid::Uuid;
 /// Who or what caused an event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Actor {
-    /// The human owner.
-    Owner,
+    /// A director — the human running the company. Carries the user's identity
+    /// so the event log knows *which* director acted. For day 1 there is only
+    /// one director (the CEO), but the infrastructure supports multiple.
+    Director { user_id: String },
     /// An agent, identified by its stable id (e.g. "diego", "pm").
     Agent { id: String },
     /// The system itself (e.g. background watchers, persistence).
@@ -100,7 +102,7 @@ pub enum EventType {
     ProjectDirectiveExpired,
     ObservationCreated,
     DecisionProposed,
-    /// A decision was resolved — by the OWNER (after being asked) OR by a
+    /// A decision was resolved — by the DIRECTOR (after being asked) OR by a
     /// delegated PM/agent. This is the universal decision-maker event: there
     /// is no separate "owner decision" type; the actor on this event is who
     /// decided (docs/CASTING_PROJECT_BRIEF.md §5, HANDOFF decision log).
@@ -109,7 +111,7 @@ pub enum EventType {
     /// Status -> Superseded; `superseded_by` links to the replacing decision
     /// (docs/SEMANTIC_EVENTS.md §22).
     DecisionSuperseded,
-    /// The owner set/changed the owner-involvement required for a decision
+    /// the director set/changed the director-involvement required for a decision
     /// class (delegated authority, brief §5). Event-sourced so the autonomy
     /// configuration is durable history, not a hardcoded default.
     DecisionPolicyChanged,
@@ -160,12 +162,12 @@ pub enum EventType {
     /// project from OUTSIDE Casting (e.g. a ChatGPT plan Ben pastes in). It is
     /// explicitly **advisory, NOT authoritative** — it can inform context but
     /// NEVER sets rules. Carries provenance (`source`) so it's never confusable
-    /// with the owner's own intent. Supersedable (`status`/`supersedes`), so
+    /// with the director's own intent. Supersedable (`status`/`supersedes`), so
     /// stale advice decays instead of dominating context forever.
     AdvisoryBriefingImported,
     /// A request arrived from an EXTERNAL source (e.g. a GitHub issue/PR a
     /// product user opened). The product's intake surface. Carries provenance
-    /// (source, external_id, reporter) so the PM can triage it; NOT the owner's
+    /// (source, external_id, reporter) so the PM can triage it; NOT the director's
     /// own intent. (owner 2026-08-10)
     ExternalRequestReceived,
     /// A diagram was drawn and saved inside the app (Excalidraw canvas) — a durable
@@ -173,13 +175,13 @@ pub enum EventType {
     /// image. Stored as serialized Excalidraw JSON (`data`) the PM/owner can view
     /// and reload. (owner 2026-08-10)
     DiagramSaved,
-    /// A message in the owner↔advisor thread — the owner's private chat with the
-    /// direction-advisor (a special second role the owner interacts with
+    /// A message in the director↔advisor thread — the director's private chat with the
+    /// direction-advisor (a special second role the director interacts with
     /// directly). This thread is ISOLATED from the PM's context by design: it
-    /// only reaches the PM when the owner explicitly hands it off via
+    /// only reaches the PM when the director explicitly hands it off via
     /// `AdvisorHandoff` (which becomes an AdvisoryBriefing). (owner 2026-08-10)
     AdvisorMessageSent,
-    /// The owner asked the advisor thread to be summarized and handed off to the
+    /// the director asked the advisor thread to be summarized and handed off to the
     /// PM — converting the private strategic conversation into an
     /// `AdvisoryBriefing` (provenanced "advisor") the PM DOES read. This is the
     /// explicit integration point between the two direct owner roles.
@@ -198,13 +200,13 @@ pub enum EventType {
     /// (PM layer), never a machinery-side retry counter.
     ActivityFailed,
     // --- Harness guards (2026-08-13, docs/plans/2026-08-13_harness-guards.md) ---
-    /// The owner set a hard token budget: `{ limit_usd, warn_at }`. Folds into
+    /// the director set a hard token budget: `{ limit_usd, warn_at }`. Folds into
     /// `proj.budget`; the dispatch gate refuses LLM calls once spend >= limit.
     BudgetSet,
     /// A resumable pause of all side-effecting work: `{ reason, by }`. Cleared
     /// by `WorkResumed`. (The budget halt is DERIVED from spend, not this event.)
     WorkPaused,
-    /// The owner (or a guard clearing its own pause) resumes work.
+    /// the director (or a guard clearing its own pause) resumes work.
     WorkResumed,
     // --- Diagnostics / audit trail (2026-08) ---
     /// A proposed PM action (from the scripted plans OR the D2 orchestrator /

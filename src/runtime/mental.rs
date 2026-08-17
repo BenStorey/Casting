@@ -5,7 +5,7 @@
 //! read-model: the current objective and priorities, governance (directives +
 //! decision policy + open decisions), knowledge (active opinions + facts),
 //! assumptions/constraints/risks, and — crucially — the per-actor operating
-//! context each model sees (`context_for`), so an owner or a tester debugging a
+//! context each model sees (`context_for`), so a director or a tester debugging a
 //! wrong-priority PM can see exactly what the models were working from. Pure
 //! derivation; the event log stays the only authority.
 
@@ -14,7 +14,7 @@ use crate::pm::DecisionPolicy;
 use crate::runtime::directive;
 use serde::Serialize;
 
-/// The owner-facing / debugging "operating picture" of a project.
+/// the director-facing / debugging "operating picture" of a project.
 #[derive(Debug, Clone, Serialize)]
 pub struct OperatingModel {
     pub project_id: String,
@@ -36,7 +36,7 @@ pub struct OperatingModel {
     /// visible to the PM/owner, not (only) tracked implicitly.
     pub spend: SpendView,
     /// Harness guard rails (2026-08-13): the budget-breaker phase + any active
-    /// pause. The owner reads this to see whether the cast is self-halted and
+    /// pause. the director reads this to see whether the cast is self-halted and
     /// why, especially while traveling / unattended.
     pub guards: GuardsView,
     /// Per-actor operating context — EXACTLY what each model is handed when it
@@ -47,14 +47,14 @@ pub struct OperatingModel {
     /// port). The platform's structural-isolation boundary, visible at a glance.
     pub worktrees: Vec<WorktreeView>,
     /// Signals a stale/inconsistent state (e.g. same-subject opinion
-    /// contradiction the reconciler hasn't fixed yet) the owner may want to see.
+    /// contradiction the reconciler hasn't fixed yet) the director may want to see.
     pub drift_signals: Vec<String>,
     /// Diagnostics audit trail (2026-08): refused PM actions + recorded
     /// orchestrator planning passes — the "what failed / what did the model
     /// do" surface for testing the LLM seam.
     pub diagnostics: DiagnosticsView,
-    /// Owner engagement — is the owner engaging or muting? (metric for the
-    /// "am I being escalated to death / is the owner AWOL?" meta-signal.)
+    /// Owner engagement — is the director engaging or muting? (metric for the
+    /// "am I being escalated to death / is the director AWOL?" meta-signal.)
     pub engagement: OwnerEngagementView,
     /// Code diff quality over time — language-agnostic churn from git, so a
     /// tester can see if the codebase is trending toward "LLM soup".
@@ -104,13 +104,13 @@ pub struct SpendView {
 /// log is the authority.
 #[derive(Debug, Clone, Serialize)]
 pub struct GuardsView {
-    /// The owner-set budget, if any.
+    /// the director-set budget, if any.
     pub budget: Option<BudgetView>,
     /// An active resumable pause, if any (reason/by/at).
     pub paused: Option<crate::pm::guard::PauseInfo>,
 }
 
-/// The curated budget phase, as the owner reads it.
+/// The curated budget phase, as the director reads it.
 #[derive(Debug, Clone, Serialize)]
 pub struct BudgetView {
     pub limit_usd: f64,
@@ -136,19 +136,19 @@ pub struct DiagnosticsView {
     pub recent_orchestration: Vec<crate::projection::OrchestrationRun>,
 }
 
-/// Owner engagement — "is the owner engaging, or muting?" (a week-1 metric,
+/// Owner engagement — "is the director engaging, or muting?" (a week-1 metric,
 /// from the meta-pattern: measure owner response rate). Purely derived from the
 /// decision log. The signal: a growing `awaiting_owner` backlog with a falling
 /// `response_rate` is escalation fatigue / owner abandonment — the PM is asking
-/// things the owner isn't answering.
+/// things the director isn't answering.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct OwnerEngagementView {
-    /// Open decisions that still REQUIRE the owner (involvement Ask, not yet
+    /// Open decisions that still REQUIRE the director (involvement Ask, not yet
     /// decided or superseded). Work is blocked on each of these.
     pub awaiting_owner: usize,
-    /// Decisions the owner has ruled on (decided_by == owner).
+    /// Decisions the director has ruled on (decided_by == owner).
     pub owner_decided: usize,
-    /// Decisions handled autonomously (decided by the PM/agent, not the owner).
+    /// Decisions handled autonomously (decided by the PM/agent, not the director).
     pub delegated_decided: usize,
     /// `owner_decided / (owner_decided + awaiting_owner)`. 1.0 = fully caught
     /// up; falls toward 0 as unanswered escalations pile up.
@@ -211,7 +211,7 @@ pub struct GovernanceView {
     pub active_directives: Vec<String>,
     /// The delegated-authority decision policy (per-class autonomy).
     pub decision_policy: DecisionPolicy,
-    /// Decisions still awaiting the owner.
+    /// Decisions still awaiting the director.
     pub open_decisions: Vec<String>,
 }
 
@@ -234,7 +234,7 @@ pub struct KnowledgeView {
 /// External advisor content, kept clearly separate from authoritative state.
 /// `briefings.active` are the currently-considered advisories; `superseded`
 /// keeps the audit trail. Each is marked with its `source` so it's never
-/// confusable with the owner's own intent. Advisory can inform context, never
+/// confusable with the director's own intent. Advisory can inform context, never
 /// sets rules (directives remain the only authority mechanism).
 #[derive(Debug, Clone, Serialize)]
 pub struct AdvisoryView {
@@ -247,7 +247,7 @@ pub struct AdvisoryView {
 }
 
 /// External requests (product intake surface) — issues/PRs raised OUTSIDE, kept
-/// separate from the owner's own Requirements. Each is triaged deterministically
+/// separate from the director's own Requirements. Each is triaged deterministically
 /// (classification + severity). The PM later decides whether to act (D2).
 #[derive(Debug, Clone, Serialize)]
 pub struct RequestsView {
@@ -553,7 +553,7 @@ impl crate::projection::Projection {
     }
 }
 
-/// Derive the owner-engagement view from the decision log. See
+/// Derive the director-engagement view from the decision log. See
 /// [`OwnerEngagementView`] for semantics.
 fn owner_engagement(proj: &crate::projection::Projection) -> OwnerEngagementView {
     use crate::pm::OwnerInvolvement;
@@ -635,7 +635,7 @@ fn diff_quality(proj: &crate::projection::Projection) -> DiffQualityView {
     }
 }
 
-/// Mechanical drift visible to an owner: same-subject opinions still marked
+/// Mechanical drift visible to a director: same-subject opinions still marked
 /// Active (a contradiction the reconciler hasn't cleaned up this window). This
 /// is exactly the "PM keeps prioritizing wrong — what are they seeing?" cue.
 fn same_subject_drift(proj: &crate::projection::Projection) -> Vec<String> {

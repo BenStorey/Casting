@@ -1,5 +1,5 @@
 //! Tests for the human-as-consultant delivery model (owner 2026-08-10):
-//! a task can be assigned to the OWNER (the human), who executes and delivers
+//! a task can be assigned to the DIRECTOR (the human), who executes and delivers
 //! it (possibly working through their own harness). Distinct from hired agents.
 
 use casting::event::{Actor, Aggregate, Event, EventType};
@@ -49,11 +49,11 @@ fn assign_task_to_owner_is_valid() {
     create_task(&st, "task-1", "Build the API");
 
     let proj = Projection::build(&st.store, &st.project).unwrap();
-    // Assigning to the owner is allowed (human-as-consultant).
+    // Assigning to the director is allowed (human-as-consultant).
     let ok = casting::actions::validate(
         &casting::actions::PmAction::AssignTask {
             task_id: "task-1".into(),
-            assignee: casting::actions::OWNER.into(),
+            assignee: casting::actions::DIRECTOR.into(),
             merge_authority: casting::types::MergeAuthority::PmMerge,
         },
         "pm",
@@ -80,7 +80,7 @@ fn assign_task_to_owner_is_valid() {
 fn owner_can_start_and_complete_their_own_task() {
     let st = state();
     create_task(&st, "task-1", "Build the API");
-    // Assign to the owner directly via the event.
+    // Assign to the director directly via the event.
     st.append(Event::new(
         &st.project,
         Actor::System,
@@ -89,18 +89,18 @@ fn owner_can_start_and_complete_their_own_task() {
             kind: "task".into(),
             id: "task-1".into(),
         },
-        serde_json::json!({ "assignee": casting::actions::OWNER }),
+        serde_json::json!({ "assignee": casting::actions::DIRECTOR }),
     ))
     .unwrap();
 
-    // Owner (who == "owner") can start and complete it.
+    // Owner (who == "director") can start and complete it.
     // First start the task so it transitions to Working.
     let proj = Projection::build(&st.store, &st.project).unwrap();
     assert!(casting::actions::validate(
         &casting::actions::PmAction::StartTask {
             task_id: "task-1".into()
         },
-        casting::actions::OWNER,
+        casting::actions::DIRECTOR,
         &proj,
         None
     )
@@ -109,7 +109,9 @@ fn owner_can_start_and_complete_their_own_task() {
     // Simulate the task being started so CompleteTask is valid.
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::TaskStarted,
         Aggregate {
             kind: "task".into(),
@@ -124,7 +126,7 @@ fn owner_can_start_and_complete_their_own_task() {
             task_id: "task-1".into(),
             result: "done".into()
         },
-        casting::actions::OWNER,
+        casting::actions::DIRECTOR,
         &proj,
         None
     )
@@ -143,7 +145,7 @@ fn owner_can_start_and_complete_their_own_task() {
             None
         )
         .is_err(),
-        "an agent must not act on the owner's task"
+        "an agent must not act on the director's task"
     );
 }
 
@@ -159,12 +161,14 @@ fn owner_delivery_shows_in_projection() {
             kind: "task".into(),
             id: "task-1".into(),
         },
-        serde_json::json!({ "assignee": casting::actions::OWNER }),
+        serde_json::json!({ "assignee": casting::actions::DIRECTOR }),
     ))
     .unwrap();
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::TaskCompleted,
         Aggregate {
             kind: "task".into(),
@@ -176,7 +180,7 @@ fn owner_delivery_shows_in_projection() {
 
     let proj = Projection::build(&st.store, &st.project).unwrap();
     let t = &proj.tasks[0];
-    assert_eq!(t.assignee.as_deref(), Some("owner"));
+    assert_eq!(t.assignee.as_deref(), Some("director"));
     assert_eq!(t.status, TaskStatus::Done);
 }
 
@@ -184,7 +188,7 @@ fn owner_delivery_shows_in_projection() {
 fn pm_can_act_on_owner_assigned_task() {
     let st = state();
     create_task(&st, "task-1", "Build the API");
-    // Assign to the owner directly via the event.
+    // Assign to the director directly via the event.
     st.append(Event::new(
         &st.project,
         Actor::System,
@@ -193,11 +197,11 @@ fn pm_can_act_on_owner_assigned_task() {
             kind: "task".into(),
             id: "task-1".into(),
         },
-        serde_json::json!({ "assignee": casting::actions::OWNER }),
+        serde_json::json!({ "assignee": casting::actions::DIRECTOR }),
     ))
     .unwrap();
 
-    // PM (who == "pm") can start the owner's task (the owner has no agent
+    // PM (who == "pm") can start the director's task (the director has no agent
     // loop, so the PM acts as their proxy).
     let proj = Projection::build(&st.store, &st.project).unwrap();
     assert!(
@@ -210,13 +214,15 @@ fn pm_can_act_on_owner_assigned_task() {
             None
         )
         .is_ok(),
-        "pm should be able to start an owner-assigned task"
+        "pm should be able to start a director-assigned task"
     );
 
     // Transition the task to Working via a direct event.
     st.append(Event::new(
         &st.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::TaskStarted,
         Aggregate {
             kind: "task".into(),
@@ -226,7 +232,7 @@ fn pm_can_act_on_owner_assigned_task() {
     ))
     .unwrap();
 
-    // PM can complete the owner's task (when the owner says it's done).
+    // PM can complete the director's task (when the director says it's done).
     let proj = Projection::build(&st.store, &st.project).unwrap();
     assert!(
         casting::actions::validate(
@@ -239,10 +245,10 @@ fn pm_can_act_on_owner_assigned_task() {
             None
         )
         .is_ok(),
-        "pm should be able to complete an owner-assigned task"
+        "pm should be able to complete a director-assigned task"
     );
 
-    // An agent (marcus-reed) is still NOT allowed to act on the owner's task.
+    // An agent (marcus-reed) is still NOT allowed to act on the director's task.
     hire_engineer(&st);
     let proj2 = Projection::build(&st.store, &st.project).unwrap();
     assert!(
@@ -255,6 +261,6 @@ fn pm_can_act_on_owner_assigned_task() {
             None
         )
         .is_err(),
-        "an agent must not act on the owner's task"
+        "an agent must not act on the director's task"
     );
 }

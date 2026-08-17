@@ -18,7 +18,7 @@
 //!   2. **Event metadata** — `correlation_id` groups events from the same PM
 //!      run (so a task, its requirement, and its decision share a correlation
 //!      id), and `causation_id` links an event to the event that directly
-//!      caused it (typically the owner's message).
+//!      caused it (typically the director's message).
 //!
 //! This module provides pure query functions over the event log — no new
 //! events, no projection changes. It's the read-side of the provenance graph.
@@ -56,21 +56,21 @@ pub struct ProvenanceChain {
     pub requirement_id: Option<String>,
     /// The decision associated with the task, if any.
     pub decision_id: Option<String>,
-    /// The owner message that initiated the chain.
+    /// the director message that initiated the chain.
     pub owner_message: Option<String>,
     /// The ordered chain of events from commit back to owner intent.
     pub chain: Vec<ProvenanceLink>,
 }
 
 /// Build the provenance chain for a commit sha: walk from the commit back to
-/// the owner's original message/requirement.
+/// the director's original message/requirement.
 ///
 /// The chain is built by:
 /// 1. Find the CommitObserved event for this sha → get task_id from its data.
 /// 2. Find the TaskCreated event for that task → get correlation_id.
 /// 3. Find RequirementCreated events with the same correlation_id.
 /// 4. Find DecisionProposed events with the same correlation_id.
-/// 5. Follow causation_id from TaskCreated to the owner's MessageSent.
+/// 5. Follow causation_id from TaskCreated to the director's MessageSent.
 pub fn for_commit<S: EventStore>(store: &S, project: &str, sha: &str) -> Result<ProvenanceChain> {
     let events = store.read_since(project, 0)?;
 
@@ -182,7 +182,7 @@ pub fn for_commit<S: EventStore>(store: &S, project: &str, sha: &str) -> Result<
                 }
             }
 
-            // 5. Follow causation_id to the owner's message.
+            // 5. Follow causation_id to the director's message.
             if let Some(cause_id) = task_ev.metadata.causation_id {
                 if let Some(cause_ev) = events.iter().find(|e| e.event_id == cause_id) {
                     if cause_ev.event_type == EventType::MessageSent {
@@ -340,7 +340,7 @@ pub fn for_task<S: EventStore>(store: &S, project: &str, task_id: &str) -> Resul
 }
 
 /// The audit for a single decision: who proposed it, what class/involvement,
-/// who decided it, the owner's note, and why (back to the initiator message).
+/// who decided it, the director's note, and why (back to the initiator message).
 #[derive(Debug, Clone, Serialize)]
 pub struct DecisionAudit {
     pub decision_id: String,
@@ -351,9 +351,9 @@ pub struct DecisionAudit {
     pub proposed_by: String,
     /// The decider once `DecisionMade` is recorded (owner or agent id).
     pub decided_by: Option<String>,
-    /// The note attached when the decision was made (often the owner's verdict).
+    /// The note attached when the decision was made (often the director's verdict).
     pub note: Option<String>,
-    /// The owner's original message that motivated this decision, if traceable.
+    /// the director's original message that motivated this decision, if traceable.
     pub owner_message: Option<String>,
     /// The ordered chain of link events: proposal → decision → owner message.
     pub chain: Vec<ProvenanceLink>,
@@ -457,7 +457,12 @@ pub fn for_decision<S: EventStore>(
         let Some(cause) = events.iter().find(|e| e.event_id == cid) else {
             break;
         };
-        if cause.event_type == EventType::MessageSent && cause.actor == crate::event::Actor::Owner {
+        if cause.event_type == EventType::MessageSent
+            && cause.actor
+                == (crate::event::Actor::Director {
+                    user_id: "ceo".into(),
+                })
+        {
             owner_message = cause
                 .data
                 .get("body")
@@ -498,7 +503,7 @@ pub fn for_decision<S: EventStore>(
 
 fn actor_label(a: &crate::event::Actor) -> String {
     match a {
-        crate::event::Actor::Owner => "owner".into(),
+        crate::event::Actor::Director { .. } => "owner".into(),
         crate::event::Actor::Agent { id } => id.clone(),
         crate::event::Actor::System => "system".into(),
     }

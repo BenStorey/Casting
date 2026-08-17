@@ -206,10 +206,10 @@ async fn configure_rejects_invalid_token() {
 #[test]
 fn persist_merges_and_reads_back() {
     let dir = tempfile::tempdir().unwrap();
-    // Seed an existing config with an owner token (as `cast init` would).
+    // Seed an existing config with a director token (as `cast init` would).
     std::fs::write(
         dir.path().join("config.json"),
-        r#"{"name":"Acme Inc","owner_token":"sekret"}"#,
+        r#"{"name":"Acme Inc","director_token":"sekret"}"#,
     )
     .unwrap();
 
@@ -218,7 +218,7 @@ fn persist_merges_and_reads_back() {
     let cfg: RuntimeConfig = read_config(dir.path()).unwrap();
     assert_eq!(cfg.name, "Acme Inc");
     assert_eq!(
-        cfg.owner_token.as_deref(),
+        cfg.director_token.as_deref(),
         Some("sekret"),
         "owner token preserved"
     );

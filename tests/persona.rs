@@ -96,7 +96,9 @@ fn owner_directive(state: &AppState, id: &str, statement: &str, scope: &[&str]) 
     state
         .append(Event::new(
             "proj-pers",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::ProjectDirectiveCreated,
             Aggregate {
                 kind: "directive".into(),
@@ -107,7 +109,7 @@ fn owner_directive(state: &AppState, id: &str, statement: &str, scope: &[&str]) 
                 "statement": statement,
                 "scope": scope,
                 "strength": "required",
-                "created_by": "owner",
+                "created_by": "ceo",
             }),
         ))
         .unwrap();

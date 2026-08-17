@@ -182,7 +182,7 @@ pub fn advisor_context_summary(context: &AgentContext) -> String {
     out.join("\n")
 }
 
-/// Produce a concise, faithful summary of the owner↔advisor thread — used for
+/// Produce a concise, faithful summary of the director↔advisor thread — used for
 /// the handoff briefing the PM reads. Reuses the advisor's model binding.
 /// Returns an `Err` on any provider/parse failure; the caller falls back to the
 /// deterministic summarizer (never a hard failure).
@@ -195,7 +195,7 @@ pub async fn advisor_summarize(
     let mut messages = vec![ChatMessage {
         role: "system".into(),
         content: format!(
-            "{}\n\nSummarize the owner's advisor conversation below into a concise, \
+            "{}\n\nSummarize the director's advisor conversation below into a concise, \
              faithful briefing (3–6 sentences) for a project manager to act on. \
              Preserve any concrete decisions, options weighed, and open questions.\
              ",
@@ -239,7 +239,7 @@ pub async fn advisor_summarize(
 }
 
 /// The deterministic fallback summarizer (when no LLM or the call fails):
-/// headings from the owner's messages. Mirrors the (previously frontend-only)
+/// headings from the director's messages. Mirrors the (previously frontend-only)
 /// logic server-side so the summarize endpoint always has a value to return.
 pub fn advisor_summarize_deterministic(thread: &[Message]) -> String {
     if thread.is_empty() {

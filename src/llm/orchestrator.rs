@@ -211,7 +211,7 @@ impl Orchestrator for LlmOrchestrator {
 
             // Narrow user payload: step contract + read artifacts, not the
             // full AgentContext dump. For PM-owned steps (chat-interface),
-            // also include the owner's original request from the cause event.
+            // also include the director's original request from the cause event.
             let mut payload_parts = vec![format!(
                 "Step: {}\nContract: produce \"{}\"",
                 step.step_title, step.produces_artifact
@@ -317,7 +317,7 @@ impl Orchestrator for LlmOrchestrator {
             resolved.config.api_key.clone(),
         );
 
-        // The owner's message body (the trigger) must reach the model — the
+        // the director's message body (the trigger) must reach the model — the
         // abstracted AgentContext keeps only derived state, whose objective is
         // None before a Requirement exists. The raw ask is the thing to act on.
         let ask = cause
@@ -341,7 +341,7 @@ impl Orchestrator for LlmOrchestrator {
                 ChatMessage {
                     role: "user".into(),
                     content: format!(
-                        "The owner just said: \"{ask}\"\n\n\
+                        "the director just said: \"{ask}\"\n\n\
                          Current operating context:\n{user_payload}"
                     ),
                 },

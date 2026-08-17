@@ -29,8 +29,8 @@ fn owner_decision(id: &str, involvement: OwnerInvolvement, decided_by: Option<&s
 #[test]
 fn owner_engagement_counts_backlog_and_rate() {
     let proj = Projection {
-        // One escalation the owner hasn't answered -> awaiting.
-        // One the owner ruled on -> owner_decided.
+        // One escalation the director hasn't answered -> awaiting.
+        // One the director ruled on -> owner_decided.
         // One the PM handled itself -> delegated.
         decisions: vec![
             owner_decision("a", OwnerInvolvement::Ask, None),

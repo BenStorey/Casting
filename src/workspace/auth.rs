@@ -2,7 +2,7 @@
 //!
 //! Scoped to auth ALONE: a single owner bearer token guarding the
 //! owner-mutating API endpoints. Opt-in via `AppState::with_owner_auth` /
-//! the `CAST_OWNER_TOKEN` env var. No multi-project workspaces here.
+//! the `CAST_DIRECTOR_TOKEN` env var. No multi-project workspaces here.
 //!
 //! The token is a long, high-entropy secret (not a user-chosen password), so a
 //! constant-time compare is the right level of protection — no password hashing

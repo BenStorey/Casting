@@ -1,9 +1,9 @@
 //! Owner-channel seam (2026-08-14, docs/plans/2026-08-14_telegram-channel.md).
 //!
-//! The owner already reaches the project via the web UI (`POST /api/message`)
-//! and the PM reaches the owner via `MessageSent` events addressed `to:"owner"`
+//! the director already reaches the project via the web UI (`POST /api/message`)
+//! and the PM reaches the director via `MessageSent` events addressed `to:"owner"`
 //! folded into `Projection.messages`. This seam is the *external transport* for
-//! that conversation, so the owner can message the company from a phone.
+//! that conversation, so the director can message the company from a phone.
 //!
 //! It is deliberately a trait — NOT a concrete Telegram struct welded into the
 //! core. Telegram is the reference adapter (free, no verification, works behind
@@ -14,10 +14,10 @@
 
 use anyhow::Result;
 
-/// A best-effort outbound pipe to the owner. Never authoritative: a dropped
+/// A best-effort outbound pipe to the director. Never authoritative: a dropped
 /// message must not corrupt the event log (the projection is the truth).
 pub trait OwnerChannel: Send + Sync + 'static {
-    /// Push a line of text to the owner. Errors are surfaced but must not
+    /// Push a line of text to the director. Errors are surfaced but must not
     /// abort a drain (best-effort transport).
     fn notify(&self, text: &str) -> Result<()>;
 }

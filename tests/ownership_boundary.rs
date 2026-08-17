@@ -1,4 +1,4 @@
-//! Tests for the ownership boundary (docs/OWNERSHIP_BOUNDARY.md, D5): the
+//! Tests for the ownership boundary (docs/DIRECTORSHIP_BOUNDARY.md, D5): the
 //! self-identity guard, the collocated-but-self-ignored `.casting/` state dir,
 //! path sandboxing, and the pinned git runner. These encode the safety
 //! invariant that Casting can never conduct on the wrong repo — least of all

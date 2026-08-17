@@ -2,7 +2,7 @@
 //!
 //! Implements the same storage traits as the SQLite backend
 //! (`EventStore`, `CursorStore`, `SnapshotStore`), so a deployment can run its
-//! event log on Postgres behind the abstraction — the storage seam the owner
+//! event log on Postgres behind the abstraction — the storage seam the director
 //! wanted. Schema mirrors SQLite (`events` / `cursors` / `projections` tables),
 //! with Postgres-flavored DDL.
 //!
@@ -332,7 +332,7 @@ impl EventStore for PostgresBackend {
             Box::pin(async move {
                 let project_id = event.project_id.clone();
                 let (actor_type, actor_id) = match &event.actor {
-                    Actor::Owner => ("owner", None),
+                    Actor::Director { .. } => ("owner", None),
                     Actor::Agent { id } => ("agent", Some(id.clone())),
                     Actor::System => ("system", None),
                 };
@@ -434,7 +434,9 @@ impl EventStore for PostgresBackend {
                     let actor_type: String = r.get(4);
                     let actor_id: Option<String> = r.get(5);
                     let actor = match actor_type.as_str() {
-                        "owner" => Actor::Owner,
+                        "owner" => Actor::Director {
+                            user_id: "ceo".into(),
+                        },
                         "system" => Actor::System,
                         _ => Actor::Agent {
                             id: actor_id.unwrap_or_default(),

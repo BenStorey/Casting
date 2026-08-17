@@ -4,7 +4,7 @@
 //!
 //! Self-actuating, guardian-owned (owner message / dashboard notify is deferred
 //! until messaging wiring): on a detected stall it issues a `WorkPaused` (by
-//! `system`), which is the SAME resumable pause rail as the owner's `/api/pause`
+//! `system`), which is the SAME resumable pause rail as the director's `/api/pause`
 //! and the shared halt gate in `guard.rs`. The cast halts itself; a human or the
 //! owner resumes via `/api/resume`.
 //!
@@ -18,7 +18,7 @@
 //!     in the log (a stuck agent re-failing the same activity).
 //!   - **NoProgress** — NO new events for `stall_hours` WHILE work is in flight
 //!     (open Working/InReview tasks). Gated on in-flight work so a board that is
-//!     legitimately idle (all done / waiting on the owner) is NOT misread as a
+//!     legitimately idle (all done / waiting on the director) is NOT misread as a
 //!     stall.
 //!
 //! Spend-acceleration is a noted extension (would need a spend-rate baseline);

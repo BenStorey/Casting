@@ -26,7 +26,7 @@ fn make_state(project: &str) -> AppState {
     AppState::new(store, cursors, project)
 }
 
-fn owner_bound_msg(state: &AppState, body: &str) {
+fn director_bound_msg(state: &AppState, body: &str) {
     state
         .append(Event::new(
             &state.project,
@@ -117,7 +117,7 @@ async fn boot(
 #[tokio::test]
 async fn outbound_pushes_owner_bound_message() {
     let (state, channel, rx, stub) = boot(12345).await;
-    owner_bound_msg(&state, "Please approve the database choice");
+    director_bound_msg(&state, "Please approve the database choice");
 
     casting::runtime::telegram::drain(state.clone(), &channel, &rx)
         .await
@@ -125,17 +125,17 @@ async fn outbound_pushes_owner_bound_message() {
 
     let s = stub.lock().unwrap();
     assert_eq!(s.sent.len(), 1, "one owner-bound message pushed");
-    assert_eq!(s.sent[0].0, 12345, "targets the owner chat");
+    assert_eq!(s.sent[0].0, 12345, "targets the director chat");
     assert_eq!(s.sent[0].1, "Please approve the database choice");
 }
 
 /// Outbound durable cursor: NOT pushed for a message addressed elsewhere, or
-/// echoed back to the owner from the owner themselves.
+/// echoed back to the director from the director themselves.
 #[tokio::test]
 async fn outbound_skips_non_owner_and_owner_originated() {
     let (state, channel, rx, stub) = boot(12345).await;
 
-    // PM -> a consultant (not the owner): must not be relayed.
+    // PM -> a consultant (not the director): must not be relayed.
     state
         .append(Event::new(
             &state.project,
@@ -150,11 +150,13 @@ async fn outbound_skips_non_owner_and_owner_originated() {
             json!({ "to": "marcus-reed", "body": "internal note" }),
         ))
         .unwrap();
-    // Owner -> PM (the owner's own inbound): must NOT be echoed back to owner.
+    // Owner -> PM (the director's own inbound): must NOT be echoed back to owner.
     state
         .append(Event::new(
             &state.project,
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),

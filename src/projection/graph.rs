@@ -714,7 +714,9 @@ mod tests {
 
         let cause = Event::new(
             "p".to_string(),
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -777,7 +779,9 @@ mod tests {
 
         let cause = Event::new(
             "p".to_string(),
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),

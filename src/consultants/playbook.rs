@@ -4,7 +4,7 @@
 //!
 //! A consultant may offer multiple playbooks for the same `problem` at different
 //! `cost_band` levels (cheap/medium/expensive). Cost band drives whether the PM
-//! may apply it directly or must Ask the owner first.
+//! may apply it directly or must Ask the director first.
 //!
 //! See `/home/ben/casting/.hermes/plans/2026-08-16_130752-consultant-playbooks.md`
 //! for the full design.

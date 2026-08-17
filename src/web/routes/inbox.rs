@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
 
-/// An item sitting in the owner's inbox (a decision awaiting a verdict).
+/// An item sitting in the director's inbox (a decision awaiting a verdict).
 #[derive(Serialize)]
 pub(crate) struct InboxItem {
     id: String,
@@ -22,7 +22,7 @@ pub(crate) struct Inbox {
     unread: usize,
 }
 
-/// GET /api/inbox — what the owner needs to decide on right now.
+/// GET /api/inbox — what the director needs to decide on right now.
 pub(crate) async fn inbox_handler(
     State(state): State<AppState>,
 ) -> Result<Json<Inbox>, StatusCode> {

@@ -288,7 +288,7 @@ impl ConsultantRegistry {
 
     /// Every known role: the built-in catalog PLUS the roles assigned by the
     /// registered consultants' `cast_role` fields. This is the dynamic role
-    /// set an owner can hire into (custom consultants carry their own roles).
+    /// set a director can hire into (custom consultants carry their own roles).
     pub fn known_roles(&self) -> Vec<RoleInfo> {
         let mut out: Vec<RoleInfo> = crate::workspace::role_catalog()
             .iter()

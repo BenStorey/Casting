@@ -15,7 +15,7 @@ pub struct Agent {
     pub role: String,
 }
 
-/// A product requirement the owner / PM agreed on.
+/// A product requirement the director / PM agreed on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Requirement {
     pub id: String,
@@ -280,7 +280,7 @@ pub struct CostEntry {
     #[serde(default)]
     pub task_id: Option<String>,
     /// Cost classification: "pm_overhead" | "implementation" | "review" |
-    /// "research" | "tooling". Lets the owner answer "where did the money go?"
+    /// "research" | "tooling". Lets the director answer "where did the money go?"
     #[serde(default)]
     pub cost_class: String,
     /// Model tier, e.g. "flash" | "pro" (free string from the provider).
@@ -342,9 +342,9 @@ pub enum BriefingStatus {
 }
 
 /// An EXTERNAL advisor briefing imported into the project (e.g. a plan from a
-/// ChatGPT conversation pasted in by the owner). It is deliberately **advisory,
+/// ChatGPT conversation pasted in by the director). It is deliberately **advisory,
 /// NOT authoritative**: `source` records where it came from so it's never
-/// confusable with the owner's own intent, and it can *inform* context but NEVER
+/// confusable with the director's own intent, and it can *inform* context but NEVER
 /// sets rules (directives remain the only way to assert authority). Scoped by
 /// `subject` so it can be looked up ("what does my advisor say about X?") rather
 /// than dominating all context.
@@ -384,7 +384,7 @@ pub struct BriefingAsset {
 /// Requirement (owner message) and an AdvisoryBriefing (advisor import) but for
 /// "what a user reported". Deliberately NOT authoritative: it's a request from
 /// outside, recorded with provenance (`source`, `external_id`, `reporter`) so
-/// the PM can triage it without it pretending to be the owner's own intent.
+/// the PM can triage it without it pretending to be the director's own intent.
 /// Deterministic triage (classification/priority) is a projection concern; the
 /// LLM later decides whether to act on it (docs/HARNESS.md, D2).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -432,7 +432,7 @@ pub enum ExternalRequestStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Diagram {
     pub id: String,
-    /// Human title the owner gave the diagram, e.g. "Auth flow sketch".
+    /// Human title the director gave the diagram, e.g. "Auth flow sketch".
     pub title: String,
     /// Serialized Excalidraw JSON (the full returned doc) — reloadable into Excalidraw.
     pub data: String,

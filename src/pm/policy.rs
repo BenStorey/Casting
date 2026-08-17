@@ -1,6 +1,6 @@
 //! Decision policy engine — *delegated authority* (docs/CASTING_PROJECT_BRIEF.md §5).
 //!
-//! The owner should not have to reason about every move the organization makes.
+//! the director should not have to reason about every move the organization makes.
 //! Instead they configure, per class of decision, how much owner involvement is
 //! required. This module is that engine, expressed as a pure, deterministic,
 //! LLM-free policy layer:
@@ -15,7 +15,7 @@
 //! Crucially, the engine does NOT decide *whether* a decision is recorded —
 //! every decision in Casting is recorded via the universal `DecisionProposed`
 //! → `DecisionMade` event pair. The engine only decides **who the
-//! decision-maker is** (the owner, or a delegated PM/agent) and **whether the
+//! decision-maker is** (the director, or a delegated PM/agent) and **whether the
 //! owner's inbox is involved**.
 //!
 //! It sits directly in front of the LLM seam: today a scripted PM consults it;
@@ -37,17 +37,17 @@ use std::collections::HashMap;
 /// says `Ask`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub enum OwnerInvolvement {
-    /// The organization may act; the owner is never consulted.
+    /// The organization may act; the director is never consulted.
     #[serde(rename = "never")]
     #[default]
     Never,
-    /// The PM may decide on its own; the owner is not asked.
+    /// The PM may decide on its own; the director is not asked.
     #[serde(rename = "pm")]
     Pm,
-    /// The owner is informed, but work proceeds without their verdict.
+    /// the director is informed, but work proceeds without their verdict.
     #[serde(rename = "notify")]
     Notify,
-    /// The owner must decide first; work is blocked until they do.
+    /// the director must decide first; work is blocked until they do.
     #[serde(rename = "ask")]
     Ask,
 }
@@ -62,7 +62,7 @@ pub enum Decider {
 }
 
 impl OwnerInvolvement {
-    /// Whether this level requires the owner to give an explicit verdict before
+    /// Whether this level requires the director to give an explicit verdict before
     /// the organization acts. Only `Ask` blocks; `Notify` informs but proceeds.
     pub fn requires_owner_verdict(self) -> bool {
         self == OwnerInvolvement::Ask
@@ -115,19 +115,19 @@ pub enum DecisionClass {
     /// owner for approval before it can be applied.
     GovernanceChange,
     /// Applying a CHEAP-cost-band playbook. Default: Pm so the PM can fire
-    /// inexpensive, everyday recipes without the owner. Owner can tighten to
+    /// inexpensive, everyday recipes without the director. Owner can tighten to
     /// Ask if desired.
     PlaybookCheap,
     /// Applying a MEDIUM-cost-band playbook. Default: Pm.
     PlaybookMedium,
-    /// Applying an EXPENSIVE-cost-band playbook. Default: Ask so the owner
+    /// Applying an EXPENSIVE-cost-band playbook. Default: Ask so the director
     /// must approve expensive scans and full-repo operations. Owner can loosen
     /// to Pm if they trust the PM's judgment on cost.
     PlaybookExpensive,
 }
 
 /// The built-in default involvement for each class (brief §5). These are
-/// *seeds* — the owner will reconfigure per-class autonomy later, so no single
+/// *seeds* — the director will reconfigure per-class autonomy later, so no single
 /// default is load-bearing. New/unclassified classes fall back to
 /// [`DecisionPolicy::default_involvement`].
 pub fn builtin_involvement(class: DecisionClass) -> OwnerInvolvement {
@@ -147,7 +147,7 @@ pub fn builtin_involvement(class: DecisionClass) -> OwnerInvolvement {
 /// A per-project decision policy: which `OwnerInvolvement` each `DecisionClass`
 /// currently requires, resolved as override → builtin → default.
 ///
-/// This is the owner's "autonomy knobs." It is immutable-on-construction in
+/// This is the director's "autonomy knobs." It is immutable-on-construction in
 /// this slice (built from [`DecisionPolicy::defaults`] or custom overrides);
 /// mutations happen via `DecisionPolicyChanged` events.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -160,7 +160,7 @@ pub struct DecisionPolicy {
 
 /// Check that a claimed involvement for a class is at least as restrictive
 /// as the policy requires. This is the authority-downgrade guard: an LLM
-/// cannot silently skip the owner by under-claiming involvement.
+/// cannot silently skip the director by under-claiming involvement.
 pub fn check_proposal(
     class: DecisionClass,
     claimed: OwnerInvolvement,
@@ -187,7 +187,7 @@ impl DecisionPolicy {
         }
     }
 
-    /// Apply an owner-set override (from a `DecisionPolicyChanged` event).
+    /// Apply a director-set override (from a `DecisionPolicyChanged` event).
     pub fn set(&mut self, class: DecisionClass, involvement: OwnerInvolvement) {
         self.overrides.insert(class, involvement);
     }

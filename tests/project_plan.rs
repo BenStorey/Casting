@@ -123,7 +123,7 @@ fn plan_orders_tasks_by_priority_and_lists_open_decisions() {
     set_priority(&state, "task-billing", "medium", "high");
     set_priority(&state, "task-auth", "high", "low");
 
-    // An open decision waiting on the owner.
+    // An open decision waiting on the director.
     state
         .append(Event::new(
             "proj-plan",
@@ -170,7 +170,7 @@ fn plan_orders_tasks_by_priority_and_lists_open_decisions() {
         vec!["task-auth"]
     );
 
-    // Decision is open (in the owner's inbox).
+    // Decision is open (in the director's inbox).
     assert_eq!(plan.open_decisions, vec!["Database choice".to_string()]);
 }
 

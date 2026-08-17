@@ -55,7 +55,9 @@ async fn orchestrator_plans_actions_from_context() {
     state
         .append(Event::new(
             "proj-orch",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -81,7 +83,9 @@ async fn mock_does_not_record_cost() {
     state
         .append(Event::new(
             "proj-orch",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),
@@ -109,7 +113,9 @@ async fn orchestrator_records_a_planning_run_in_diagnostics() {
     state
         .append(Event::new(
             "proj-orch",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::MessageSent,
             Aggregate {
                 kind: "message".into(),

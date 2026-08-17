@@ -5,18 +5,19 @@ use crate::projection::Projection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The pseudo-assignee representing the HUMAN OWNER (the boss). When a task is
-/// assigned to `"owner"`, the human — possibly working through their own
-/// harness — executes and delivers it, rather than a hired agent. Distinct from
-/// any agent id (roles are "lead-developer"/"testing-engineer"...; agents are "diego"...).
-pub const OWNER: &str = "owner";
+/// The pseudo-assignee representing a DIRECTOR of the company. When a task is
+/// assigned to `"director"`, the human — possibly working through their own
+/// harness — executes and delivers it, rather than a hired agent. Named
+/// "director" (not "owner") because there may be more than one; for day 1
+/// there is only the CEO.
+pub const DIRECTOR: &str = "director";
 
 /// The reserved, NON-assignable special-role actors: the PM (co-ordinator) and
 /// the Advisor (strategic thinking partner). They coordinate / advise / debate
 /// but can NEVER be assigned implementation work — the PM cannot route a task
 /// to itself, and the Advisor's conversations stay isolated from the project
 /// event log. The policy gate (is_valid_assignee + HireAgent) treats these as
-/// not-assignable and not-hirable, so an owner or model cannot accidentally
+/// not-assignable and not-hirable, so a director or model cannot accidentally
 /// turn a special role into a task-doer.
 ///
 /// NOTE: "pm" is NOT in this list because the PM may self-assign tasks
@@ -30,7 +31,7 @@ pub const SPECIAL_ACTORS: &[&str] = &["advisor"];
 /// hired agent — and never one of the other reserved special roles. (owner
 /// 2026-08-10 — human-as-consultant delivery.)
 pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
-    if candidate == OWNER || candidate == "pm" {
+    if candidate == DIRECTOR || candidate == "pm" {
         return true;
     }
     if SPECIAL_ACTORS.contains(&candidate) {
@@ -45,7 +46,7 @@ pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
 /// Each variant carries exactly the fields needed to execute the action; the
 /// aggregate id of the resulting event is the action's entity id. Several map
 /// to a single domain event; a few span two (e.g. proposing a decision also
-/// results in a message to the owner).
+/// results in a message to the director).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum PmAction {
@@ -241,8 +242,8 @@ pub enum PmAction {
     },
     /// Propose a change to governance (docs/INTENT.md). The PM/agents cannot
     /// author directives directly, but they CAN propose a GovernanceChange
-    /// decision, which routes to the owner (Ask); on approval the change is
-    /// applied on the owner's authority.
+    /// decision, which routes to the director (Ask); on approval the change is
+    /// applied on the director's authority.
     ProposeDirectiveChange {
         id: String,
         subject: String,
@@ -260,7 +261,7 @@ pub enum PmAction {
         body: String,
         pm_action_required: bool,
     },
-    /// Ask the owner to rule on a decision (delegated authority).
+    /// Ask the director to rule on a decision (delegated authority).
     ProposeDecision {
         id: String,
         subject: String,
@@ -276,8 +277,8 @@ pub enum PmAction {
     },
     /// The PM proposes bringing a new consultant into the cast. Routes through
     /// the AddConsultant decision class: if the policy routes it to Pm, the PM
-    /// auto-decides and hires; if the owner escalated it to Ask, it surfaces to
-    /// the owner's inbox and is applied on approval.
+    /// auto-decides and hires; if the director escalated it to Ask, it surfaces to
+    /// the director's inbox and is applied on approval.
     ProposeConsultant {
         id: String,
         subject: String,
@@ -299,7 +300,7 @@ pub enum PmAction {
         decision_id: String,
         by_decision_id: String,
     },
-    /// A human-readable message to the owner / another agent.
+    /// A human-readable message to the director / another agent.
     SendMessage {
         to: String,
         body: String,
@@ -334,7 +335,7 @@ pub enum PmAction {
     /// Explicitly conclude "nothing to do" (anti-thrash).
     NoOp,
     // --- Harness guards (2026-08-13) ---
-    /// Owner sets the hard token budget (`POST /api/budget`). Only the owner may
+    /// Owner sets the hard token budget (`POST /api/budget`). Only the director may
     /// set it (it's the circuit breaker, outside PM control). `warn_at` is the
     /// fraction of `limit_usd` at which to warn (default 0.80).
     SetBudget {

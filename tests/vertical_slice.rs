@@ -29,7 +29,9 @@ fn make_state() -> AppState {
 fn owner_message(body: &str) -> Event {
     Event::new(
         "proj-test",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         casting::event::Aggregate {
             kind: "message".into(),
@@ -61,7 +63,9 @@ fn seed_company(state: &AppState) {
     state
         .append(Event::new(
             "proj-test",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::BudgetSet,
             casting::event::Aggregate {
                 kind: "budget".into(),
@@ -100,7 +104,7 @@ fn seed_company(state: &AppState) {
             }),
         ))
         .unwrap();
-    // Advance cursor past seed events so the PM only processes the owner message.
+    // Advance cursor past seed events so the PM only processes the director message.
     state
         .cursors
         .advance(
@@ -268,7 +272,9 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
     state
         .append(Event::new(
             "proj-test",
-            Actor::Owner,
+            Actor::Director {
+            user_id: "ceo".into(),
+        },
             EventType::DecisionMade,
             casting::event::Aggregate {
                 kind: "decision".into(),
@@ -284,9 +290,9 @@ async fn owner_decision_is_recorded_and_pm_reacts() {
     let dec = proj.decisions.iter().find(|d| d.id == decision_id).unwrap();
     assert_eq!(dec.status, DecisionStatus::Rejected);
     assert_eq!(dec.owner_verdict.as_deref(), Some("keep it simple"));
-    // Ask-class decision: the OWNER decided it.
+    // Ask-class decision: the DIRECTOR decided it.
     assert_eq!(dec.decided_by.as_deref(), Some("owner"));
-    // PM acknowledged (declined path), so there's a reply to the owner.
+    // PM acknowledged (declined path), so there's a reply to the director.
     assert!(
         proj.messages.iter().any(|m| m.to == "owner"),
         "PM should acknowledge the decision"

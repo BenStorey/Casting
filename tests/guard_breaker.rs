@@ -70,7 +70,9 @@ fn set_budget(state: &AppState, limit_usd: f64, warn_at: f64) {
     state
         .append(Event::new(
             "proj-guard",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::BudgetSet,
             Aggregate {
                 kind: "budget".into(),
@@ -165,13 +167,15 @@ fn budget_halt_is_not_resumable_by_work_resume() {
     state
         .append(Event::new(
             "proj-guard",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::WorkResumed,
             Aggregate {
                 kind: "guard".into(),
                 id: "work-pause".into(),
             },
-            serde_json::json!({ "by": "owner" }),
+            serde_json::json!({ "by": "director" }),
         ))
         .unwrap();
     assert!(
@@ -198,7 +202,7 @@ fn pause_and_resume_block_and_unblock_dispatch() {
     for ev in (PmAction::PauseWork {
         reason: "manual hold".into(),
     })
-    .to_events("proj-guard", "owner", &cause(), "guard")
+    .to_events("proj-guard", "director", &cause(), "guard")
     {
         state.append(ev).unwrap();
     }
@@ -208,7 +212,7 @@ fn pause_and_resume_block_and_unblock_dispatch() {
     assert!(reason.contains("manual hold"));
 
     // Owner resumes -> clears.
-    for ev in (PmAction::ResumeWork).to_events("proj-guard", "owner", &cause(), "guard") {
+    for ev in (PmAction::ResumeWork).to_events("proj-guard", "director", &cause(), "guard") {
         state.append(ev).unwrap();
     }
     let p = proj(&state);
@@ -219,7 +223,9 @@ fn pause_and_resume_block_and_unblock_dispatch() {
 fn cause() -> Event {
     Event::new(
         "proj-guard",
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
@@ -263,7 +269,7 @@ fn only_owner_can_set_budget_or_resume() {
             limit_usd: 10.0,
             warn_at: None
         },
-        "owner",
+        "director",
         &p,
         None
     )

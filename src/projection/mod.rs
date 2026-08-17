@@ -31,7 +31,7 @@ pub struct Projection {
     pub dependencies: Vec<TaskDependency>,
     pub decisions: Vec<Decision>,
     pub messages: Vec<Message>,
-    /// The owner↔advisor private thread. ISOLATED from PM context by design —
+    /// the director↔advisor private thread. ISOLATED from PM context by design —
     /// only reaches the PM via an `AdvisorHandoff` (which becomes a Briefing).
     pub advisor_thread: Vec<Message>,
     pub observations: Vec<Observation>,
@@ -45,7 +45,7 @@ pub struct Projection {
     pub facts: Vec<Fact>,
     /// Cost entries (HARNESS #6): provider metering so spend is attributable.
     pub spend: Vec<CostEntry>,
-    /// The owner-set hard token budget (guard circuit breaker). None = unset.
+    /// the director-set hard token budget (guard circuit breaker). None = unset.
     pub budget: Option<crate::pm::guard::Budget>,
     /// A resumable pause in effect (owner- or watchdog-set). None = running.
     pub paused: Option<crate::pm::guard::PauseInfo>,
@@ -75,7 +75,7 @@ pub struct Projection {
     /// consultants can't collide (distinct branch/build-target/port).
     pub worktrees: Vec<Worktree>,
     /// The project's decision policy (delegated authority, brief §5),
-    /// folded from `DecisionPolicyChanged` events. Event-sourced: the owner's
+    /// folded from `DecisionPolicyChanged` events. Event-sourced: the director's
     /// per-class autonomy configuration is durable history, not a default.
     pub policy: crate::pm::policy::DecisionPolicy,
     /// Archived terminal entities — compact summaries replacing old closed
@@ -592,7 +592,7 @@ impl Projection {
                 });
             }
             EventType::AdvisorHandoff => {
-                // The owner turned the private advisor thread into a Briefing the
+                // the director turned the private advisor thread into a Briefing the
                 // PM reads: advisory (source "advisor"), summarizing the thread.
                 self.briefings.push(Briefing {
                     id: e.aggregate.id.clone(),
@@ -668,7 +668,7 @@ impl Projection {
                 });
             }
             EventType::DecisionPolicyChanged => {
-                // Rebind the owner-involvement for the decision class (brief §5).
+                // Rebind the director-involvement for the decision class (brief §5).
                 // Event-sourced: the projection's policy is derived from the log.
                 if let (Some(class), Some(involvement)) = (
                     e.data
@@ -995,7 +995,7 @@ impl Projection {
 
 /// Derived Project Plan — the deterministic "current state" of what we're
 /// building (docs/SEMANTIC_EVENTS.md §9): objective, tasks ranked by priority,
-/// deprioritized, and decisions awaiting the owner. Recomputed from the
+/// deprioritized, and decisions awaiting the director. Recomputed from the
 /// projection; never stored authoritative.
 impl Projection {
     /// Child tasks of a playbook parent — the step tasks created by
@@ -1101,7 +1101,7 @@ fn bool_field(e: &Event, key: &str) -> Option<bool> {
 /// Human label for an actor (owner / agent id / system).
 fn actor_name(e: &Event) -> String {
     match &e.actor {
-        crate::event::Actor::Owner => "owner".into(),
+        crate::event::Actor::Director { .. } => "owner".into(),
         crate::event::Actor::Agent { id } => id.clone(),
         crate::event::Actor::System => "system".into(),
     }

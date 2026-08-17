@@ -253,7 +253,7 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
 
     // Reject: owner-assigned tasks never get a Casting worktree (the human
     // works through their own harness).
-    st.tasks[0].assignee = Some("owner".into());
+    st.tasks[0].assignee = Some("director".into());
     assert_eq!(
         validate(&act, "pm", &st, None),
         Err(PolicyError::WorktreeForOwner("task-1".into()))
@@ -414,7 +414,7 @@ fn gate_is_fail_closed_not_fail_open() {
     let st = state_with(&[], &["task-1"]);
     // A SendMessage has no cross-entity invariant and must pass.
     let msg = casting::actions::PmAction::SendMessage {
-        to: "owner".into(),
+        to: "director".into(),
         body: "hi".into(),
     };
     assert!(validate(&msg, "pm", &st, None).is_ok());

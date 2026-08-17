@@ -1,6 +1,6 @@
 //! The policy gate: validation of a proposed action against the projection, and
 //! the `PolicyError` rejection vocabulary.
-use super::action::{is_valid_assignee, PmAction, OWNER, SPECIAL_ACTORS};
+use super::action::{is_valid_assignee, PmAction, DIRECTOR, SPECIAL_ACTORS};
 use crate::consultants::ConsultantRegistry;
 use crate::pm::policy;
 use crate::projection::Projection;
@@ -77,7 +77,7 @@ pub enum PolicyError {
     TaskHasNoWorktree(String),
     /// Provisioning a worktree for a task that already has one.
     WorktreeAlreadyProvisioned(String),
-    /// Provisioning a worktree for a task assigned to the owner (the human
+    /// Provisioning a worktree for a task assigned to the director (the human
     /// works through their own harness, not a Casting worktree).
     WorktreeForOwner(String),
     /// Starting a task whose hard dependencies aren't satisfied yet (the
@@ -181,7 +181,7 @@ impl std::fmt::Display for PolicyError {
             }
             PolicyError::WorktreeForOwner(id) => write!(
                 f,
-                "cannot provision worktree for task {id}: assigned to the owner (the human works through their own harness)"
+                "cannot provision worktree for task {id}: assigned to the director (the human works through their own harness)"
             ),
             PolicyError::BlockedByDependency { task_id, blockers } => write!(
                 f,
@@ -391,11 +391,11 @@ pub fn validate(
             }
             // Fail-closed isolation (2026-08-12): a task can only be started
             // with an isolated worktree provisioned — unless the assignee is
-            // the owner (the human works through their own harness, not a
+            // the director (the human works through their own harness, not a
             // Casting worktree) or who is system (trusted seed).
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             let assignee = task.assignee.as_deref().unwrap_or("system");
-            let needs_worktree = assignee != OWNER && who != "system";
+            let needs_worktree = assignee != DIRECTOR && who != "system";
             if needs_worktree
                 && !state
                     .worktrees
@@ -433,7 +433,7 @@ pub fn validate(
         PmAction::ProvisionWorktree { task_id, .. } => {
             check_pm_authority(who)?;
             // Only hired agents get worktrees, plus the PM (who can self-assign
-            // via the chat-interface playbook). The owner works through their
+            // via the chat-interface playbook). the director works through their
             // own harness. The task must exist and be assigned to a consultant.
             let task = state
                 .tasks
@@ -444,7 +444,7 @@ pub fn validate(
                 .assignee
                 .as_deref()
                 .ok_or_else(|| PolicyError::TaskUnassigned(task_id.clone()))?;
-            if assignee == OWNER {
+            if assignee == DIRECTOR {
                 return Err(PolicyError::WorktreeForOwner(task_id.clone()));
             }
             if assignee != "pm" && !state.agents.iter().any(|a| a.id == assignee) {
@@ -473,7 +473,7 @@ pub fn validate(
             // through the PM's review (RequestReview → ReviewTask). `self`-merge
             // tasks, owner-delivered tasks, and system tasks may complete
             // directly (the fast path).
-            let is_owner_or_system = task.assignee.as_deref() == Some(OWNER) || who == "system";
+            let is_owner_or_system = task.assignee.as_deref() == Some(DIRECTOR) || who == "system";
             if task.merge_authority == crate::types::MergeAuthority::PmMerge && !is_owner_or_system
             {
                 return Err(PolicyError::PmMergeRequiresReview(task_id.clone()));
@@ -484,7 +484,7 @@ pub fn validate(
         // Reclassifying merge authority is the escape hatch (scope grew past its
         // assignment label). PM/owner/system authority only; the task must exist.
         PmAction::SetMergeAuthority { task_id, .. } => {
-            if !matches!(who, "pm" | "owner" | "system") {
+            if !matches!(who, "pm" | "director" | "system") {
                 return Err(PolicyError::ActionNotAuthorized(who.to_string()));
             }
             if !state.tasks.iter().any(|t| t.id == *task_id) {
@@ -576,7 +576,7 @@ pub fn validate(
             // class's involvement level (C1). Ask-class decisions require owner
             // or system; Pm/Notify/Never can be decided by pm, owner, or system.
             use crate::pm::policy::OwnerInvolvement;
-            if dec.involvement == OwnerInvolvement::Ask && !matches!(who, "owner" | "system") {
+            if dec.involvement == OwnerInvolvement::Ask && !matches!(who, "director" | "system") {
                 return Err(PolicyError::ActionNotAuthorized(who.to_string()));
             }
             Ok(())
@@ -653,7 +653,7 @@ pub fn validate(
             Ok(())
         }
         // Proposing a governance change needs no directive authority — the PM/
-        // agent is PROPOSING, not authoring. It routes to the owner (Ask) and
+        // agent is PROPOSING, not authoring. It routes to the director (Ask) and
         // is applied only on approval. Encodes the desired change for later.
         PmAction::ProposeDirectiveChange { .. } => Ok(()),
         // Proposing a consultant hire is a proposal, not the hire — the team
@@ -712,7 +712,7 @@ pub fn validate(
             PolicyError::DuplicateEntity(id.clone()),
         ),
         // --- Harness guards (2026-08-13) ---
-        // Budget + resume are OWNER-only: the circuit breaker sits outside PM
+        // Budget + resume are DIRECTOR-only: the circuit breaker sits outside PM
         // control. PauseWork additionally permits the system (liveness
         // watchdog); a plain agent or the PM can never pause/resume work.
         PmAction::SetBudget { limit_usd, .. } => {
@@ -725,7 +725,7 @@ pub fn validate(
         }
         PmAction::ResumeWork => check_guard_authority(who),
         PmAction::PauseWork { .. } => match who {
-            "owner" | "system" => Ok(()),
+            "director" | "system" => Ok(()),
             other => Err(PolicyError::GuardAuthority(other.to_string())),
         },
         // SendMessage and NoOp carry no cross-entity invariant — but they are
@@ -753,28 +753,28 @@ fn check_unique_entity(exists: bool, err: PolicyError) -> Result<(), PolicyError
 /// their assigned tasks (C1).
 fn check_pm_authority(who: &str) -> Result<(), PolicyError> {
     match who {
-        "owner" | "pm" | "system" => Ok(()),
+        "director" | "pm" | "system" => Ok(()),
         other => Err(PolicyError::ActionNotAuthorized(other.to_string())),
     }
 }
 
-/// Governance is OWNER-only authority: only the owner may create or change
+/// Governance is DIRECTOR-only authority: only the director may create or change
 /// directives. The PM/system and plain agents cannot mutate governance —
 /// governance is the project's constitution, too important to delegate. Any
 /// non-owner actor is rejected (they may still *propose* via an Observation).
 fn check_directive_authority(who: &str) -> Result<(), PolicyError> {
     match who {
-        "owner" => Ok(()),
+        "director" => Ok(()),
         other => Err(PolicyError::DirectiveAuthority(other.to_string())),
     }
 }
 
-/// Guard control (budget set / resume) is OWNER-only — the hard rails sit
+/// Guard control (budget set / resume) is DIRECTOR-only — the hard rails sit
 /// OUTSIDE the PM's control (the PM can be confused, compromised, or just
 /// wrong). PauseWork is handled inline (owner OR the system watchdog).
 fn check_guard_authority(who: &str) -> Result<(), PolicyError> {
     match who {
-        "owner" => Ok(()),
+        "director" => Ok(()),
         other => Err(PolicyError::GuardAuthority(other.to_string())),
     }
 }
@@ -795,7 +795,7 @@ fn opinion_not_found(opinion_id: &str) -> PolicyError {
 
 /// For Start/Complete/Block: the task must exist, have an assignee, and the
 /// actor must BE that assignee. `system` may always act (it seeds tasks).
-/// The PM may also act on tasks assigned to the owner — the owner is a human
+/// The PM may also act on tasks assigned to the director — the director is a human
 /// without an agent loop, so the PM acts as their proxy for lifecycle
 /// operations (start/complete/block).
 fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), PolicyError> {
@@ -810,8 +810,8 @@ fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), Po
     let Some(assignee) = &task.assignee else {
         return Err(PolicyError::TaskUnassigned(task_id.to_string()));
     };
-    // The PM acts as proxy for the owner (human has no agent loop).
-    if who == "pm" && assignee == "owner" {
+    // The PM acts as proxy for the director (human has no agent loop).
+    if who == "pm" && assignee == "director" {
         return Ok(());
     }
     if who != assignee {

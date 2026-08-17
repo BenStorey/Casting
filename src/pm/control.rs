@@ -56,15 +56,15 @@ pub struct AppState {
     pub step_delay: Duration,
     /// Optional D2 orchestrator. When present, the PM routes new owner messages
     /// through it (instead of the scripted plan) — the LLM seam. **Off by
-    /// default**: the real provider stays unplugged until the owner enables it.
+    /// default**: the real provider stays unplugged until the director enables it.
     pub orchestrator: Option<Arc<dyn crate::runtime::orchestrator::Orchestrator>>,
     /// When true, `append` enforces write-time stream integrity (events can't
     /// be appended without their precondition). Opt-in so fixtures/tests that
     /// hand-append bare events keep working.
     pub enforce_integrity: bool,
-    /// Owner bearer token guarding the owner-mutating API endpoints. `None` =
+    /// Owner bearer token guarding the director-mutating API endpoints. `None` =
     /// auth disabled (backward compatible with tests / local runs). Enabled via
-    /// `with_owner_auth` / the `CAST_OWNER_TOKEN` env var.
+    /// `with_owner_auth` / the `CAST_DIRECTOR_TOKEN` env var.
     pub auth_token: Option<Arc<str>>,
     /// The state dir (set by `cast run`). Lets the web setup endpoint persist
     /// `config.json` (name + owner token). `None` in tests.
@@ -95,7 +95,7 @@ pub struct AppState {
     /// Answers "what consultants exist + what are they configured to do" for the
     /// D2 orchestrator / `/api/consultants`. Configuration, never authority.
     pub consultants: Arc<crate::consultants::ConsultantRegistry>,
-    /// The owner-facing external channel (2026-08-14): a best-effort transport
+    /// the director-facing external channel (2026-08-14): a best-effort transport
     /// for owner messaging (Telegram reference adapter). `NoopChannel` by
     /// default — a pipe to nowhere, off until configured. Never authoritative;
     /// the event log / projection stay the only truth.
@@ -189,7 +189,7 @@ impl AppState {
         self
     }
 
-    /// Builder-style: attach the owner-facing external channel (Telegram
+    /// Builder-style: attach the director-facing external channel (Telegram
     /// reference adapter). `NoopChannel` by default.
     pub fn with_channel(mut self, channel: Arc<dyn crate::runtime::channel::OwnerChannel>) -> Self {
         self.channel = channel;
@@ -236,7 +236,7 @@ impl AppState {
         self
     }
 
-    /// Builder-style: enable owner auth with a bearer token. The owner-mutating
+    /// Builder-style: enable owner auth with a bearer token. the director-mutating
     /// API endpoints then require `Authorization: Bearer <token>`.
     pub fn with_owner_auth(mut self, token: impl Into<String>) -> Self {
         self.auth_token = Some(Arc::from(token.into()));
@@ -274,7 +274,7 @@ impl AppState {
                     .and_then(|c| c.system_prompt.clone())
                     .unwrap_or_else(|| {
                         "You are mei, the Project Manager. You organize a team of \
-                         specialist consultants to turn the owner's intent into a working \
+                         specialist consultants to turn the director's intent into a working \
                          plan."
                             .to_string()
                     });
@@ -464,14 +464,18 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
     // ========================================================================
     for e in new_events {
         let (is_owner_message, body) = match e.event_type {
-            EventType::MessageSent if e.actor == Actor::Owner => (
+            EventType::MessageSent if matches!(e.actor, Actor::Director { .. }) => (
                 true,
                 e.data.get("body").and_then(|b| b.as_str()).unwrap_or(""),
             ),
             _ => (false, ""),
         };
 
-        let is_owner_decision = e.event_type == EventType::DecisionMade && e.actor == Actor::Owner;
+        let is_owner_decision = e.event_type == EventType::DecisionMade
+            && e.actor
+                == (Actor::Director {
+                    user_id: "ceo".into(),
+                });
 
         // Only process PM-level triggers; the actor turn loop below handles
         // consultant work (start/complete/review).
@@ -623,7 +627,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                 }
             } else {
                 // No orchestrator attached — system is properly inert.
-                // Without a provider, there is no one to plan. The owner must
+                // Without a provider, there is no one to plan. the director must
                 // configure an LLM API key (via setup wizard or env var) before
                 // the organization can act.
                 log::info!("[pm] no orchestrator attached; owner messages/decisions are recorded but no action is taken until a provider is configured");
@@ -688,8 +692,8 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
     let cause = new_events
         .iter()
         .find(|e| {
-            matches!(&e.event_type, EventType::MessageSent if e.actor == Actor::Owner)
-                || matches!(&e.event_type, EventType::DecisionMade if e.actor == Actor::Owner)
+            matches!(&e.event_type, EventType::MessageSent if e.actor == (Actor::Director { user_id: "ceo".into() }))
+                || matches!(&e.event_type, EventType::DecisionMade if e.actor == (Actor::Director { user_id: "ceo".into() }))
         })
         .or_else(|| new_events.last());
 

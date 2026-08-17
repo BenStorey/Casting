@@ -6,19 +6,19 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
-/// POST /api/advisor/message input: an owner→advisor message. Appends to the
+/// POST /api/advisor/message input: a director→advisor message. Appends to the
 /// private advisor thread, ISOLATED from the PM's context until a handoff.
 #[derive(Deserialize)]
 pub(crate) struct AdvisorMsgIn {
     body: String,
 }
 
-/// POST /api/advisor/message — an owner→advisor message. Appends to the PRIVATE
+/// POST /api/advisor/message — a director→advisor message. Appends to the PRIVATE
 /// advisor thread, which is isolated from the PM's context until a handoff.
 ///
 /// When the LLM is configured, also generates the advisor's reply (via the
 /// advisor model binding + the private thread) and appends it as an
-/// `AdvisorMessageSent` from the advisor — so the owner↔advisor conversation is
+/// `AdvisorMessageSent` from the advisor — so the director↔advisor conversation is
 /// real. A blocked/failed call is audited and produces no reply (no panic).
 pub(crate) async fn advisor_message_handler(
     State(state): State<AppState>,
@@ -33,7 +33,9 @@ pub(crate) async fn advisor_message_handler(
     }
     let owner_ev = Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisorMessageSent,
         Aggregate {
             kind: "advisor_thread".into(),
@@ -166,9 +168,9 @@ pub(crate) struct AdvisorHandoffIn {
     summary: String,
 }
 
-/// POST /api/advisor/handoff — turn the owner↔advisor strategic conversation into
+/// POST /api/advisor/handoff — turn the director↔advisor strategic conversation into
 /// an AdvisoryBriefing the PM DOES read (source "advisor"). This is the explicit
-/// integration point between the owner's two direct roles (PM + advisor).
+/// integration point between the director's two direct roles (PM + advisor).
 pub(crate) async fn advisor_handoff_handler(
     State(state): State<AppState>,
     Json(input): Json<AdvisorHandoffIn>,
@@ -183,7 +185,9 @@ pub(crate) async fn advisor_handoff_handler(
     let subject = input.subject.unwrap_or_default().trim().to_string();
     let ev = Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::AdvisorHandoff,
         Aggregate {
             kind: "briefing".into(),
@@ -199,7 +203,7 @@ pub(crate) async fn advisor_handoff_handler(
     append_json(&state, ev)
 }
 
-/// POST /api/advisor/summarize — have the LLM distill the owner↔advisor thread
+/// POST /api/advisor/summarize — have the LLM distill the director↔advisor thread
 /// into a concise briefing summary (used to pre-fill the handoff). Falls back
 /// to the deterministic summarizer (or "nothing to summarize") when there's no
 /// LLM or the call fails — never a hard error.

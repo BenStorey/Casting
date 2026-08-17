@@ -37,9 +37,9 @@ pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<
 pub(crate) struct SetupIn {
     name: String,
     objective: String,
-    /// What the owner wants to be called (the PM will use this).
+    /// What the director wants to be called (the PM will use this).
     #[serde(default)]
-    owner_name: Option<String>,
+    director_name: Option<String>,
     /// Experience level calibration: "novice" | "somewhat" | "confident".
     #[serde(default)]
     experience_level: Option<String>,
@@ -49,11 +49,11 @@ pub(crate) struct SetupIn {
     #[serde(default)]
     cast: Vec<String>,
     #[serde(default)]
-    owner_token: Option<String>,
+    director_token: Option<String>,
 }
 
 /// POST /api/setup — the first-run wizard's submit. Hires the chosen cast
-/// (idempotently), persists the owner token, then fires the owner's objective
+/// (idempotently), persists the director token, then fires the director's objective
 /// as a message so `plan_onboard` kicks off the build.
 ///
 /// FAIL-CLOSED against silent token rotation: persist_config would otherwise
@@ -78,9 +78,9 @@ pub(crate) async fn setup_handler(
     let hires = crate::workspace::setup::ensure_hires(&state, &cast_roles)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-    // Persist the owner token + name so `cast run` picks up auth on restart.
+    // Persist the director token + name so `cast run` picks up auth on restart.
     if let Some(dir) = &state.state_dir {
-        let owner_token = input.owner_token.as_deref().filter(|t| !t.is_empty());
+        let director_token = input.director_token.as_deref().filter(|t| !t.is_empty());
         // Fail-closed against silent token rotation: never replace an
         // already-persisted owner token with a *different* one unless the
         // request presents the current (persisted) token. First-run SET is
@@ -88,10 +88,10 @@ pub(crate) async fn setup_handler(
         // attached (as `cast run` does), so this mirrors exactly what will be
         // read back — there is no other persistence seam.
         if let Some(existing) = crate::workspace::setup::read_config(dir)
-            .and_then(|cfg| cfg.owner_token)
+            .and_then(|cfg| cfg.director_token)
             .filter(|t| !t.is_empty())
         {
-            let replacing = owner_token.is_none_or(|incoming| incoming != existing);
+            let replacing = director_token.is_none_or(|incoming| incoming != existing);
             if replacing && !crate::workspace::auth::authorized(&headers, &existing) {
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -99,21 +99,23 @@ pub(crate) async fn setup_handler(
                 ));
             }
         }
-        let _ = crate::workspace::setup::persist_config(dir, &input.name, owner_token);
-        // Persist the new fields (owner_name, experience_level, api_key) — merge
+        let _ = crate::workspace::setup::persist_config(dir, &input.name, director_token);
+        // Persist the new fields (director_name, experience_level, api_key) — merge
         // into whatever's already on disk so the telegram token is preserved.
         let _ = crate::workspace::setup::persist_setup_prefs(
             dir,
-            input.owner_name.as_deref(),
+            input.director_name.as_deref(),
             input.experience_level.as_deref(),
             input.api_key.as_deref(),
         );
     }
 
-    // Fire the owner's objective so onboarding produces the build plan.
+    // Fire the director's objective so onboarding produces the build plan.
     let ev = Event::new(
         &state.project,
-        Actor::Owner,
+        Actor::Director {
+            user_id: "ceo".into(),
+        },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),

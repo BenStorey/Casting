@@ -206,7 +206,9 @@ fn activity_events_are_durable_and_reconstructible() {
         let s = fx.open();
         s.append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Owner,
+            casting::event::Actor::Director {
+                user_id: "ceo".into(),
+            },
             casting::event::EventType::BudgetSet,
             casting::event::Aggregate {
                 kind: "budget".into(),

@@ -26,7 +26,9 @@ fn append(state: &AppState, event_type: EventType, id: &str, data: serde_json::V
     state
         .append(Event::new(
             "proj-dir",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             event_type,
             Aggregate {
                 kind: "directive".into(),
@@ -51,7 +53,7 @@ fn directive_created_reduces_to_active() {
             "statement": "Use TDD",
             "scope": ["engineering"],
             "strength": "required",
-            "created_by": "owner",
+            "created_by": "ceo",
             "supersedes": null,
         }),
     );
@@ -62,7 +64,7 @@ fn directive_created_reduces_to_active() {
     assert_eq!(d.kind, DirectiveKind::Policy);
     assert_eq!(d.strength, DirectiveStrength::Required);
     assert_eq!(d.status, DirectiveStatus::Active);
-    assert_eq!(d.created_by, "owner");
+    assert_eq!(d.created_by, "ceo");
     assert_eq!(d.scope, vec!["engineering".to_string()]);
 }
 
@@ -78,7 +80,7 @@ fn directive_lifecycle_transitions_status() {
             "statement": "Budget under 250",
             "scope": ["finance"],
             "strength": "strong",
-            "created_by": "owner",
+            "created_by": "ceo",
         }),
     );
     append(
@@ -121,7 +123,7 @@ fn directive_superseded_preserves_history_and_marks_superseded() {
             "statement": "SQLite everywhere",
             "scope": ["architecture"],
             "strength": "strong",
-            "created_by": "owner",
+            "created_by": "ceo",
         }),
     );
     append(
@@ -133,7 +135,7 @@ fn directive_superseded_preserves_history_and_marks_superseded() {
             "statement": "Postgres for prod",
             "scope": ["architecture"],
             "strength": "required",
-            "created_by": "owner",
+            "created_by": "ceo",
             "supersedes": "d-v1",
         }),
     );
@@ -163,7 +165,7 @@ fn directive_new_defaults_to_active() {
         "Use TDD".into(),
         vec!["engineering".into()],
         DirectiveStrength::Required,
-        "owner".into(),
+        "director".into(),
         None,
     );
     assert_eq!(d.status, DirectiveStatus::Active);
@@ -208,7 +210,7 @@ fn relevant_filters_by_scope_and_status_and_orders_by_strength() {
         "TDD required".into(),
         vec!["engineering".into()],
         DirectiveStrength::Required,
-        "owner".into(),
+        "director".into(),
         None,
     ));
     proj.directives.push(Directive::new(
@@ -217,7 +219,7 @@ fn relevant_filters_by_scope_and_status_and_orders_by_strength() {
         "Prefer simple".into(),
         vec!["architecture".into(), "engineering".into()],
         DirectiveStrength::Strong,
-        "owner".into(),
+        "director".into(),
         None,
     ));
     proj.directives.push(Directive::new(
@@ -226,7 +228,7 @@ fn relevant_filters_by_scope_and_status_and_orders_by_strength() {
         "Postgres".into(),
         vec!["engineering".into()],
         DirectiveStrength::Recommended,
-        "owner".into(),
+        "director".into(),
         None,
     ));
     // Suspend the last one to show status filtering.
@@ -257,7 +259,7 @@ fn build_projection_with_directives() -> Projection {
         "TDD required".into(),
         vec!["engineering".into()],
         DirectiveStrength::Required,
-        "owner".into(),
+        "director".into(),
         None,
     ));
     proj.directives.push(Directive::new(
@@ -266,7 +268,7 @@ fn build_projection_with_directives() -> Projection {
         "Postgres".into(),
         vec!["architecture".into()],
         DirectiveStrength::Required,
-        "owner".into(),
+        "director".into(),
         None,
     ));
     proj
@@ -284,7 +286,7 @@ fn owner_can_create_and_suspend_directives() {
         strength: DirectiveStrength::Strong,
         supersedes: None,
     };
-    assert!(validate(&create, "owner", &proj, None).is_ok());
+    assert!(validate(&create, "director", &proj, None).is_ok());
 }
 
 #[test]
@@ -317,7 +319,7 @@ fn pm_and_system_cannot_change_governance_now() {
     use casting::actions::{validate, PmAction, PolicyError};
     let proj = build_projection_with_directives();
 
-    // Governance is OWNER-only: the PM and system cannot author directives.
+    // Governance is DIRECTOR-only: the PM and system cannot author directives.
     for who in ["pm", "system"] {
         let create = PmAction::CreateDirective {
             id: format!("d-{who}"),
@@ -343,7 +345,7 @@ fn suspending_a_missing_directive_is_rejected() {
         &PmAction::SuspendDirective {
             directive_id: "d-nope".into(),
         },
-        "owner",
+        "director",
         &proj,
         None,
     )
@@ -363,7 +365,7 @@ fn supersede_requires_an_existing_active_target() {
             directive_id: "d-tdd".into(),
             by_directive_id: "d-v2".into(),
         },
-        "owner",
+        "director",
         &proj,
         None,
     );
@@ -375,7 +377,7 @@ fn supersede_requires_an_existing_active_target() {
             directive_id: "d-tdd".into(),
             by_directive_id: "d-missing".into(),
         },
-        "owner",
+        "director",
         &proj,
         None,
     )
@@ -388,11 +390,13 @@ fn supersede_requires_an_existing_active_target() {
 #[test]
 fn owner_set_directive_is_surfaced_in_the_plan() {
     let state = make_state();
-    // The OWNER sets governance (owner-only); the plan surfaces it.
+    // The DIRECTOR sets governance (owner-only); the plan surfaces it.
     state
         .append(Event::new(
             "proj-dir",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::ProjectDirectiveCreated,
             Aggregate {
                 kind: "directive".into(),
@@ -403,7 +407,7 @@ fn owner_set_directive_is_surfaced_in_the_plan() {
                 "statement": "Test-driven development is required",
                 "scope": ["engineering"],
                 "strength": "required",
-                "created_by": "owner",
+                "created_by": "ceo",
             }),
         ))
         .unwrap();
@@ -421,12 +425,14 @@ fn owner_set_directive_is_surfaced_in_the_plan() {
 
 #[tokio::test]
 async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
-    // The owner sets an initial directive.
+    // the director sets an initial directive.
     let state = make_state();
     state
         .append(Event::new(
             "proj-dir",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::ProjectDirectiveCreated,
             Aggregate {
                 kind: "directive".into(),
@@ -437,7 +443,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
                 "statement": "SQLite everywhere",
                 "scope": ["architecture"],
                 "strength": "strong",
-                "created_by": "owner",
+                "created_by": "ceo",
             }),
         ))
         .unwrap();
@@ -476,14 +482,16 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
     assert_eq!(
         dec.involvement,
         casting::pm::policy::OwnerInvolvement::Ask,
-        "governance change must route to the owner"
+        "governance change must route to the director"
     );
 
-    // The owner approves it.
+    // the director approves it.
     state
         .append(Event::new(
             "proj-dir",
-            Actor::Owner,
+            Actor::Director {
+            user_id: "ceo".into(),
+        },
             EventType::DecisionMade,
             Aggregate {
                 kind: "decision".into(),
@@ -502,7 +510,9 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
     state
         .append(Event::new(
             "proj-dir",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::ProjectDirectiveCreated,
             Aggregate {
                 kind: "directive".into(),
@@ -513,7 +523,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
                 "statement": "Postgres for production",
                 "scope": ["architecture"],
                 "strength": "must",
-                "created_by": "owner",
+                "created_by": "ceo",
                 "supersedes": "directive-v1",
             }),
         ))
@@ -521,7 +531,9 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
     state
         .append(Event::new(
             "proj-dir",
-            Actor::Owner,
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
             EventType::ProjectDirectiveSuperseded,
             Aggregate {
                 kind: "directive".into(),
@@ -540,7 +552,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
         .iter()
         .find(|d| d.id == "directive-dg-1")
         .expect("approved governance change creates a directive");
-    assert_eq!(created.created_by, "owner");
+    assert_eq!(created.created_by, "ceo");
     assert_eq!(created.statement, "Postgres for production");
     assert_eq!(created.supersedes.as_deref(), Some("directive-v1"));
     // The old one is superseded.

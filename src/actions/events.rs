@@ -379,7 +379,7 @@ impl PmAction {
                 assets,
             } => {
                 let brought_in_by = match &actor {
-                    Actor::Owner => "owner".to_string(),
+                    Actor::Director { user_id } => user_id.clone(),
                     Actor::Agent { id } => id.clone(),
                     Actor::System => "system".to_string(),
                 };
@@ -436,7 +436,7 @@ impl PmAction {
             }
             PmAction::SaveDiagram { id, title, data } => {
                 let saved_by = match &actor {
-                    Actor::Owner => "owner".to_string(),
+                    Actor::Director { user_id } => user_id.clone(),
                     Actor::Agent { id } => id.clone(),
                     Actor::System => "system".to_string(),
                 };
@@ -599,7 +599,7 @@ impl PmAction {
                 decision_id,
                 "decision",
                 EventType::DecisionMade,
-                // Same shape as the owner-authored builder (owner_decision_made /
+                // Same shape as the director-authored builder (director_decision_made /
                 // decision_made_event): note normalized to a string field.
                 json!({
                     "subject": "",
@@ -687,17 +687,19 @@ impl PmAction {
     }
 }
 
-/// Convert a `who` label to the typed actor. `"system"` and `"owner"` map to
+/// Convert a `who` label to the typed actor. `"system"` and `"director"` map to
 /// their domain actors; anything else is an agent id.
 pub fn actor_for(who: &str) -> Actor {
     match who {
         "system" => Actor::System,
-        "owner" => Actor::Owner,
+        "director" => Actor::Director {
+            user_id: "ceo".into(),
+        },
         id => Actor::Agent { id: id.to_string() },
     }
 }
 
-/// Build metadata linking the new events to the owner event that caused them —
+/// Build metadata linking the new events to the director event that caused them —
 /// the "why?" provenance chain (brief §11, addendum §24).
 fn linked(causation: &Event, correlation: &str) -> Metadata {
     Metadata {

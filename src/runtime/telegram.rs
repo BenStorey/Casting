@@ -7,10 +7,10 @@
 //!
 //! - **Outbound:** since its durable `telegram:out` cursor, every new
 //!   `MessageSent` event addressed `to:"owner"` (from a non-owner actor) is
-//!   pushed to the owner's chat via `sendMessage`. The immediate `notify` queue
+//!   pushed to the director's chat via `sendMessage`. The immediate `notify` queue
 //!   is drained in the same pass (for one-off push e.g. guard alerts).
 //! - **Inbound:** long-poll `getUpdates`; each owner message becomes the SAME
-//!   `MessageSent` event (`Actor::Owner`) that `POST /api/message` produces, so
+//!   `MessageSent` event (`Actor::Director { user_id: "ceo".into() }`) that `POST /api/message` produces, so
 //!   the PM wakes on it for free (Tier-0 broadcast) — zero new plumbing.
 //!
 //! Long-polling (`getUpdates`) rather than a webhook on purpose: works behind
@@ -18,7 +18,7 @@
 //!
 //! Env-gated, mirrors the LLM seam (off by default, no network, no cost):
 //! `CAST_TELEGRAM_TOKEN` (required), `CAST_TELEGRAM_CHAT_ID` (required for v1 —
-//! binds "who is the owner" so a stranger DMing the bot is never treated as the
+//! binds "who is the director" so a stranger DMing the bot is never treated as the
 //! owner; also the sendMessage target), `CAST_TELEGRAM_POLL_SECS` (default 30).
 
 use crate::event::{Actor, Aggregate, Event, EventType};
@@ -116,7 +116,7 @@ impl TelegramChannel {
         )
     }
 
-    /// `sendMessage` to the owner's chat. The durable cursor path is the real
+    /// `sendMessage` to the director's chat. The durable cursor path is the real
     /// outbound; this is the raw primitive both paths share.
     async fn send_message(&self, text: &str) -> Result<()> {
         let resp = self
@@ -224,7 +224,7 @@ pub async fn get_me(token: &str, api_base: &str) -> Result<BotIdentity> {
     Ok(payload.result)
 }
 
-/// Brand the bot as the owner's PM: set its display name + short description.
+/// Brand the bot as the director's PM: set its display name + short description.
 /// This is what makes the bot *be* the PM in the user's chat list. Best-effort
 /// — name/description branding failing should not block config persistence.
 async fn brand_bot(token: &str, name: &str, description: &str, api_base: &str) -> Result<()> {
@@ -258,7 +258,7 @@ async fn brand_bot(token: &str, name: &str, description: &str, api_base: &str) -
     Ok(())
 }
 
-/// Discover the owner's chat_id: the FIRST private-chat message the bot has
+/// Discover the director's chat_id: the FIRST private-chat message the bot has
 /// received (`getUpdates`). Telegram requires the user to DM the bot once, so
 /// this is the natural "link me" step — the user never types a chat_id.
 /// `api_base` is overridable for tests (a stub server).
@@ -282,7 +282,7 @@ pub async fn discover_chat_id(token: &str, api_base: &str) -> Result<Option<i64>
     if !payload.ok {
         anyhow::bail!("telegram getUpdates refused: {:?}", payload.description);
     }
-    // First private-chat message from a non-bot is the owner.
+    // First private-chat message from a non-bot is the director.
     for u in payload.result {
         if let Some(m) = u.message {
             if m.chat.id > 0 {
@@ -295,7 +295,7 @@ pub async fn discover_chat_id(token: &str, api_base: &str) -> Result<Option<i64>
 }
 
 /// The result of a UI `configure` call: validated bot identity + the learned
-/// chat_id (or None if the owner hasn't DM'd the bot yet).
+/// chat_id (or None if the director hasn't DM'd the bot yet).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ConfigureOutcome {
     pub bot_id: i64,
@@ -307,7 +307,7 @@ pub struct ConfigureOutcome {
 }
 
 /// One-shot UI configure flow: validate the pasted BotFather token, brand the
-/// bot as the PM (display name + description), discover the owner's chat_id,
+/// bot as the PM (display name + description), discover the director's chat_id,
 /// and (if found) persist + start the loop. `api_base` "" = real Telegram
 /// (overridable for stub tests).
 pub async fn configure(
@@ -465,17 +465,20 @@ pub async fn drain(
     if latest > out {
         let events = state.store.read_since(&state.project, out)?;
         for ev in &events {
-            // Push only NEW MessageSent events addressed to the owner, from a
-            // non-owner (never echo the owner's own inbound message back).
+            // Push only NEW MessageSent events addressed to the director, from a
+            // non-owner (never echo the director's own inbound message back).
             if ev.event_type == EventType::MessageSent
-                && ev.actor != Actor::Owner
+                && ev.actor
+                    != (Actor::Director {
+                        user_id: "ceo".into(),
+                    })
                 && owner_bound(ev)
             {
                 let body = string_field(ev, "body").unwrap_or_default();
                 if !body.is_empty() && !body.starts_with("msg-") {
                     // A transient send failure must NOT abort the drain BEFORE
                     // the durable out-cursor advances (that re-sends the whole
-                    // window next pass = duplicate pushes to the owner). Log,
+                    // window next pass = duplicate pushes to the director). Log,
                     // keep going, and let the cursor advance past it so each
                     // message is sent at-most-once-per-cursor.
                     if let Err(e) = channel.send_message(&body).await {
@@ -499,13 +502,15 @@ pub async fn drain(
     let last_update = updates.iter().map(|u| u.update_id).max();
     for u in &updates {
         if let Some(msg) = &u.message {
-            // Only the configured owner chat is treated as the owner. This is
+            // Only the configured owner chat is treated as the director. This is
             // the Telegram-side auth: a stranger DMing the bot is never trusted.
             if msg.chat.id == channel.config.chat_id {
                 if let Some(text) = msg.text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
                     let ev = Event::new(
                         &state.project,
-                        Actor::Owner,
+                        Actor::Director {
+                            user_id: "ceo".into(),
+                        },
                         EventType::MessageSent,
                         Aggregate {
                             kind: "message".into(),
@@ -527,7 +532,7 @@ pub async fn drain(
     Ok(())
 }
 
-/// Does this `MessageSent` event address the owner?
+/// Does this `MessageSent` event address the director?
 fn owner_bound(ev: &Event) -> bool {
     string_field(ev, "to").as_deref() == Some("owner")
 }
