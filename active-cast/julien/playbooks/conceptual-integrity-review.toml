@@ -1,0 +1,72 @@
+[playbook]
+id        = "conceptual-integrity-review"
+version   = 1
+title     = "Conceptual integrity review"
+problem   = "structural-review"
+summary   = "Budget map of core concepts, premium structural-skeptic pass hunting duplicate sources of truth and rename-cost leaks, then budget grounding of each finding to a ratchet."
+cost_class= "structural"
+cost_band = "expensive"
+
+[[playbook.steps]]
+id        = "map"
+title     = "Map the single source of truth per concept"
+model     = "budget"
+prompt    = """Read the codebase and for EACH core concept (person/actor, role,
+package, roster, event type, config) identify the ONE authoritative definition
+and ANY other place that re-declares it. Flags to hunt: a canonical registry
+living alongside a hardcoded alias / DEFAULT_* / *_CATALOG table; a "Role"
+catalog that duplicates fields the actor/consultant registry already carries;
+any id hardcoded anywhere that must be manually kept in sync with another list
+(a shadow). A doc comment saying "kept for backward compat" / "legacy" /
+"X is the authoritative source" beside a sibling that duplicates it is an
+admission of drift, not intent — treat it as a lead. Write source_of_truth_map.json.
+"""
+artifact  = "source_of_truth_map.json"
+produces  = "map"
+
+[[playbook.steps]]
+id        = "skeptic"
+title     = "Structural-skeptic critique (rename-cost + why)"
+model     = "premium"
+prompt    = """Read source_of_truth_map.json. Run two adversarial passes:
+
+1. RENAME-COST TRACE: pick each core entity and ask "if I renamed this, how
+   many files would I touch?" Trace every place it is named by string literal
+   vs. by role/key lookup. Dozens of scattered literals = a name/truth leaking
+   into the app; one or two places = decoupled. Distinguish the object's NAME
+   (should be resolved by role/key) from the ROLE/KEY (a stable id the app
+   legitimately uses). Follow the data flow end to end (config/roster -> seeds
+   -> event log -> cursor keys -> UI).
+
+2. THE WHY PASS: re-derive each concept from first principles. "What should X
+   be? What is the one truth? Is the duplicate load-bearing (two genuinely
+   different things) or accidental (the same thing re-declared)? What is the
+   smallest change that removes the shadow?" You REVIEW the model, you do NOT
+   assume it is right because tests are green — a green test against a
+   duplicated structure makes it look intentional.
+
+Write structural_findings.json: each finding = concept, the duplicate/shadow,
+why it is load-bearing-or-accidental, and the smallest rename-safe fix.
+"""
+artifact  = "structural_findings.json"
+produces  = "skeptic"
+reads     = ["map"]
+
+[[playbook.steps]]
+id        = "ratchet"
+title     = "Ground each finding to a ratchet"
+model     = "budget"
+prompt    = """For each finding in structural_findings.json, open the cited files and
+verify it is real and non-trivial (confirmed | rejected | needs-human). For
+confirmed findings, convert it into a concrete ratchet that makes the smell
+cannot silently return: a resolvability rule ("every hardcoded id must resolve
+to the canonical source, else it is a shadow"), a named invariant the team
+agrees on (e.g. "active-cast/ IS the roster"), or a permanent regression check.
+Write ratchet_plan.json with confirmed findings + the exact guard/invariant +
+owner + timeframe. Do NOT make project-level decisions or assign tasks — those
+are the PM's job; deliver your recommendation to the PM via send_message or
+create_observation(pm_action_required).
+"""
+artifact  = "ratchet_plan.json"
+produces  = "ratchet"
+reads     = ["skeptic"]

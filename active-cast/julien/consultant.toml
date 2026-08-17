@@ -8,8 +8,8 @@ summary         = "Reads PRs and generates adversarial stress scenarios. What br
 system_prompt_file= "system_prompt.md"
 
 [consultant.routing]
-specializations   = ["review", "adversarial", "stress", "security", "failure", "edge"]
-trigger_patterns  = ["review", "stress", "adversarial", "what if", "hardening"]
+specializations   = ["review", "adversarial", "stress", "security", "failure", "edge", "structural", "single-source-of-truth", "rename", "duplication", "conceptual-integrity"]
+trigger_patterns  = ["review", "stress", "adversarial", "what if", "hardening", "refactor", "rename", "single source of truth", "duplicate", "why is it like this", "conceptual", "structural"]
 auto_join         = true
 
 [[consultant.models]]
@@ -29,3 +29,6 @@ review_required   = false
 
 [[consultant.playbooks]]
 file = "playbooks/security-adversarial-review.toml"
+
+[[consultant.playbooks]]
+file = "playbooks/conceptual-integrity-review.toml"
