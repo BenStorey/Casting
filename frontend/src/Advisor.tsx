@@ -21,9 +21,9 @@ export default function Advisor({ thread, onChanged }: { thread: Message[]; onCh
   // The advisor's LLM spend (from the operating picture's per-agent breakdown).
   // 0 / absent = the LLM layer isn't configured, so replies are deterministic.
   const advisorSpend = useCastStore(
-    (s) => s.model?.spend.by_agent["advisor"] ?? 0
+    (s) => s.model?.spend.by_agent["jeeves"] ?? 0
   );
-  const advisorReplies = thread.filter((m) => m.from === "advisor").length;
+  const advisorReplies = thread.filter((m) => m.from === "jeeves").length;
   const llmActive = advisorSpend > 0 || advisorReplies > 0;
 
   const send = async () => {
@@ -99,7 +99,7 @@ export default function Advisor({ thread, onChanged }: { thread: Message[]; onCh
             <div key={m.id} className={"row flex gap-2 text-sm " + (m.from === "owner" ? "justify-end" : "")}>
               <span className="seq text-xs text-muted-foreground whitespace-nowrap">{m.from}</span>
               <span className={"bubble rounded-lg px-3 py-1.5 " + (m.from === "owner" ? "bg-primary/15" : "bg-muted")}>
-                {m.to === "advisor" && m.from === "owner" ? "💬 " : ""}{m.body}
+                {m.to === "jeeves" && m.from === "owner" ? "💬 " : ""}{m.body}
               </span>
             </div>
           ))}

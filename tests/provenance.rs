@@ -80,7 +80,7 @@ fn provenance_traces_commit_to_owner_message() {
                 kind: "message".into(),
                 id: "msg-director-1".into(),
             },
-            serde_json::json!({ "to": "pm", "body": "Build me a todo app" }),
+            serde_json::json!({ "to": "mei", "body": "Build me a todo app" }),
         ))
         .unwrap();
 
@@ -90,7 +90,7 @@ fn provenance_traces_commit_to_owner_message() {
     append_with_meta(
         &store,
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::RequirementCreated,
         Aggregate {
             kind: "requirement".into(),
@@ -104,7 +104,7 @@ fn provenance_traces_commit_to_owner_message() {
     let _task_ev = append_with_meta(
         &store,
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskCreated,
         Aggregate {
             kind: "task".into(),
@@ -203,7 +203,7 @@ fn provenance_for_task_traces_to_requirement_and_commits() {
                 kind: "message".into(),
                 id: "msg-director-2".into(),
             },
-            serde_json::json!({ "to": "pm", "body": "Build a REST API" }),
+            serde_json::json!({ "to": "mei", "body": "Build a REST API" }),
         ))
         .unwrap();
 
@@ -211,7 +211,7 @@ fn provenance_for_task_traces_to_requirement_and_commits() {
     append_with_meta(
         &store,
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::RequirementCreated,
         Aggregate {
             kind: "requirement".into(),
@@ -225,7 +225,7 @@ fn provenance_for_task_traces_to_requirement_and_commits() {
     append_with_meta(
         &store,
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskCreated,
         Aggregate {
             kind: "task".into(),
@@ -321,7 +321,7 @@ fn appends_owner_message(store: &SqliteEventStore, body: &str) -> Event {
                 kind: "message".into(),
                 id: "msg-dependent".into(),
             },
-            serde_json::json!({ "to": "pm", "body": body }),
+            serde_json::json!({ "to": "mei", "body": body }),
         ))
         .unwrap()
 }
@@ -336,7 +336,7 @@ fn append_proposal(store: &SqliteEventStore, id: &str, subject: &str, cause: &Ev
     };
     let mut ev = Event::new(
         "proj",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::DecisionProposed,
         Aggregate {
             kind: "decision".into(),
@@ -368,7 +368,7 @@ fn decision_audit_traces_to_owner_message_when_proposed_only() {
         casting::pm::policy::OwnerInvolvement::Ask
     );
     assert_eq!(audit.status, "proposed");
-    assert_eq!(audit.proposed_by, "pm");
+    assert_eq!(audit.proposed_by, "mei");
     assert_eq!(audit.decided_by, None);
     assert_eq!(audit.owner_message.as_deref(), Some("Build a thing"));
     // Chain: proposal → director message.

@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-pub const PM_CONSUMER: &str = "pm";
+pub const PM_CONSUMER: &str = "mei";
 
 /// Max events a snapshot may lag before the read path catches it up (writes).
 /// Below this, `projection()` folds the tail in-memory and skips the write so a

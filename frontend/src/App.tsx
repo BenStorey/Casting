@@ -81,7 +81,7 @@ export default function App() {
 
   // First-run: no cast hired beyond the seed PM → show setup wizard full-screen
   const needsSetup =
-    state && state.agents.filter((a) => a.id !== "pm").length === 0;
+    state && state.agents.filter((a) => a.id !== "mei").length === 0;
   if (needsSetup) return <SetupWizard onDone={refresh} />;
   if (!state) return null;
 
@@ -218,14 +218,14 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
 
   const agentLabel = (id: string) => {
     if (id === "owner") return "Owner (You)";
-    if (id === "pm") return "Project Manager";
+    if (id === "mei") return "Project Manager";
     // A consultant id from the assignable cast, or unknown actor
     return id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
   const agentBadge = (id: string) => {
     if (id === "owner") return <Badge variant="default">You</Badge>;
-    if (id === "pm") return <Badge variant="secondary">PM</Badge>;
+    if (id === "mei") return <Badge variant="secondary">PM</Badge>;
     return <Badge variant="outline">Consultant</Badge>;
   };
 
@@ -249,8 +249,8 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
               className={`bubble ${
                 m.from === "owner"
                   ? "owner"
-                  : m.from === "pm"
-                  ? "pm"
+                  : m.from === "mei"
+                  ? "mei"
                   : "consultant"
               }`}
             >
@@ -357,7 +357,7 @@ function Team({
                       className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
                       style={{ background: "linear-gradient(135deg,#4f8cff,#7a5cff)", color: "#fff" }}
                     >
-                      {a.id === "pm" ? "SC" : initials(a.id)}
+                      {a.id === "mei" ? "SC" : initials(a.id)}
                     </div>
                   )}
                   <div>

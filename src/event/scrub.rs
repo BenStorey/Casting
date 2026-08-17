@@ -318,7 +318,7 @@ mod tests {
                 id: "b1".into(),
             },
             json!({
-                "source": "advisor",
+                "source": "jeeves",
                 "subject": "deployment",
                 "title": "Infra notes",
                 "body": "Use key sk-proj-fake for the API",

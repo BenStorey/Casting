@@ -56,7 +56,7 @@ fn assign_task_to_owner_is_valid() {
             assignee: casting::actions::DIRECTOR.into(),
             merge_authority: casting::types::MergeAuthority::PmMerge,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     );
@@ -69,7 +69,7 @@ fn assign_task_to_owner_is_valid() {
             assignee: "ghost-agent".into(),
             merge_authority: casting::types::MergeAuthority::PmMerge,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     );
@@ -201,7 +201,7 @@ fn pm_can_act_on_owner_assigned_task() {
     ))
     .unwrap();
 
-    // PM (who == "pm") can start the director's task (the director has no agent
+    // PM (who == "mei") can start the director's task (the director has no agent
     // loop, so the PM acts as their proxy).
     let proj = Projection::build(&st.store, &st.project).unwrap();
     assert!(
@@ -209,7 +209,7 @@ fn pm_can_act_on_owner_assigned_task() {
             &casting::actions::PmAction::StartTask {
                 task_id: "task-1".into()
             },
-            "pm",
+            "mei",
             &proj,
             None
         )
@@ -240,7 +240,7 @@ fn pm_can_act_on_owner_assigned_task() {
                 task_id: "task-1".into(),
                 result: "done".into()
             },
-            "pm",
+            "mei",
             &proj,
             None
         )

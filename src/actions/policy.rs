@@ -449,7 +449,7 @@ pub fn validate(
             if assignee == DIRECTOR {
                 return Err(PolicyError::WorktreeForOwner(task_id.clone()));
             }
-            if assignee != "pm" && !state.agents.iter().any(|a| a.id == assignee) {
+            if !is_pm_actor(assignee, registry) && !state.agents.iter().any(|a| a.id == assignee) {
                 return Err(PolicyError::AgentNotHired(assignee.to_string()));
             }
             // One worktree per task (fail-closed id uniqueness).

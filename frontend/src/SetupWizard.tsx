@@ -115,7 +115,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
   // The cast members to introduce — from the consultant registry, excluding the PM and Advisor
   const castMembers = consultants.filter(
-    (c) => c.id !== "pm" && c.id !== "advisor" && c.role !== "advisor"
+    (c) => c.id !== "mei" && c.id !== "jeeves" && c.role !== "advisor"
   );
 
   const stepIndex = STEPS.findIndex((s) => s.kind === step.kind);

@@ -249,20 +249,20 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
         port: 8090,
     };
     // Valid: task exists, assigned to a hired consultant, no worktree yet.
-    assert!(validate(&act, "pm", &st, None).is_ok());
+    assert!(validate(&act, "mei", &st, None).is_ok());
 
     // Reject: director-assigned tasks never get a Casting worktree (the human
     // works through their own harness).
     st.tasks[0].assignee = Some("director".into());
     assert_eq!(
-        validate(&act, "pm", &st, None),
+        validate(&act, "mei", &st, None),
         Err(PolicyError::WorktreeForOwner("task-1".into()))
     );
     st.tasks[0].assignee = Some("marcus-reed".into());
 
     // Reject: a task with no assignee.
     st.tasks[0].assignee = None;
-    assert!(validate(&act, "pm", &st, None).is_err());
+    assert!(validate(&act, "mei", &st, None).is_err());
 
     // Reject: assigning to an agent who isn't hired.
     let st2 = state_with(&["marcus-reed"], &["task-1"]);
@@ -270,7 +270,7 @@ fn provision_worktree_requires_an_assigned_hired_consultant() {
     let mut st3 = state_with(&["marcus-reed"], &["task-1"]);
     st3.tasks[0].assignee = Some("nobody".into());
     assert_eq!(
-        validate(&act, "pm", &st3, None),
+        validate(&act, "mei", &st3, None),
         Err(PolicyError::AgentNotHired("nobody".into()))
     );
     let _ = st2;
@@ -298,7 +298,7 @@ fn provision_worktree_rejects_duplicate() {
         port: 8090,
     };
     assert_eq!(
-        validate(&act, "pm", &st, None),
+        validate(&act, "mei", &st, None),
         Err(PolicyError::WorktreeAlreadyProvisioned("task-1".into()))
     );
 }
@@ -315,7 +315,7 @@ fn provision_worktree_requires_existing_task() {
         port: 8090,
     };
     assert_eq!(
-        validate(&act, "pm", &st, None),
+        validate(&act, "mei", &st, None),
         Err(PolicyError::TaskNotFound("task-999".into()))
     );
 }
@@ -398,7 +398,7 @@ fn record_actions_reject_duplicate_ids() {
         description: "y".into(),
     };
     assert_eq!(
-        validate(&r, "pm", &st, None),
+        validate(&r, "mei", &st, None),
         Err(PolicyError::DuplicateEntity("dup".into())),
         "duplicate requirement id must be rejected (fail-closed)"
     );
@@ -417,9 +417,9 @@ fn gate_is_fail_closed_not_fail_open() {
         to: "director".into(),
         body: "hi".into(),
     };
-    assert!(validate(&msg, "pm", &st, None).is_ok());
+    assert!(validate(&msg, "mei", &st, None).is_ok());
     // A NoOp is always allowed.
-    assert!(validate(&casting::actions::PmAction::NoOp, "pm", &st, None).is_ok());
+    assert!(validate(&casting::actions::PmAction::NoOp, "mei", &st, None).is_ok());
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn decompose_requires_existing_parent() {
         }],
     };
     assert_eq!(
-        validate(&act, "pm", &st, None),
+        validate(&act, "mei", &st, None),
         Err(PolicyError::TaskNotFound("nope".into())),
         "decomposing a nonexistent parent must be rejected"
     );
@@ -460,7 +460,7 @@ fn decompose_rejects_duplicate_or_taken_child_ids() {
         ],
     };
     assert_eq!(
-        validate(&dup, "pm", &st, None),
+        validate(&dup, "mei", &st, None),
         Err(PolicyError::DuplicateEntity("task-3".into()))
     );
     // Child id already an existing task.
@@ -473,7 +473,7 @@ fn decompose_rejects_duplicate_or_taken_child_ids() {
         }],
     };
     assert_eq!(
-        validate(&taken, "pm", &st, None),
+        validate(&taken, "mei", &st, None),
         Err(PolicyError::DuplicateEntity("task-2".into()))
     );
 }
@@ -489,7 +489,7 @@ fn decompose_valid_when_parent_exists_and_children_fresh() {
             kind: "feature".into(),
         }],
     };
-    assert!(validate(&act, "pm", &st, None).is_ok());
+    assert!(validate(&act, "mei", &st, None).is_ok());
 }
 
 #[test]

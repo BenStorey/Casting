@@ -194,7 +194,7 @@ pub(crate) async fn advisor_handoff_handler(
             id: format!("brief-{}", uuid::Uuid::new_v4()),
         },
         serde_json::json!({
-            "source": "advisor",
+            "source": "jeeves",
             "subject": subject,
             "title": input.title.unwrap_or_else(|| "Advisor handoff".into()),
             "body": summary,

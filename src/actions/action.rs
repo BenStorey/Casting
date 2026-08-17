@@ -47,14 +47,14 @@ pub fn is_valid_assignee(
 pub fn pm_actor_id(registry: Option<&ConsultantRegistry>) -> &str {
     registry
         .and_then(|r| r.actor_for(CastRole::ProjectManager))
-        .unwrap_or("pm")
+        .unwrap_or("mei")
 }
 
 /// Resolve the Advisor's **actor id** (same rule as `pm_actor_id`).
 pub fn advisor_actor_id(registry: Option<&ConsultantRegistry>) -> &str {
     registry
         .and_then(|r| r.actor_for(CastRole::Advisor))
-        .unwrap_or("advisor")
+        .unwrap_or("jeeves")
 }
 
 /// True if `actor` is the Project Manager (resolved by role; legacy fallback
@@ -62,7 +62,7 @@ pub fn advisor_actor_id(registry: Option<&ConsultantRegistry>) -> &str {
 pub fn is_pm_actor(actor: &str, registry: Option<&ConsultantRegistry>) -> bool {
     match registry {
         Some(r) => r.actor_is(actor, CastRole::ProjectManager),
-        None => actor == "pm",
+        None => actor == "mei",
     }
 }
 
@@ -70,7 +70,7 @@ pub fn is_pm_actor(actor: &str, registry: Option<&ConsultantRegistry>) -> bool {
 pub fn is_advisor_actor(actor: &str, registry: Option<&ConsultantRegistry>) -> bool {
     match registry {
         Some(r) => r.actor_is(actor, CastRole::Advisor),
-        None => actor == "advisor",
+        None => actor == "jeeves",
     }
 }
 
@@ -775,12 +775,15 @@ const ACTION_VOCAB: &[ActionVocabEntry] = &[
 /// Returns a structured string listing all actions the actor may perform,
 /// with their JSON schema shapes. The provided actor string determines the
 /// set of actions returned:
-/// - `"pm"`, `"director"`, or `"system"` — ALL actions (org, task, decisions,
-///   knowledge, governance, comms, harness, and special).
+/// - The PM (`"mei"`), `"director"`, or `"system"` — ALL actions (org, task,
+///   decisions, knowledge, governance, comms, harness, and special).
 /// - Any other actor (consultant) — only task, knowledge, communication,
 ///   and special actions they are permitted to perform.
+///
+/// The PM is matched by the role-resolved constant `pm_actor_id` fallback (the
+/// renamed id, e.g. "mei"), so this never hardcodes a folder-name id.
 pub fn action_vocab_for(actor: &str) -> String {
-    let is_pm = matches!(actor, "pm" | "director" | "system");
+    let is_pm = matches!(actor, "mei" | "director" | "system");
     let mut lines: Vec<String> = Vec::new();
     let mut current_section: Option<&'static str> = None;
 

@@ -30,7 +30,7 @@ fn classify_cost(actor: &str, agents: &[crate::runtime::context::AgentSummary]) 
         "Stage Manager" => "tooling",
         "Critic" => "review",
         // Fallback: old heuristic for director/system/unknown actors.
-        "pm" | "director" | "system" => "pm_overhead",
+        "mei" | "director" | "system" => "pm_overhead",
         _ => "implementation",
     }
     .into()
@@ -87,7 +87,7 @@ impl LlmOrchestrator {
     /// Includes organizational actions (hire, create requirements, provision
     /// worktrees, governance) that only the PM/director can perform.
     fn full_action_vocab() -> String {
-        crate::actions::action_vocab_for("pm")
+        crate::actions::action_vocab_for(crate::actions::pm_actor_id(None))
     }
 
     /// The subset of actions visible to assignable consultants.
@@ -98,7 +98,7 @@ impl LlmOrchestrator {
     }
 
     pub fn planning_instructions(&self, actor: &str) -> String {
-        let actions = if matches!(actor, "pm" | "director" | "system") {
+        let actions = if matches!(actor, "mei" | "director" | "system") {
             Self::full_action_vocab()
         } else {
             Self::consultant_action_vocab()

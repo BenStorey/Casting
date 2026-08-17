@@ -91,7 +91,7 @@ fn append(state: &AppState, event_type: EventType, kind: &str, id: &str, data: s
     state
         .append(Event::new(
             PROJECT,
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             event_type,
             Aggregate {
                 kind: kind.into(),
@@ -242,15 +242,15 @@ fn graph_endpoint_contains_task_node() {
     assert!(json.is_object(), "graph should be a JSON object");
 }
 
-/// GET /api/context/pm — the PM's operating context serializes.
+/// GET /api/context/mei — the PM's operating context serializes.
 #[test]
 fn pm_context_answers() {
     let state = seeded_state();
     let app = app(state);
-    let resp = get(&app, "/api/context/pm");
+    let resp = get(&app, "/api/context/mei");
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp);
-    assert_eq!(json["actor"], serde_json::json!("pm"));
+    assert_eq!(json["actor"], serde_json::json!("mei"));
 }
 
 /// GET /api/persona/{id} — a hired agent has a persona card; unknown is 404.
@@ -412,7 +412,7 @@ fn post_brief_imports_advice() {
     let resp = post(
         &app,
         "/api/brief",
-        serde_json::json!({ "source": "advisor", "title": "t", "body": "advice" }),
+        serde_json::json!({ "source": "jeeves", "title": "t", "body": "advice" }),
     );
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp);

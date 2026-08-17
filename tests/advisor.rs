@@ -1,7 +1,7 @@
 //! Tests for the Direction Advisor (director 2026-08-10): a special second role the
 //! director chats with directly. The advisor thread is ISOLATED from PM context by
 //! design until an explicit handoff, which becomes an AdvisoryBriefing the PM
-//! reads (provenanced "advisor").
+//! reads (provenanced "jeeves").
 
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
@@ -26,7 +26,7 @@ fn advisor_message(st: &AppState, body: &str) {
             kind: "advisor_thread".into(),
             id: format!("am-{}", body.len()),
         },
-        serde_json::json!({ "to": "advisor", "body": body }),
+        serde_json::json!({ "to": "jeeves", "body": body }),
     ))
     .unwrap();
 }
@@ -45,7 +45,7 @@ fn advisor_thread_is_recorded_separately_from_pm_messages() {
             kind: "message".into(),
             id: "m1".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "build me a todo app" }),
+        serde_json::json!({ "to": "mei", "body": "build me a todo app" }),
     ))
     .unwrap();
     advisor_message(&st, "how do we think about pricing?");
@@ -64,7 +64,7 @@ fn advisor_thread_is_recorded_separately_from_pm_messages() {
         "advisor thread has the 2 advisory messages"
     );
     assert_eq!(proj.advisor_thread[0].from, "director");
-    assert_eq!(proj.advisor_thread[0].to, "advisor");
+    assert_eq!(proj.advisor_thread[0].to, "jeeves");
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn advisor_thread_does_not_enter_operating_context_until_handoff() {
             id: "brief-1".into(),
         },
         serde_json::json!({
-            "source": "advisor",
+            "source": "jeeves",
             "subject": "pricing strategy",
             "title": "Open-core vs closed",
             "body": "Recommend open-core with a hosted tier.",
@@ -103,7 +103,7 @@ fn advisor_thread_does_not_enter_operating_context_until_handoff() {
     let proj2 = Projection::build(&st.store, &st.project).unwrap();
     assert_eq!(proj2.briefings.len(), 1);
     let b = &proj2.briefings[0];
-    assert_eq!(b.source, "advisor", "provenanced as advisor");
+    assert_eq!(b.source, "jeeves", "provenanced as advisor");
     assert_eq!(b.title, "Open-core vs closed");
     assert_eq!(b.body, "Recommend open-core with a hosted tier.");
 
@@ -112,7 +112,7 @@ fn advisor_thread_does_not_enter_operating_context_until_handoff() {
         m2.knowledge.briefings.active_count, 1,
         "handoff briefing now in PM context"
     );
-    assert!(m2.knowledge.briefings.active[0].contains("advisor"));
+    assert!(m2.knowledge.briefings.active[0].contains("jeeves"));
 }
 
 #[tokio::test]
@@ -162,5 +162,5 @@ async fn web_advisor_endpoints_work() {
     let proj = Projection::build(&st.store, &st.project).unwrap();
     assert_eq!(proj.advisor_thread.len(), 1);
     assert_eq!(proj.briefings.len(), 1);
-    assert_eq!(proj.briefings[0].source, "advisor");
+    assert_eq!(proj.briefings[0].source, "jeeves");
 }

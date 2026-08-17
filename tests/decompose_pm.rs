@@ -25,7 +25,7 @@ fn seed(state: &AppState) {
         ))
         .unwrap();
     for (id, role) in [
-        ("pm", "Project Manager"),
+        ("mei", "Project Manager"),
         ("diego", "Lead Developer"),
         ("tess", "Testing Engineer"),
     ] {
@@ -44,7 +44,7 @@ fn seed(state: &AppState) {
     }
     state
         .cursors
-        .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
+        .advance("proj", "mei", state.store.latest_sequence("proj").unwrap())
         .unwrap();
 }
 
@@ -83,7 +83,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
     state
         .append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Agent { id: "pm".into() },
+            casting::event::Actor::Agent { id: "mei".into() },
             casting::event::EventType::RequirementCreated,
             casting::event::Aggregate {
                 kind: "requirement".into(),
@@ -95,7 +95,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
     state
         .append(casting::event::Event::new(
             "proj",
-            casting::event::Actor::Agent { id: "pm".into() },
+            casting::event::Actor::Agent { id: "mei".into() },
             casting::event::EventType::TaskCreated,
             casting::event::Aggregate {
                 kind: "task".into(),
@@ -129,7 +129,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
     ];
     let cause = casting::event::Event::new(
         "proj",
-        casting::event::Actor::Agent { id: "pm".into() },
+        casting::event::Actor::Agent { id: "mei".into() },
         casting::event::EventType::TaskCreated,
         casting::event::Aggregate {
             kind: "task".into(),
@@ -141,7 +141,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         parent: "task-feature".into(),
         children: children.clone(),
     })
-    .to_events("proj", "pm", &cause, "corr-decompose")
+    .to_events("proj", "mei", &cause, "corr-decompose")
     {
         state.append(ev).unwrap();
     }
@@ -152,7 +152,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         blocking_task_id: "feature-db".into(),
         required_state: casting::types::TaskStatus::Done,
     })
-    .to_events("proj", "pm", &cause, "corr-edge")
+    .to_events("proj", "mei", &cause, "corr-edge")
     {
         state.append(ev).unwrap();
     }
@@ -164,7 +164,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
             assignee: "diego".into(),
             merge_authority: casting::types::MergeAuthority::SelfMerge,
         })
-        .to_events("proj", "pm", &cause, "corr-assign")
+        .to_events("proj", "mei", &cause, "corr-assign")
         {
             state.append(ev).unwrap();
         }

@@ -21,9 +21,9 @@ export interface CastIdentity {
 }
 
 export const PM_IDENTITY: CastIdentity = {
-  id: "pm",
-  name: "Sarah Chen",
-  stable_name: "Sarah Chen",
+  id: "mei",
+  name: "Mei",
+  stable_name: "Mei",
   role: "Project Manager",
   persona: "Your company's conductor",
   cv: [
@@ -31,13 +31,13 @@ export const PM_IDENTITY: CastIdentity = {
     "Keeps the whole cast moving on one clear objective",
     "Escalates to you only when a decision really needs an owner",
   ],
-  avatar: "/avatars/pm.svg",
+  avatar: "/avatars/mei.jpeg",
 };
 
 export const ADVISOR_IDENTITY: CastIdentity = {
-  id: "advisor",
-  name: "Amara Okafor",
-  stable_name: "Amara Okafor",
+  id: "jeeves",
+  name: "Jeeves",
+  stable_name: "Jeeves",
   role: "Strategic Advisor",
   persona: "Your thinking partner on product direction",
   cv: [
@@ -45,7 +45,7 @@ export const ADVISOR_IDENTITY: CastIdentity = {
     "Questions assumptions and surfaces what you haven't considered",
     "Stays out of day-to-day priorities — you decide when to bring it in",
   ],
-  avatar: "/avatars/advisor.svg",
+  avatar: "/avatars/jeeves.jpeg",
 };
 
 /// Map a consultant config onto the UI identity shape. The summary becomes the
@@ -72,7 +72,8 @@ export function identityForAgent(
   roleTitle: string,
   consultants: ConsultantConfig[] = []
 ): CastIdentity | undefined {
-  if (agentId === "pm") return PM_IDENTITY;
+  if (agentId === "mei") return PM_IDENTITY;
+  if (agentId === "jeeves") return ADVISOR_IDENTITY;
 
   // 1) Exact consultant id (e.g. "marcus-reed").
   const byId = consultants.find((c) => c.id === agentId);

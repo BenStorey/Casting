@@ -37,7 +37,7 @@ fn owner_message(body: &str) -> Event {
             kind: "message".into(),
             id: "msg-director".into(),
         },
-        serde_json::json!({ "to": "pm", "body": body }),
+        serde_json::json!({ "to": "mei", "body": body }),
     )
 }
 

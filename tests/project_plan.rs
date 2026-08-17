@@ -22,7 +22,7 @@ fn create_task(state: &AppState, id: &str, title: &str) {
     state
         .append(Event::new(
             "proj-plan",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskCreated,
             casting::event::Aggregate {
                 kind: "task".into(),
@@ -37,7 +37,7 @@ fn set_priority(state: &AppState, task: &str, from: &str, to: &str) {
     state
         .append(Event::new(
             "proj-plan",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskPriorityChanged,
             casting::event::Aggregate {
                 kind: "task".into(),
@@ -106,7 +106,7 @@ fn plan_orders_tasks_by_priority_and_lists_open_decisions() {
     state
         .append(Event::new(
             "proj-plan",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::RequirementCreated,
             casting::event::Aggregate {
                 kind: "requirement".into(),
@@ -127,7 +127,7 @@ fn plan_orders_tasks_by_priority_and_lists_open_decisions() {
     state
         .append(Event::new(
             "proj-plan",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::DecisionProposed,
             casting::event::Aggregate {
                 kind: "decision".into(),
@@ -201,7 +201,7 @@ fn done_tasks_are_excluded_from_current_priorities() {
     state
         .append(Event::new(
             "proj-plan",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskCompleted,
             casting::event::Aggregate {
                 kind: "task".into(),
@@ -233,7 +233,7 @@ fn set_priority_validates_against_existing_task() {
         task_id: "task-a".into(),
         priority: Priority::High,
     };
-    assert!(validate(&action, "pm", &proj, None).is_ok());
+    assert!(validate(&action, "mei", &proj, None).is_ok());
 
     // On a missing task it's rejected.
     let err = validate(
@@ -241,7 +241,7 @@ fn set_priority_validates_against_existing_task() {
             task_id: "task-missing".into(),
             priority: Priority::Critical,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -256,19 +256,19 @@ fn set_priority_action_emits_task_priority_changed_and_reduces() {
     // Verify the action -> event mapping + reducer together.
     let cause = Event::new(
         "proj-plan",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::MessageSent,
         casting::event::Aggregate {
             kind: "message".into(),
             id: "msg-1".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "prioritize auth" }),
+        serde_json::json!({ "to": "mei", "body": "prioritize auth" }),
     );
     let evs = casting::actions::PmAction::SetTaskPriority {
         task_id: "task-a".into(),
         priority: Priority::Critical,
     }
-    .to_events("proj-plan", "pm", &cause, "corr-1");
+    .to_events("proj-plan", "mei", &cause, "corr-1");
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::TaskPriorityChanged);
     assert_eq!(evs[0].data["to"], serde_json::json!("critical"));

@@ -289,7 +289,7 @@ pub trait CursorStore: Send + Sync {
     fn advance(&self, project_id: &str, consumer: &str, to: i64) -> Result<()>;
 }
 ```
-Cursors track per-consumer positions in the event stream. Consumers: "pm", "git-observer", "reconciler".
+Cursors track per-consumer positions in the event stream. Consumers: "mei" (the PM), "git-observer", "reconciler".
 
 ### 4.5 SnapshotStore Trait (`src/store/snapshot.rs`)
 - Snapshot = serialized Projection + the sequence it was folded through
@@ -352,7 +352,7 @@ Opt-in (`AppState::with_integrity()`). Before an append, checks preconditions:
     │   │   │   ├── Record CostIncurred (if metered)
     │   │   │   └── run_planned() — validate + execute
     │   │   └── For each owner **MessageSent**: DETERMINISTIC bypass (no LLM call)
-    │   │       ├── CreateTask + AssignTask("pm") + ApplyPlaybook("pm/chat-interface")
+    │   │       ├── CreateTask + AssignTask("mei") + ApplyPlaybook("mei/chat-interface")
     │   │       ├── insert_worktree_provisions() + expand_playbooks()
     │   │       └── run_planned() — validate + execute
     │   ├── respond() — Phase 2: Actor turns (if orchestrator present)
@@ -418,7 +418,7 @@ The core execution engine for a plan:
 
 Phase 2 of `respond()` only runs when an orchestrator is attached. It:
 
-1. Calls `actors_with_work(&projection)` — returns non-owner, non-done actor ids with tasks, plus "pm" if any task is InReview OR the PM has self-assigned tasks (via `chat-interface` playbook)
+1. Calls `actors_with_work(&projection)` — returns non-owner, non-done actor ids with tasks, plus the PM actor ("mei") if any task is InReview OR the PM has self-assigned tasks (via `chat-interface` playbook)
 2. For each actor, assembles an `AgentContext` scoped to that actor
 3. Calls `orchestrator.plan(&context, cause)` — the actor plans their own turn
 4. Applies the worktree elaborator (`insert_worktree_provisions`) to insert `ProvisionWorktree` actions before `StartTask` when needed
@@ -442,7 +442,7 @@ A deterministic rewriter that runs on every plan (both scripted and LLM-produced
 
 ### 6.3 actors_with_work (`src/pm/planning.rs:156-189`)
 
-Returns actors in deterministic order: iterates tasks, collects non-done, non-owner assignees who are actually hired (or are the PM). Appends "pm" if any task is `InReview` OR the PM has any self-assigned non-done tasks (PM tasks from the `chat-interface` playbook). Previously the PM was excluded from actor turns — now the PM gets their own actor turn when running a chat-interface playbook step, allowing a single budget model call to either implement the change or escalate.
+Returns actors in deterministic order: iterates tasks, collects non-done, non-owner assignees who are actually hired (or are the PM). Appends the PM actor ("mei") if any task is `InReview` OR the PM has any self-assigned non-done tasks (PM tasks from the `chat-interface` playbook). Previously the PM was excluded from actor turns — now the PM gets their own actor turn when running a chat-interface playbook step, allowing a single budget model call to either implement the change or escalate. The PM is resolved by ROLE, not a hardcoded id.
 
 ---
 
@@ -808,8 +808,8 @@ Owner sends "rename X to Y"  (MessageSent event)
   │
   ▼
 Phase 1 — respond() ── DETERMINISTIC (no LLM call) ──► CreateTask("chat-xxx")
-                                                         AssignTask("chat-xxx", "pm")
-                                                         ApplyPlaybook("pm/chat-interface")
+                                                         AssignTask("chat-xxx", "mei")
+                                                         ApplyPlaybook("mei/chat-interface")
                                                          expand_playbooks() → child step + worktree
   │
   ▼
@@ -829,19 +829,25 @@ PM actor turn (budget model) ← FIRST AND ONLY LLM CALL
 - The playbook's step model tier is `budget` (cheapest) so the first LLM call is always the cheapest possible.
 - The step's action vocab is the **full PM vocabulary** (including `CreateTask`, `AssignTask`, `ApplyPlaybook`) — so the budget model can escalate by emitting organisational actions, not just work actions.
 
-**Assignability carve-out:**
-- `SPECIAL_ACTORS` was reduced from `["pm", "advisor"]` to just `["advisor"]`.
-- `is_valid_assignee()` now returns `true` for `"pm"`.
-- The policy gate's `AssignTask` validation allows `"pm"` as assignee (while still rejecting `"advisor"`).
-- `ProvisionWorktree` validation also allows `"pm"` as assignee (worktrees are needed for the chat step).
-- `HireAgent` still rejects `"pm"` — the PM is a built-in role, not hirable.
-- `actors_with_work` in `src/pm/planning.rs` includes the PM when they have self-assigned tasks (the "pm" carve-out bypasses the standard `agents.contains()` check).
+**Assignability carve-out (all role-resolved, no hardcoded ids):**
+- Special-role checks now go through `is_pm_actor` / `is_advisor_actor` (by `CastRole`), not a hardcoded id.
+- `is_valid_assignee()` returns `true` for the PM actor (resolved by role).
+- The policy gate's `AssignTask` validation allows the PM actor as assignee (while still rejecting the Advisor).
+- `ProvisionWorktree` validation also allows the PM actor as assignee (worktrees are needed for the chat step).
+- `HireAgent` still rejects the PM/Advisor actors — they are built-in roles, not hirable.
+- `actors_with_work` in `src/pm/planning.rs` includes the PM when they have self-assigned tasks (the PM carve-out bypasses the standard `agents.contains()` check).
 
 ### 14.7 Consultant Packages — Directory Layout & Private Asset Banks (2026-08-17)
 
 Each consultant is its own **directory named by consultant id** (`active-cast/<id>/`),
 not a single flat TOML — so a consultant can carry large reference material and
 a set of private capabilities, and is the natural unit for future sharing/marketplace.
+
+**A consultant's id is always a NAME** (e.g. `mei`, `jeeves`, `diego`) — never a
+role. The PM and Advisor are the named people `mei` (Project Manager) and
+`jeeves` (Advisor); the application identifies them by their **role**
+(`CastRole::ProjectManager` / `CastRole::Advisor`), never by assuming an id. The
+role key (`role_id()` returning `"pm"`/`"advisor"`) is a separate, stable concept.
 
 ```
 active-cast/<id>/

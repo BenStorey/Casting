@@ -56,7 +56,7 @@ fn import_briefing_action_through_gate_and_to_events() {
     let st = state();
     let action = casting::actions::PmAction::ImportBriefing {
         id: "brief-9".into(),
-        source: "advisor".into(),
+        source: "jeeves".into(),
         subject: "storage".into(),
         title: "storage notes".into(),
         body: "Postgres is a reasonable default.".into(),
@@ -81,7 +81,7 @@ fn import_briefing_action_through_gate_and_to_events() {
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::AdvisoryBriefingImported);
     assert_eq!(evs[0].aggregate.id, "brief-9");
-    assert_eq!(evs[0].data["source"], "advisor");
+    assert_eq!(evs[0].data["source"], "jeeves");
     // Advisory flag is implicit: brought_in_by records who, source records where.
     assert_eq!(evs[0].data["brought_in_by"], "owner");
 }

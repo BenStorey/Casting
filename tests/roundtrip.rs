@@ -64,7 +64,7 @@ fn cause() -> Event {
             kind: "message".into(),
             id: "msg-cause".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "x" }),
+        serde_json::json!({ "to": "mei", "body": "x" }),
     )
 }
 
@@ -73,7 +73,7 @@ fn cause() -> Event {
 fn seed_run_actions(state: &AppState) {
     raw(
         state,
-        "pm",
+        "mei",
         "task-1",
         "task",
         EventType::TaskCreated,
@@ -81,7 +81,7 @@ fn seed_run_actions(state: &AppState) {
     );
     raw(
         state,
-        "pm",
+        "mei",
         "d-v1",
         "decision",
         EventType::DecisionProposed,
@@ -92,7 +92,7 @@ fn seed_run_actions(state: &AppState) {
     );
     raw(
         state,
-        "pm",
+        "mei",
         "d-v2",
         "decision",
         EventType::DecisionProposed,
@@ -103,7 +103,7 @@ fn seed_run_actions(state: &AppState) {
     );
     raw(
         state,
-        "pm",
+        "mei",
         "op-1",
         "opinion",
         EventType::OpinionRecorded,
@@ -111,7 +111,7 @@ fn seed_run_actions(state: &AppState) {
     );
     raw(
         state,
-        "pm",
+        "mei",
         "op-2",
         "opinion",
         EventType::OpinionRecorded,
@@ -125,8 +125,8 @@ fn seed_run_actions(state: &AppState) {
         task_id: "task-1".into(),
         priority: Priority::High,
     };
-    validate(&set_pri, "pm", &proj, None).unwrap();
-    for e in set_pri.to_events(P, "pm", &cause(), "corr") {
+    validate(&set_pri, "mei", &proj, None).unwrap();
+    for e in set_pri.to_events(P, "mei", &cause(), "corr") {
         state.append(e).unwrap();
     }
 
@@ -136,8 +136,8 @@ fn seed_run_actions(state: &AppState) {
         opinion_id: "op-1".into(),
         by_opinion_id: "op-2".into(),
     };
-    validate(&sup_op, "pm", &proj, None).unwrap();
-    for e in sup_op.to_events(P, "pm", &cause(), "corr") {
+    validate(&sup_op, "mei", &proj, None).unwrap();
+    for e in sup_op.to_events(P, "mei", &cause(), "corr") {
         state.append(e).unwrap();
     }
 
@@ -147,8 +147,8 @@ fn seed_run_actions(state: &AppState) {
         decision_id: "d-v1".into(),
         by_decision_id: "d-v2".into(),
     };
-    validate(&sup_dec, "pm", &proj, None).unwrap();
-    for e in sup_dec.to_events(P, "pm", &cause(), "corr") {
+    validate(&sup_dec, "mei", &proj, None).unwrap();
+    for e in sup_dec.to_events(P, "mei", &cause(), "corr") {
         state.append(e).unwrap();
     }
 }

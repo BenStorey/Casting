@@ -31,7 +31,7 @@ fn director_bound_msg(state: &AppState, body: &str) {
         .append(Event::new(
             &state.project,
             Actor::Agent {
-                id: "pm".to_string(),
+                id: "mei".to_string(),
             },
             EventType::MessageSent,
             Aggregate {
@@ -140,7 +140,7 @@ async fn outbound_skips_non_owner_and_owner_originated() {
         .append(Event::new(
             &state.project,
             Actor::Agent {
-                id: "pm".to_string(),
+                id: "mei".to_string(),
             },
             EventType::MessageSent,
             Aggregate {
@@ -162,7 +162,7 @@ async fn outbound_skips_non_owner_and_owner_originated() {
                 kind: "message".into(),
                 id: "msg-director-in".into(),
             },
-            json!({ "to": "pm", "body": "hello from owner" }),
+            json!({ "to": "mei", "body": "hello from owner" }),
         ))
         .unwrap();
 
@@ -221,7 +221,7 @@ async fn inbound_appends_owner_message_event() {
         1,
         "inbound owner message appended as MessageSent"
     );
-    assert_eq!(owner_msgs[0].to, "pm");
+    assert_eq!(owner_msgs[0].to, "mei");
 }
 
 /// Inbound auth: a message from a NON-director chat is ignored (a stranger DMing

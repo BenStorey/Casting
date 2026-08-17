@@ -138,7 +138,7 @@ fn policy_endpoint_records_and_folds_an_owner_policy_change() {
             class: DecisionClass::SecurityCritical,
             involvement: OwnerInvolvement::Notify,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )

@@ -188,7 +188,7 @@ fn directive_types_round_trip_through_json() {
         "Budget under 250".into(),
         vec!["finance".into()],
         DirectiveStrength::Strong,
-        "pm".into(),
+        "mei".into(),
         None,
     );
     let json = serde_json::to_string(&d).unwrap();
@@ -320,7 +320,7 @@ fn pm_and_system_cannot_change_governance_now() {
     let proj = build_projection_with_directives();
 
     // Governance is DIRECTOR-only: the PM and system cannot author directives.
-    for who in ["pm", "system"] {
+    for who in ["mei", "system"] {
         let create = PmAction::CreateDirective {
             id: format!("d-{who}"),
             kind: DirectiveKind::Policy,
@@ -451,13 +451,13 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
     // The PM proposes a governance change (supersede directive-v1).
     let cause = Event::new(
         "proj-dir",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
             id: "msg-1".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "review governance" }),
+        serde_json::json!({ "to": "mei", "body": "review governance" }),
     );
     let proposal = PmAction::ProposeDirectiveChange {
         id: "dg-1".into(),
@@ -468,7 +468,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
         strength: DirectiveStrength::Required,
         supersedes: Some("directive-v1".into()),
     };
-    for ev in proposal.to_events("proj-dir", "pm", &cause, "corr-1") {
+    for ev in proposal.to_events("proj-dir", "mei", &cause, "corr-1") {
         state.append(ev).unwrap();
     }
 

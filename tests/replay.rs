@@ -17,7 +17,7 @@ fn append(store: &SqliteEventStore, et: EventType, kind: &str, id: &str, data: s
     store
         .append(Event::new(
             "proj",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             et,
             Aggregate {
                 kind: kind.into(),

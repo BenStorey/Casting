@@ -411,7 +411,7 @@ impl crate::projection::Projection {
         let active_agents = self
             .agents
             .iter()
-            .filter(|a| a.id != "pm")
+            .filter(|a| a.id != self.pm_id())
             .map(|a| format!("{} ({})", a.id, a.role))
             .collect::<Vec<_>>();
 

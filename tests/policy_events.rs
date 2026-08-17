@@ -124,7 +124,7 @@ fn owner_override_to_ask_blocks_a_pm_claim_via_the_gate() {
             class: DecisionClass::TestingLibrary,
             involvement: OwnerInvolvement::Pm,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -162,7 +162,7 @@ fn matching_claim_passes_under_overridden_policy() {
             class: DecisionClass::TestingLibrary,
             involvement: OwnerInvolvement::Ask,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     );
@@ -193,7 +193,7 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
     state
         .append(Event::new(
             "proj-policy",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::RequirementCreated,
             casting::event::Aggregate {
                 kind: "requirement".into(),
@@ -205,7 +205,7 @@ async fn pm_derives_proposal_involvement_from_configured_policy() {
     state
         .append(Event::new(
             "proj-policy",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::DecisionProposed,
             casting::event::Aggregate {
                 kind: "decision".into(),

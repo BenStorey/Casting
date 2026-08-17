@@ -34,7 +34,7 @@ fn task(state: &AppState, id: &str, title: &str, kind: &str, assignee: &str) {
     state
         .append(Event::new(
             "proj-pers",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskCreated,
             Aggregate {
                 kind: "task".into(),
@@ -46,7 +46,7 @@ fn task(state: &AppState, id: &str, title: &str, kind: &str, assignee: &str) {
     state
         .append(Event::new(
             "proj-pers",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskAssigned,
             Aggregate {
                 kind: "task".into(),

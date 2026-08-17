@@ -21,7 +21,7 @@ fn append_proposal(state: &AppState, id: &str, subject: &str) {
     state
         .append(Event::new(
             "proj-dec",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::DecisionProposed,
             Aggregate {
                 kind: "decision".into(),
@@ -47,19 +47,19 @@ fn supersede_marks_old_decision_superseded_and_links_replacement() {
     // Supersede d-v1 with d-v2 (history preserved).
     let cause = Event::new(
         "proj-dec",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
             id: "msg-1".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "x" }),
+        serde_json::json!({ "to": "mei", "body": "x" }),
     );
     let evs = PmAction::SupersedeDecision {
         decision_id: "d-v1".into(),
         by_decision_id: "d-v2".into(),
     }
-    .to_events("proj-dec", "pm", &cause, "corr-1");
+    .to_events("proj-dec", "mei", &cause, "corr-1");
     assert_eq!(evs[0].event_type, EventType::DecisionSuperseded);
     for e in evs {
         state.append(e).unwrap();
@@ -87,7 +87,7 @@ fn gate_requires_both_decisions_to_exist_to_supersede() {
             decision_id: "d-v1".into(),
             by_decision_id: "d-missing".into(),
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -100,7 +100,7 @@ fn gate_requires_both_decisions_to_exist_to_supersede() {
             decision_id: "d-missing".into(),
             by_decision_id: "d-v1".into(),
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -116,19 +116,19 @@ fn superseded_decision_is_not_candidate_in_plan_open_decisions() {
     // Supersede d-old.
     let cause = Event::new(
         "proj-dec",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::MessageSent,
         Aggregate {
             kind: "message".into(),
             id: "msg-1".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "x" }),
+        serde_json::json!({ "to": "mei", "body": "x" }),
     );
     for e in (PmAction::SupersedeDecision {
         decision_id: "d-old".into(),
         by_decision_id: "d-open".into(),
     })
-    .to_events("proj-dec", "pm", &cause, "corr-1")
+    .to_events("proj-dec", "mei", &cause, "corr-1")
     {
         state.append(e).unwrap();
     }

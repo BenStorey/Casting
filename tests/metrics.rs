@@ -35,7 +35,7 @@ fn owner_engagement_counts_backlog_and_rate() {
         decisions: vec![
             owner_decision("a", OwnerInvolvement::Ask, None),
             owner_decision("b", OwnerInvolvement::Ask, Some("director")),
-            owner_decision("c", OwnerInvolvement::Pm, Some("pm")),
+            owner_decision("c", OwnerInvolvement::Pm, Some("mei")),
             // A Pm-tier decision still proposed by the PM is NOT an escalation.
             owner_decision("d", OwnerInvolvement::Pm, None),
         ],

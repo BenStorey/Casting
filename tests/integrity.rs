@@ -19,7 +19,7 @@ fn make_state() -> AppState {
 fn event(et: EventType, id: &str, kind: &str) -> Event {
     Event::new(
         "proj-int",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         et,
         Aggregate {
             kind: kind.into(),

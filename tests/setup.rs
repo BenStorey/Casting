@@ -27,7 +27,7 @@ fn setup_creates_company_and_default_cast() {
     let proj = Projection::build(&store, "project-demo").unwrap();
     assert!(!proj.agents.is_empty());
     // Default cast => PM + 5 assignable consultants (2026-08-14 roster).
-    for id in &["pm", "diego", "tess", "nina", "ali", "julien"] {
+    for id in &["mei", "diego", "tess", "nina", "ali", "julien"] {
         assert!(
             proj.agents.iter().any(|a| a.id == *id),
             "default cast must include {id}"
@@ -58,7 +58,7 @@ fn setup_with_custom_roles_hires_them() {
     assert!(ids.contains(&"security-1"));
     assert!(ids.contains(&"devops-1"));
     assert!(!ids.contains(&"marcus-reed"));
-    assert!(ids.contains(&"pm"));
+    assert!(ids.contains(&"mei"));
 }
 
 #[test]
@@ -199,7 +199,7 @@ async fn setup_then_onboard_does_not_double_hire() {
 
     let proj = Projection::build(&state.store, "project-demo").unwrap();
     // Exactly one of each default agent — no duplicates from onboarding.
-    for expected in ["pm", "diego", "tess", "nina", "ali", "julien"] {
+    for expected in ["mei", "diego", "tess", "nina", "ali", "julien"] {
         let count = proj.agents.iter().filter(|a| a.id == expected).count();
         assert_eq!(count, 1, "agent {expected} hired exactly once, got {count}");
     }

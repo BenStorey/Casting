@@ -46,7 +46,7 @@ function CollapsibleJson({
 }
 
 function FullContextPanel() {
-  const [actor, setActor] = useState("pm");
+  const [actor, setActor] = useState("mei");
   const [ctx, setCtx] = useState<FullActorContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

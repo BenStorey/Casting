@@ -516,7 +516,7 @@ pub async fn drain(
                             kind: "message".into(),
                             id: format!("msg-{}", uuid::Uuid::new_v4()),
                         },
-                        serde_json::json!({ "to": "pm", "body": text }),
+                        serde_json::json!({ "to": "mei", "body": text }),
                     );
                     // append broadcasts → wakes the PM (Tier-0) for free.
                     state.append(ev)?;

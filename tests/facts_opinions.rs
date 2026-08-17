@@ -341,7 +341,7 @@ fn pm_can_narrate_opinions_and_facts() {
         statement: "The event log is the only authority".into(),
         supersedes: None,
     }
-    .to_events(&state.project, "pm", &cause, "corr-1");
+    .to_events(&state.project, "mei", &cause, "corr-1");
     state
         .append(opinion_ev.into_iter().next().unwrap())
         .unwrap();
@@ -351,12 +351,12 @@ fn pm_can_narrate_opinions_and_facts() {
         kind: "tasks".into(),
         statement: "the board has 3 tasks".into(),
     }
-    .to_events(&state.project, "pm", &cause, "corr-1");
+    .to_events(&state.project, "mei", &cause, "corr-1");
     state.append(fact_ev.into_iter().next().unwrap()).unwrap();
 
     let proj = Projection::build(&state.store, &state.project).unwrap();
     assert_eq!(proj.opinions.len(), 1);
-    assert_eq!(proj.opinions[0].recorded_by, "pm");
+    assert_eq!(proj.opinions[0].recorded_by, "mei");
     assert_eq!(proj.facts.len(), 1);
-    assert_eq!(proj.facts[0].recorded_by, "pm");
+    assert_eq!(proj.facts[0].recorded_by, "mei");
 }

@@ -32,7 +32,7 @@ fn embedded_defaults_cover_all_assignable_catalog_roles() {
 
     // The two SPECIAL roles ship as packages but bind to their OWN roles
     // (via new_role), carry `assignable = false`, and are never catalog roles.
-    for id in ["pm", "advisor"] {
+    for id in ["mei", "jeeves"] {
         let c = reg.by_id(id).unwrap_or_else(|| panic!("no {id} package"));
         assert!(!c.assignable, "{id} is a special, non-assignable role");
     }
@@ -48,7 +48,7 @@ fn default_cast_is_the_seven_introduced_consultants() {
         .collect();
 
     // All seven consultants are "introduced in the beginning" (auto_join).
-    for id in ["pm", "advisor", "diego", "tess", "nina", "ali", "julien"] {
+    for id in ["mei", "jeeves", "diego", "tess", "nina", "ali", "julien"] {
         assert!(
             default.contains(&id.to_string()),
             "default cast must introduce {id}"

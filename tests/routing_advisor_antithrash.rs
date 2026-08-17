@@ -268,7 +268,7 @@ async fn advisor_reply_uses_its_model_and_thread() {
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
         from: "director".into(),
-        to: "advisor".into(),
+        to: "jeeves".into(),
         body: "What should we build?".into(),
     }];
     let http_client = reqwest::Client::builder()
@@ -286,7 +286,7 @@ async fn advisor_reply_uses_its_model_and_thread() {
     .unwrap();
     assert_eq!(outcome.reply, "Here is my strategic advice.");
     let m = outcome.metering.unwrap();
-    assert_eq!(m.agent_id, "advisor");
+    assert_eq!(m.agent_id, "jeeves");
     assert_eq!(m.prompt_tokens, 100);
 }
 
@@ -304,7 +304,7 @@ async fn advisor_reply_stays_isolated_from_pm_context() {
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
         from: "director".into(),
-        to: "advisor".into(),
+        to: "jeeves".into(),
         body: "hi".into(),
     }];
     let http_client = reqwest::Client::builder()
@@ -324,7 +324,7 @@ async fn advisor_reply_stays_isolated_from_pm_context() {
 fn advisor_context_summary_curates_high_level_state() {
     use casting::runtime::context::AgentContext;
     let ctx = AgentContext {
-        actor: "advisor".into(),
+        actor: "jeeves".into(),
         objective: Some("Ship the CLI".into()),
         active_directives: vec!["[policy] no telemetry".into()],
         open_risks: vec!["r1".into()],
@@ -377,7 +377,7 @@ async fn advisor_reply_builds_grounding_into_system_prompt() {
     let thread = vec![casting::types::Message {
         id: "am-1".into(),
         from: "director".into(),
-        to: "advisor".into(),
+        to: "jeeves".into(),
         body: "advise me".into(),
     }];
     let http_client = reqwest::Client::builder()
@@ -503,7 +503,7 @@ temperature = 0.2
     assert_eq!(nobody.temperature, None);
 
     // The embedded PM package now binds pm to its own model (2026-08-14 cast).
-    let pm = resolver.resolve("pm", None);
+    let pm = resolver.resolve("mei", None);
     assert_ne!(
         pm.config.model, "default-model",
         "pm ships a consultant binding"
@@ -542,7 +542,7 @@ fn state_with_pm_and_cast() -> AppState {
         json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
     ))
     .unwrap();
-    for (id, role) in [("pm", "Project Manager"), ("marcus-reed", "Engineer")] {
+    for (id, role) in [("mei", "Project Manager"), ("marcus-reed", "Engineer")] {
         st.append(Event::new(
             "proj-anti",
             Actor::System,
@@ -577,19 +577,19 @@ fn gate_rejects_reproposing_an_open_subject() {
     // First proposal of a subject passes the gate + creates an open decision.
     assert!(actions::validate(
         &propose_decision("Pick a DB"),
-        "pm",
+        "mei",
         &st.projection().unwrap(),
         None,
     )
     .is_ok());
-    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "pm", &cause(), "run-1") {
+    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "mei", &cause(), "run-1") {
         st.append(ev).unwrap();
     }
 
     // Re-proposing the SAME subject is now rejected (anti-thrash).
     let err = actions::validate(
         &propose_decision("Pick a DB"),
-        "pm",
+        "mei",
         &st.projection().unwrap(),
         None,
     )
@@ -604,13 +604,13 @@ fn gate_rejects_reproposing_an_open_subject() {
 fn gate_allows_different_subject_after_one_is_open() {
     use casting::actions;
     let st = state_with_pm_and_cast();
-    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "pm", &cause(), "run-1") {
+    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "mei", &cause(), "run-1") {
         st.append(ev).unwrap();
     }
     // A DIFFERENT subject is still fine.
     assert!(actions::validate(
         &propose_decision("Choose language"),
-        "pm",
+        "mei",
         &st.projection().unwrap(),
         None,
     )
@@ -627,7 +627,7 @@ fn prompt_mentions_anti_thrash_rule() {
         base_cfg(),
         "PM".into(),
     );
-    let prompt = orch.planning_instructions("pm");
+    let prompt = orch.planning_instructions("mei");
     assert!(
         prompt.contains("ANTI-THRASH"),
         "prompt must state the anti-thrash rule"
@@ -990,14 +990,14 @@ fn pm_context_carries_advisory_briefings() {
             id: "brief-1".into(),
         },
         json!({
-            "source": "advisor",
+            "source": "jeeves",
             "subject": "direction",
             "title": "Open-core recommendation",
             "body": "Consider going open-core to grow adoption.",
         }),
     ))
     .unwrap();
-    let ctx = st.projection().unwrap().context_for("pm");
+    let ctx = st.projection().unwrap().context_for("mei");
     assert!(
         ctx.advisory_briefings
             .iter()
@@ -1022,7 +1022,7 @@ fn pm_context_carries_advisory_briefings() {
 fn advisor_grounding_includes_prior_briefings() {
     use casting::runtime::context::AgentContext;
     let ctx = AgentContext {
-        actor: "advisor".into(),
+        actor: "jeeves".into(),
         advisory_briefings: vec!["[advisory · advisor] Open-core: go open-core".into()],
         ..Default::default()
     };
@@ -1060,12 +1060,12 @@ async fn advisor_summarize_uses_the_model_but_never_hard_fails() {
         casting::types::Message {
             id: "m1".into(),
             from: "director".into(),
-            to: "advisor".into(),
+            to: "jeeves".into(),
             body: "open-core or closed?".into(),
         },
         casting::types::Message {
             id: "m2".into(),
-            from: "advisor".into(),
+            from: "jeeves".into(),
             to: "director".into(),
             body: "Consider open-core.".into(),
         },

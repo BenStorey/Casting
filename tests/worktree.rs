@@ -265,7 +265,7 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
         ))
         .unwrap();
     for (id, role) in [
-        ("pm", "Project Manager"),
+        ("mei", "Project Manager"),
         ("diego", "Lead Developer"),
         ("tess", "Testing Engineer"),
     ] {
@@ -328,7 +328,7 @@ async fn pm_onboarding_provisions_distinct_worktrees() {
     // Advance cursor past seeds so the PM reacts to the director message only.
     state
         .cursors
-        .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
+        .advance("proj", "mei", state.store.latest_sequence("proj").unwrap())
         .unwrap();
     state
         .append(casting::event::Event::new(
@@ -410,7 +410,7 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
         ))
         .unwrap();
     for (id, role) in [
-        ("pm", "Project Manager"),
+        ("mei", "Project Manager"),
         ("diego", "Lead Developer"),
         ("tess", "Testing Engineer"),
     ] {
@@ -470,7 +470,7 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
     }
     state
         .cursors
-        .advance("proj", "pm", state.store.latest_sequence("proj").unwrap())
+        .advance("proj", "mei", state.store.latest_sequence("proj").unwrap())
         .unwrap();
     state
         .append(casting::event::Event::new(

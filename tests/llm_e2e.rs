@@ -141,7 +141,7 @@ fn seed(state: &AppState) {
         ))
         .unwrap();
     for (id, role) in [
-        ("pm", "Project Manager"),
+        ("mei", "Project Manager"),
         ("marcus-reed", "Engineer"),
         ("maya-patel", "QA"),
     ] {
@@ -229,7 +229,7 @@ fn orch_for(base_url: String, with_prices: bool) -> LlmOrchestrator {
 fn prompt_contract_matches_serde_shape() {
     use casting::actions::PmAction;
     let orch = orch_for("http://stub".into(), false);
-    let prompt = orch.planning_instructions("pm");
+    let prompt = orch.planning_instructions("mei");
 
     // A representative probe covering every action the model may emit, with the
     // exact fields the serde type requires. Serializing each gives the field
@@ -412,7 +412,7 @@ fn prompt_contract_matches_serde_shape() {
 #[test]
 fn prompt_enum_values_match_serde() {
     let orch = orch_for("http://stub".into(), false);
-    let prompt = orch.planning_instructions("pm");
+    let prompt = orch.planning_instructions("mei");
 
     use casting::pm::plan::Priority;
     use casting::pm::policy::OwnerInvolvement;
@@ -556,7 +556,7 @@ async fn gate_rejects_illegal_llm_action_and_audits() {
         1,
         "the illegal action is audited exactly once"
     );
-    assert_eq!(rejected[0].data["who"], "pm");
+    assert_eq!(rejected[0].data["who"], "mei");
     assert!(
         rejected[0].data["reason"]
             .as_str()

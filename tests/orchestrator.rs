@@ -41,7 +41,7 @@ fn seed_requirement(state: &AppState) {
         .cursors
         .advance(
             "proj-orch",
-            "pm",
+            "mei",
             state.store.latest_sequence("proj-orch").unwrap(),
         )
         .unwrap();
@@ -152,7 +152,7 @@ async fn orchestrator_records_a_planning_run_in_diagnostics() {
     );
     let run = &proj.orchestration[0];
     assert_eq!(run.trigger, "DecisionMade");
-    assert_eq!(run.actor, "pm");
+    assert_eq!(run.actor, "mei");
     assert!(
         run.context_summary.contains("objective="),
         "context summary tells the reader what was handed in: {}",

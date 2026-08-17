@@ -587,7 +587,7 @@ impl Projection {
                 self.advisor_thread.push(Message {
                     id: e.aggregate.id.clone(),
                     from: actor_name(e),
-                    to: string_field(e, "to").unwrap_or_else(|| "advisor".into()),
+                    to: string_field(e, "to").unwrap_or_else(|| "jeeves".into()),
                     body: string_field(e, "body").unwrap_or_default(),
                 });
             }
@@ -596,7 +596,7 @@ impl Projection {
                 // PM reads: advisory (source "advisor"), summarizing the thread.
                 self.briefings.push(Briefing {
                     id: e.aggregate.id.clone(),
-                    source: "advisor".to_string(),
+                    source: "jeeves".to_string(),
                     subject: string_field(e, "subject").unwrap_or_default(),
                     title: string_field(e, "title").unwrap_or_default(),
                     body: string_field(e, "body").unwrap_or_default(),

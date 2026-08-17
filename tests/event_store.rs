@@ -9,7 +9,7 @@ use casting::store::{CursorStore, SqliteCursorStore};
 fn sample_event(project: &str, seq_data_extra: i64) -> Event {
     Event::new(
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskCreated,
         Aggregate {
             kind: "task".into(),
@@ -75,7 +75,7 @@ fn event_fields_round_trip_through_store() {
     assert_eq!(back.len(), 1);
     let got = &back[0];
     assert_eq!(got.event_type, EventType::TaskCreated);
-    assert_eq!(got.actor, Actor::Agent { id: "pm".into() });
+    assert_eq!(got.actor, Actor::Agent { id: "mei".into() });
     assert_eq!(got.aggregate.id, "task-42");
     assert_eq!(got.data["seq_marker"], 42);
     assert_eq!(got.sequence, stored.sequence);
@@ -108,14 +108,14 @@ fn cursor_starts_zero_and_advances_durably() {
 
     {
         let cursors = SqliteCursorStore::open(&cursor_path).unwrap();
-        let init = cursors.get("proj", "pm").unwrap();
+        let init = cursors.get("proj", "mei").unwrap();
         assert_eq!(init.last_seen, 0);
-        cursors.advance("proj", "pm", 1842).unwrap();
+        cursors.advance("proj", "mei", 1842).unwrap();
     }
 
     // Reopen: the position persisted.
     let cursors = SqliteCursorStore::open(&cursor_path).unwrap();
-    let after = cursors.get("proj", "pm").unwrap();
+    let after = cursors.get("proj", "mei").unwrap();
     assert_eq!(after.last_seen, 1842);
 
     // A different consumer has its own independent position.

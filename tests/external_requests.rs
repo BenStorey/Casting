@@ -19,7 +19,7 @@ fn append_request(st: &AppState, id: &str, source: &str, title: &str, labels: Ve
     st.append(Event::new(
         &st.project,
         // The request comes FROM OUTSIDE — the pm records it, not the director.
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::ExternalRequestReceived,
         Aggregate {
             kind: "external_request".into(),

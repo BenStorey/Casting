@@ -78,11 +78,11 @@ fn postgres_cursor_round_trip() {
     let Some(store) = connect() else { return };
     let proj = format!("pg-cursor-{}", uuid::Uuid::new_v4());
 
-    assert_eq!(store.get(&proj, "pm").unwrap().last_seen, 0);
-    store.advance(&proj, "pm", 42).unwrap();
-    assert_eq!(store.get(&proj, "pm").unwrap().last_seen, 42);
-    store.advance(&proj, "pm", 43).unwrap();
-    assert_eq!(store.get(&proj, "pm").unwrap().last_seen, 43);
+    assert_eq!(store.get(&proj, "mei").unwrap().last_seen, 0);
+    store.advance(&proj, "mei", 42).unwrap();
+    assert_eq!(store.get(&proj, "mei").unwrap().last_seen, 42);
+    store.advance(&proj, "mei", 43).unwrap();
+    assert_eq!(store.get(&proj, "mei").unwrap().last_seen, 43);
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn company_boots_and_onboards_entirely_on_postgres() {
             serde_json::json!({}),
         ))
         .unwrap();
-    for (id, role) in [("pm", "Project Manager"), ("diego", "Lead Developer")] {
+    for (id, role) in [("mei", "Project Manager"), ("diego", "Lead Developer")] {
         state
             .append(Event::new(
                 &project,
@@ -230,7 +230,7 @@ fn company_boots_and_onboards_entirely_on_postgres() {
         .cursors
         .advance(
             &project,
-            "pm",
+            "mei",
             state.store.latest_sequence(&project).unwrap(),
         )
         .unwrap();

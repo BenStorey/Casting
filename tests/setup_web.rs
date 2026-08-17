@@ -42,7 +42,7 @@ fn boot_api(auth: Option<&str>) -> axum::Router {
                 EventType::AgentHired,
                 Aggregate {
                     kind: "agent".into(),
-                    id: "pm".into(),
+                    id: "mei".into(),
                 },
                 serde_json::json!({ "role": "Project Manager" }),
             ))
@@ -176,7 +176,7 @@ async fn setup_is_idempotent_and_persists_token() {
             EventType::AgentHired,
             Aggregate {
                 kind: "agent".into(),
-                id: "pm".into(),
+                id: "mei".into(),
             },
             serde_json::json!({ "role": "Project Manager" }),
         ))

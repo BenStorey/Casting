@@ -22,13 +22,13 @@ fn make_state() -> AppState {
 fn cause_msg(seq: &str) -> Event {
     Event::new(
         "proj-sem",
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::MessageSent,
         casting::event::Aggregate {
             kind: "message".into(),
             id: format!("msg-{seq}"),
         },
-        serde_json::json!({ "to": "pm", "body": "watch out" }),
+        serde_json::json!({ "to": "mei", "body": "watch out" }),
     )
 }
 
@@ -43,7 +43,7 @@ fn risk_raises_and_resolves_via_the_gate() {
             subject: "Data loss during migration".into(),
             severity: "high".into(),
         })
-        .to_events("proj-sem", "pm", &cause, "corr-1");
+        .to_events("proj-sem", "mei", &cause, "corr-1");
         assert_eq!(evs[0].event_type, EventType::RiskRaised);
         for e in evs {
             state.append(e).unwrap();
@@ -55,7 +55,7 @@ fn risk_raises_and_resolves_via_the_gate() {
     assert_eq!(risk.subject, "Data loss during migration");
     assert_eq!(risk.severity, "high");
     assert_eq!(risk.status, RiskStatus::Open);
-    assert_eq!(risk.discovered_by, "pm");
+    assert_eq!(risk.discovered_by, "mei");
 
     // Resolve it through the gate (must exist).
     let ok = validate(
@@ -63,7 +63,7 @@ fn risk_raises_and_resolves_via_the_gate() {
             risk_id: "risk-1".into(),
             status: RiskStatus::Resolved,
         }),
-        "pm",
+        "mei",
         &proj,
         None,
     );
@@ -73,7 +73,7 @@ fn risk_raises_and_resolves_via_the_gate() {
         risk_id: "risk-1".into(),
         status: RiskStatus::Resolved,
     })
-    .to_events("proj-sem", "pm", &cause, "corr-2");
+    .to_events("proj-sem", "mei", &cause, "corr-2");
     for e in evs {
         state.append(e).unwrap();
     }
@@ -91,7 +91,7 @@ fn cannot_resolve_a_risk_that_does_not_exist() {
             risk_id: "risk-nope".into(),
             status: RiskStatus::Resolved,
         }),
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -108,7 +108,7 @@ fn assumptions_and_constraints_are_recorded_semantic_notes() {
         id: "assume-1".into(),
         body: "Users can reach the internet".into(),
     })
-    .to_events("proj-sem", "pm", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1")
     {
         state.append(ev).unwrap();
     }
@@ -116,16 +116,16 @@ fn assumptions_and_constraints_are_recorded_semantic_notes() {
         id: "constr-1".into(),
         body: "Must run in a single binary".into(),
     })
-    .to_events("proj-sem", "pm", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1")
     {
         state.append(ev).unwrap();
     }
 
     let proj = Projection::build(&state.store, "proj-sem").unwrap();
     assert_eq!(proj.assumptions[0].body, "Users can reach the internet");
-    assert_eq!(proj.assumptions[0].recorded_by, "pm");
+    assert_eq!(proj.assumptions[0].recorded_by, "mei");
     assert_eq!(proj.constraints[0].body, "Must run in a single binary");
-    assert_eq!(proj.constraints[0].recorded_by, "pm");
+    assert_eq!(proj.constraints[0].recorded_by, "mei");
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn open_risks_surface_in_the_plan_and_resolved_ones_do_not() {
         subject: "Migration data loss".into(),
         severity: "high".into(),
     })
-    .to_events("proj-sem", "pm", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1")
     {
         state.append(ev).unwrap();
     }
@@ -147,7 +147,7 @@ fn open_risks_surface_in_the_plan_and_resolved_ones_do_not() {
         subject: "Transient network blip".into(),
         severity: "low".into(),
     })
-    .to_events("proj-sem", "pm", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1")
     {
         state.append(ev).unwrap();
     }
@@ -155,7 +155,7 @@ fn open_risks_surface_in_the_plan_and_resolved_ones_do_not() {
         risk_id: "risk-closed".into(),
         status: RiskStatus::Resolved,
     })
-    .to_events("proj-sem", "pm", &cause, "corr-2")
+    .to_events("proj-sem", "mei", &cause, "corr-2")
     {
         state.append(ev).unwrap();
     }

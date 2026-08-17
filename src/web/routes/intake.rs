@@ -82,7 +82,7 @@ pub(crate) async fn brief_handler(
     }
     let action = crate::actions::PmAction::ImportBriefing {
         id: format!("brief-{}", uuid::Uuid::new_v4()),
-        source: input.source.unwrap_or_else(|| "advisor".to_string()),
+        source: input.source.unwrap_or_else(|| "jeeves".to_string()),
         subject: input.subject.unwrap_or_else(|| "general".to_string()),
         title: input
             .title

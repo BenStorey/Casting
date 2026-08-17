@@ -29,7 +29,7 @@ fn catalog_has_sane_roles_with_scopes() {
     // PM/Advisor are fixed coordinator/adviser roles, never hireable.
     for rid in ids {
         assert!(
-            !matches!(rid, "pm" | "advisor"),
+            !matches!(rid, "mei" | "jeeves"),
             "special role {rid} must NOT be a hireable catalog role"
         );
     }
@@ -156,13 +156,13 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
     // we show the proposal is valid and routes as a decision.
     let cause = casting::event::Event::new(
         "proj-cast",
-        casting::event::Actor::Agent { id: "pm".into() },
+        casting::event::Actor::Agent { id: "mei".into() },
         casting::event::EventType::MessageSent,
         casting::event::Aggregate {
             kind: "message".into(),
             id: "msg-1".into(),
         },
-        serde_json::json!({ "to": "pm", "body": "we need a devops person" }),
+        serde_json::json!({ "to": "mei", "body": "we need a devops person" }),
     );
     let proposal = casting::actions::PmAction::ProposeConsultant {
         id: "dc-1".into(),
@@ -172,10 +172,10 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
     };
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     assert!(
-        validate(&proposal, "pm", &proj, None).is_ok(),
+        validate(&proposal, "mei", &proj, None).is_ok(),
         "PM may propose a hire"
     );
-    for e in proposal.to_events("proj-cast", "pm", &cause, "corr-1") {
+    for e in proposal.to_events("proj-cast", "mei", &cause, "corr-1") {
         state.append(e).unwrap();
     }
 
@@ -250,7 +250,7 @@ async fn unknown_role_proposal_is_rejected() {
             role_id: "wizard".into(),
             involvement: casting::pm::policy::OwnerInvolvement::Pm,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -294,10 +294,10 @@ fn special_roles_cannot_be_assigned_tasks() {
     validate(
         &PmAction::AssignTask {
             task_id: "task-1".into(),
-            assignee: "pm".into(),
+            assignee: "mei".into(),
             merge_authority: casting::types::MergeAuthority::PmMerge,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -305,10 +305,10 @@ fn special_roles_cannot_be_assigned_tasks() {
     let err = validate(
         &PmAction::AssignTask {
             task_id: "task-1".into(),
-            assignee: "advisor".into(),
+            assignee: "jeeves".into(),
             merge_authority: casting::types::MergeAuthority::PmMerge,
         },
-        "pm",
+        "mei",
         &proj,
         None,
     )
@@ -333,7 +333,7 @@ fn special_roles_cannot_be_hired_as_agents() {
         AppState::new(store, cursors, "proj-cast")
     };
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
-    for special in ["pm", "advisor"] {
+    for special in ["mei", "jeeves"] {
         let err = validate(
             &PmAction::HireAgent {
                 agent_id: special.into(),

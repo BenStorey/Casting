@@ -186,7 +186,7 @@ fn main() -> Result<()> {
 fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
     let (mut subject, mut source, mut title) = (
         "general".to_string(),
-        "advisor".to_string(),
+        "jeeves".to_string(),
         "advisor briefing".to_string(),
     );
     let mut file: Option<&str> = None;
@@ -331,7 +331,7 @@ fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
             labels,
             url: None,
         };
-        casting::actions::validate(&action, "pm", &proj, None)?;
+        casting::actions::validate(&action, "mei", &proj, None)?;
 
         {
             use casting::event::{Actor, Aggregate, Event, EventType};
@@ -353,7 +353,7 @@ fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
                     )
                 });
             let ev = action
-                .to_events(&state.project, "pm", &cause, "request")
+                .to_events(&state.project, "mei", &cause, "request")
                 .into_iter()
                 .next()
                 .expect("ReceiveExternalRequest produces one event");
@@ -856,7 +856,7 @@ fn seed_project(state: &AppState) -> Result<()> {
         EventType::AgentHired,
         Aggregate {
             kind: "agent".into(),
-            id: "pm".into(),
+            id: "mei".into(),
         },
         serde_json::json!({"role": "Project Manager"}),
     ))?;
@@ -905,7 +905,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
     ))?;
 
     // PM + engineer hired.
-    for (id, role) in [("pm", "Project Manager"), ("diego", "Lead Developer")] {
+    for (id, role) in [("mei", "Project Manager"), ("diego", "Lead Developer")] {
         store.append(Event::new(
             project,
             Actor::System,
@@ -921,7 +921,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
     // PM creates a task and assigns it.
     let task_created = store.append(Event::new(
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskCreated,
         Aggregate {
             kind: "task".into(),
@@ -931,7 +931,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
     ))?;
     store.append(Event::new(
         project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskAssigned,
         Aggregate {
             kind: "task".into(),
@@ -947,7 +947,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
     );
 
     // PM's cursor: replay everything fresh, then persist position.
-    let pm_cursor = cursors.get(project, "pm")?;
+    let pm_cursor = cursors.get(project, "mei")?;
     println!(
         "PM cursor before: seq {} (resume point)",
         pm_cursor.last_seen
@@ -960,7 +960,7 @@ fn do_smoke(dir: &Path) -> Result<()> {
         );
     }
     let new_last = store.latest_sequence(project)?;
-    cursors.advance(project, "pm", new_last)?;
+    cursors.advance(project, "mei", new_last)?;
     println!("PM cursor advanced to seq {new_last}");
 
     // Prove idempotence / durability: a second read_since returns nothing.

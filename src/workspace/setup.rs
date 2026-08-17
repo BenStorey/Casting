@@ -240,7 +240,7 @@ fn apply_to_store(
         EventType::AgentHired,
         Aggregate {
             kind: "agent".into(),
-            id: "pm".into(),
+            id: "mei".into(),
         },
         serde_json::json!({ "role": "Project Manager" }),
     ))?;

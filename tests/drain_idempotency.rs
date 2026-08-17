@@ -46,7 +46,7 @@ fn owner_message(body: &str) -> Event {
             kind: "message".into(),
             id: "msg-director".into(),
         },
-        serde_json::json!({ "to": "pm", "body": body }),
+        serde_json::json!({ "to": "mei", "body": body }),
     )
 }
 
@@ -79,7 +79,7 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
     state
         .append(Event::new(
             "proj-idem",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::RequirementCreated,
             Aggregate {
                 kind: "requirement".into(),
@@ -97,7 +97,7 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
         title: "Design Build a todo app".into(),
         kind: "feature".into(),
     }
-    .to_events("proj-idem", "pm", &cause, &corr);
+    .to_events("proj-idem", "mei", &cause, &corr);
     for e in task_created {
         state.append(e).unwrap();
     }
@@ -106,7 +106,7 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
         assignee: "marcus-reed".into(),
         merge_authority: casting::types::MergeAuthority::SelfMerge,
     }
-    .to_events("proj-idem", "pm", &cause, &corr);
+    .to_events("proj-idem", "mei", &cause, &corr);
     for e in task_assigned {
         state.append(e).unwrap();
     }
@@ -169,7 +169,7 @@ async fn reentry_preserves_audit_events_unchanged() {
     state
         .append(Event::new(
             "proj-idem",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::RequirementCreated,
             Aggregate {
                 kind: "requirement".into(),
@@ -181,7 +181,7 @@ async fn reentry_preserves_audit_events_unchanged() {
     state
         .append(Event::new(
             "proj-idem",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskCreated,
             Aggregate {
                 kind: "task".into(),
@@ -206,7 +206,7 @@ async fn reentry_preserves_audit_events_unchanged() {
                     id: corr.clone(),
                 },
                 serde_json::json!({
-                    "who": "pm",
+                    "who": "mei",
                     "action": format!("action-{i}"),
                     "reason": reason,
                     "correlation": corr,
@@ -225,10 +225,10 @@ async fn reentry_preserves_audit_events_unchanged() {
             },
             serde_json::json!({
                 "trigger": "MessageSent",
-                "actor": "pm",
+                "actor": "mei",
                 "correlation": corr,
                 "context_summary": "objective=Build a todo app",
-                "planned": ["pm -> create_task"],
+                "planned": ["mei -> create_task"],
                 "metered": false,
             }),
         ))

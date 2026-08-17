@@ -43,7 +43,7 @@ fn context_priorities_carry_relevance_scores() {
     // Two tasks: one assigned to marcus (mine), one high-priority unassigned.
     st.append(Event::new(
         &st.project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskCreated,
         Aggregate {
             kind: "task".into(),
@@ -54,7 +54,7 @@ fn context_priorities_carry_relevance_scores() {
     .unwrap();
     st.append(Event::new(
         &st.project,
-        Actor::Agent { id: "pm".into() },
+        Actor::Agent { id: "mei".into() },
         EventType::TaskAssigned,
         Aggregate {
             kind: "task".into(),

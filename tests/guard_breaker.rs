@@ -47,7 +47,7 @@ fn incur(state: &AppState, usd: f64) {
                 id: format!("cost-{}", uuid_like()),
             },
             serde_json::json!({
-                "agent_id": "pm",
+                "agent_id": "mei",
                 "model_tier": "flash",
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
@@ -248,7 +248,7 @@ fn only_owner_can_set_budget_or_resume() {
                 limit_usd: 10.0,
                 warn_at: None
             },
-            "pm",
+            "mei",
             &p,
             None
         ),
@@ -260,7 +260,7 @@ fn only_owner_can_set_budget_or_resume() {
     ));
     // PM may not pause work either.
     assert!(matches!(
-        validate(&PmAction::PauseWork { reason: "r".into() }, "pm", &p, None),
+        validate(&PmAction::PauseWork { reason: "r".into() }, "mei", &p, None),
         Err(PolicyError::GuardAuthority(_))
     ));
     // Owner may do all three; system may pause (watchdog) but not set budget.

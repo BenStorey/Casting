@@ -34,7 +34,7 @@ fn requirement(state: &AppState, title: &str) {
     state
         .append(Event::new(
             "proj-ctx",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::RequirementCreated,
             Aggregate {
                 kind: "requirement".into(),
@@ -49,7 +49,7 @@ fn task(state: &AppState, id: &str, title: &str, kind: &str, assignee: &str) {
     state
         .append(Event::new(
             "proj-ctx",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskCreated,
             Aggregate {
                 kind: "task".into(),
@@ -61,7 +61,7 @@ fn task(state: &AppState, id: &str, title: &str, kind: &str, assignee: &str) {
     state
         .append(Event::new(
             "proj-ctx",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::TaskAssigned,
             Aggregate {
                 kind: "task".into(),
@@ -116,7 +116,7 @@ fn open_decision(state: &AppState, id: &str, subject: &str) {
     state
         .append(Event::new(
             "proj-ctx",
-            Actor::Agent { id: "pm".into() },
+            Actor::Agent { id: "mei".into() },
             EventType::DecisionProposed,
             Aggregate {
                 kind: "decision".into(),

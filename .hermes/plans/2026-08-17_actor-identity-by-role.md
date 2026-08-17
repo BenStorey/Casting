@@ -1,7 +1,7 @@
 # Deduplicate actor identity: stop the file structure from leaking into the app
 
 **Date:** 2026-08-17
-**Status:** in progress
+**Status:** in progress — Phase 1 (role-based resolution) committed & green; Phase 2 (rename ids pm→mei, advisor→jeeves) in flight: packages/dirs/seeds/data/docs updated, test sweep being updated.
 **Owner:** Ben + Hermes
 
 ## Problem

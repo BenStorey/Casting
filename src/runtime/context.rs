@@ -250,13 +250,13 @@ impl crate::projection::Projection {
     /// Emitters/planners use this instead of a hardcoded "pm" string.
     pub fn pm_id(&self) -> &str {
         self.actor_for_role(crate::consultants::cast_role::CastRole::ProjectManager)
-            .unwrap_or("pm")
+            .unwrap_or("mei")
     }
 
     /// The actor id currently filling the Advisor role (role-resolved).
     pub fn advisor_id(&self) -> &str {
         self.actor_for_role(crate::consultants::cast_role::CastRole::Advisor)
-            .unwrap_or("advisor")
+            .unwrap_or("jeeves")
     }
 
     /// True if `actor` is the Project Manager, resolved by role.
