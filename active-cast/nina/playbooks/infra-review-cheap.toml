@@ -1,0 +1,30 @@
+[playbook]
+id        = "infra-review-cheap"
+version   = 1
+title     = "Quick infrastructure survey"
+problem   = "architecture-review"
+summary   = "Quick survey with budget model — no premium critique step."
+cost_class= "architecture"
+cost_band = "cheap"
+when        = ["quick check", "spot", "health", "cursory"]
+
+[[playbook.steps]]
+id        = "survey"
+title     = "Write ARCHITECTURE.md from the tree"
+model     = "budget"
+prompt    = """Write ARCHITECTURE.md covering modules, data stores, trust boundaries, and
+deploy shape. Do not judge. Cite file paths. Stop when the map is complete.
+"""
+artifact  = "ARCHITECTURE.md"
+produces  = "survey"
+
+[[playbook.steps]]
+id        = "ground"
+title     = "Spot-check the survey against cited files"
+model     = "budget"
+prompt    = """Spot-check the survey against the cited files. Mark each claim confirmed,
+vague, or wrong in verdict.json. Do not add new findings.
+"""
+artifact  = "verdict.json"
+produces  = "verdict"
+reads     = ["survey"]

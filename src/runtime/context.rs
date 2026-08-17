@@ -53,6 +53,34 @@ pub struct PlaybookCard {
     pub consultant_id: String,
 }
 
+/// A compact card summarising one of a consultant's private skill/knowledge
+/// slices, for routing + differentiation reasoning by the PM/orchestrator.
+/// `kind` is "skill" or "knowledge"; the char budget hints at injection cost.
+#[derive(Debug, Clone, Serialize)]
+pub struct AssetCard {
+    pub id: String,
+    pub title: String,
+    /// "skill" | "knowledge".
+    pub kind: String,
+    pub char_budget: usize,
+    pub consultant_id: String,
+}
+
+/// A single skill/knowledge slice resolved for injection into a playbook
+/// step's context. The step executor resolves the step's `requires_skills` /
+/// `requires_knowledge` ids against the executing consultant's banks and
+/// fills these with the exact bodies, so the orchestrator can inline only
+/// what the step declared (never the whole bank).
+#[derive(Debug, Clone, Serialize)]
+pub struct InjectedSlice {
+    /// Which bank it came from: "skill" | "knowledge".
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    /// The slice body (already truncated to the slice's `char_budget`).
+    pub body: String,
+}
+
 /// Runtime state of the currently-executing step within a playbook. Populated
 /// by the step executor when a playbook's step is dispatched, and cleared
 /// when the step completes.
@@ -65,6 +93,10 @@ pub struct ActiveStepContext {
     pub reads_artifact_paths: Vec<String>,
     pub produces_artifact: String,
     pub worktree_path: Option<String>,
+    /// Skill/knowledge slices this step requires, resolved to their bodies.
+    /// Injected into the model context by the orchestrator (capped + metered).
+    #[serde(default)]
+    pub required_slices: Vec<InjectedSlice>,
 }
 
 /// A targeted operating context for a single actor (an agent, the PM, or the
@@ -108,6 +140,12 @@ pub struct AgentContext {
     /// consultant offers. Populated from the consultant registry at context
     /// assembly time.
     pub available_playbooks: Vec<PlaybookCard>,
+    /// The actor's private skills/knowledge bank, surfaced as cards so the
+    /// PM/orchestrator can reason over differentiation: "which assignee holds
+    /// the skill/knowledge this task needs". Populated alongside
+    /// `available_playbooks` from the consultant registry.
+    #[serde(default)]
+    pub available_assets: Vec<AssetCard>,
     /// The step currently being executed within an active playbook, if any.
     /// Set by the step executor at dispatch; cleared on step completion.
     pub active_step: Option<ActiveStepContext>,
@@ -132,8 +170,17 @@ pub struct WorktreeInfo {
 /// Truncate text to `max` characters at a char boundary (not byte-slicing).
 /// Appends "…" when truncated. Safe for multi-byte text.
 fn truncate(s: &str, max: usize) -> String {
+    truncate_chars(s, max)
+}
+
+/// Public char-boundary truncation (used by the consultant asset resolver for
+/// bounded slice injection). Truncates to `max` chars, appending "…" when it
+/// must cut. A `max` of 0 returns empty. Safe for multi-byte text (no panics).
+pub fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
+    } else if max == 0 {
+        String::new()
     } else {
         format!("{}…", s.chars().take(max).collect::<String>())
     }
@@ -157,7 +204,7 @@ pub fn summary(ctx: &AgentContext) -> String {
         })
         .unwrap_or_else(|| "<no objective>".to_string());
     format!(
-        "objective=\"{obj}\"; priorities={} my_tasks={} agents={} task_assignments={} directives={} risks={} decisions={} briefings={} playbooks={} active_step={}",
+        "objective=\"{obj}\"; priorities={} my_tasks={} agents={} task_assignments={} directives={} risks={} decisions={} briefings={} playbooks={} assets={} active_step={}",
         ctx.priorities.len(),
         ctx.my_tasks.len(),
         ctx.agents.len(),
@@ -167,6 +214,7 @@ pub fn summary(ctx: &AgentContext) -> String {
         ctx.open_decisions.len(),
         ctx.advisory_briefings.len(),
         ctx.available_playbooks.len(),
+        ctx.available_assets.len(),
         ctx.active_step.is_some(),
     )
 }
@@ -299,6 +347,7 @@ impl crate::projection::Projection {
             external_requests,
             worktree,
             available_playbooks: Vec::new(),
+            available_assets: Vec::new(),
             active_step: None,
         }
     }

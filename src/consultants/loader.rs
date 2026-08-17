@@ -2,18 +2,36 @@
 //! with the binary from the `active-cast/` directory) plus **filesystem overlays**
 //! from `<project>/.casting/consultants/` (user-dropped or id-replacing packages).
 //!
-//! Every consultant TOML file is self-contained — the `system_prompt` field
-//! carries the prompt text inline (not a file path). Playbooks are also inline
-//! as `[[consultant.playbooks]]` tables with `[[consultant.playbooks.steps]]`.
-//! This keeps each consultant fully self-contained.
+//! Since 2026-08-17 each consultant is its own **directory named by consultant
+//! id**, not a single flat TOML. A directory package has a fixed structure:
 //!
-//! Validation is strict and fail-closed: a package with an unknown cast_role,
-//! an empty id/name, an out-of-range temperature, or invalid playbook data is
-//! rejected loudly.
+//! ```text
+//! <id>/
+//!   consultant.toml        // manifest: identity, role, models, routing,
+//!                          //   skills/knowledge indices, playbook refs
+//!   system_prompt.md       // optional persona (referenced by system_prompt_file)
+//!   skills/<slice>.md      // optional capability/procedure slices
+//!   knowledge/<slice>.md   // optional declarative-reference slices
+//!   playbooks/<pb>.toml    // optional, one playbook per file
+//! ```
+//!
+//! The manifest keeps identity/role/models/routing inline; the persona and
+//! asset/playbook *bodies* live in referenced files (resolved at load time),
+//! so large language references never bloat the manifest. A legacy single-file
+//! package (inline `system_prompt` + inline `[[consultant.playbooks]]`) is still
+//! accepted for backward compatibility in overlays.
+//!
+//! Validation is strict and fail-closed: an unknown cast_role, empty id/name,
+//! out-of-range temperature, invalid playbook, unresolved referenced file, or
+//! a playbook step requiring a skill/knowledge slice the consultant does not
+//! own — each rejects the whole package loudly.
 
 use super::cast_role::CastRole;
 use super::playbook::validate_playbook;
-use super::{ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig, VerificationConfig};
+use super::{
+    AssetSlice, ConsultantConfig, ConsultantRegistry, ModelConfig, RoutingConfig,
+    VerificationConfig,
+};
 use anyhow::{bail, Context, Result};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
@@ -44,9 +62,13 @@ struct RawConsultant {
     avatar: Option<String>,
     #[serde(default)]
     summary: Option<String>,
-    /// Inline system prompt text. Self-contained — no file path resolution.
+    /// Inline system prompt text (legacy single-file packages, backward compat).
     #[serde(default)]
     system_prompt: Option<String>,
+    /// Reference to the package-relative persona file (e.g. "system_prompt.md").
+    /// Preferred over inline. Unresolved ref rejects the package.
+    #[serde(default)]
+    system_prompt_file: Option<String>,
     #[serde(default)]
     routing: RoutingConfig,
     /// The ordered model chain (preferred first). Backward-compatible with the
@@ -69,9 +91,42 @@ struct RawConsultant {
     /// worktree slots). Defaults to 1.
     #[serde(default = "default_max_concurrent")]
     max_concurrent: usize,
-    /// Playbooks this consultant offers (inline TOML tables).
+    /// Playbooks this consultant offers. In the directory layout these are
+    /// references (`[[consultant.playbooks]] file = "playbooks/x.toml"`); the
+    /// inline full-playbook form (`id`/`version`/... with steps) is kept for
+    /// legacy single-file packages.
     #[serde(default)]
-    playbooks: Vec<super::playbook::Playbook>,
+    playbooks: Vec<RawPlaybookRef>,
+    /// The consultant's private **skills** bank — procedure slices.
+    #[serde(default)]
+    skills: Vec<RawAssetSlice>,
+    /// The consultant's private **knowledge** bank — declarative-reference slices.
+    #[serde(default)]
+    knowledge: Vec<RawAssetSlice>,
+}
+
+/// A playbook entry in the manifest: either a reference to a package-relative
+/// file (directory layout) or an inline playbook (legacy single-file).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawPlaybookRef {
+    /// `file = "playbooks/x.toml"` — one playbook per file.
+    File { file: String },
+    /// Inline full playbook with steps (legacy).
+    Inline(super::playbook::Playbook),
+}
+
+/// A skill/knowledge slice reference in the manifest (body lives in a file).
+#[derive(Debug, Deserialize)]
+struct RawAssetSlice {
+    id: String,
+    #[serde(default)]
+    title: String,
+    /// Package-relative file (e.g. "skills/kdb-language.md").
+    file: String,
+    /// Max chars of this slice's body the orchestrator may inject at a step.
+    #[serde(default)]
+    char_budget: usize,
 }
 
 fn default_assignable() -> bool {
@@ -82,25 +137,42 @@ fn default_max_concurrent() -> usize {
     1
 }
 
+/// Reads a package-relative file. Returns `Ok(None)` if absent, `Err` if it
+/// exists but cannot be read (embedded UTF-8 error, filesystem IO error).
+
 impl ConsultantRegistry {
     /// Load the curated default set embedded in the binary (the `active-cast/`
-    /// directory of self-contained TOML packages). Validates that all 7
+    /// directory of per-consultant package directories). Validates that all 7
     /// CastRole variants are present. Fails loudly if a package is malformed.
     pub fn from_embedded() -> Result<Self> {
-        let mut names: Vec<String> = ConsultantAssets::iter()
+        // Enumerate package ids = top-level directories under active-cast/.
+        let ids: std::collections::BTreeSet<String> = ConsultantAssets::iter()
             .map(|p| p.to_string())
-            .filter(|p| p.ends_with(".toml") && !p.contains('/'))
+            .filter_map(|p| p.split('/').next().map(String::from))
             .collect();
-        names.sort();
 
         let mut configs = Vec::new();
-        for name in names {
-            let file = ConsultantAssets::get(&name).context("embed missing consultant package")?;
-            let text =
-                std::str::from_utf8(&file.data).context("consultant package not valid UTF-8")?;
+        for id in ids {
+            let manifest = ConsultantAssets::get(&format!("{id}/consultant.toml"))
+                .with_context(|| format!("package '{id}' missing consultant.toml"))?;
+            let text = std::str::from_utf8(&manifest.data)
+                .with_context(|| format!("package '{id}' manifest not valid UTF-8"))?
+                .to_string();
             let wrapped: ConsultantFile =
-                toml::from_str(text).with_context(|| format!("parse {name}"))?;
-            configs.push(from_raw(wrapped.consultant).with_context(|| format!("validate {name}"))?);
+                toml::from_str(&text).with_context(|| format!("parse {id}/consultant.toml"))?;
+            let mut read = |rel: &str| -> Result<Option<String>> {
+                let Some(f) = ConsultantAssets::get(&format!("{id}/{rel}")) else {
+                    return Ok(None);
+                };
+                Ok(Some(
+                    std::str::from_utf8(&f.data)
+                        .with_context(|| format!("package '{id}' file '{rel}' not UTF-8"))?
+                        .to_string(),
+                ))
+            };
+            let cfg = from_package(wrapped.consultant, &mut read)
+                .with_context(|| format!("validate {id}"))?;
+            configs.push(cfg);
         }
         let reg = build_defaults(configs)?;
         // Validate all 7 roles are present.
@@ -116,31 +188,78 @@ impl ConsultantRegistry {
     /// Overlay user-supplied consultant packages from `dir` (the collocated
     /// `<project>/.casting/consultants/` directory) onto this registry.
     ///
+    /// A package directory here is `<dir>/<id>/` (its own consultant.toml +
+    /// referenced files). A legacy flat `<dir>/<id>.toml` single-file package
+    /// is also accepted for backward compatibility and normalized the same way.
+    ///
     /// A new `id` adds a consultant; an id matching an existing one **replaces**
     /// it (the user overrides a default by reusing its id). A missing directory
-    /// is a no-op; a malformed present file is an error the caller can surface.
+    /// is a no-op; a malformed present package is an error the caller can surface.
     pub fn overlay_dir(&mut self, dir: &Path) -> Result<usize> {
         if !dir.is_dir() {
             return Ok(0);
         }
-        let mut names: Vec<String> = std::fs::read_dir(dir)
+        let mut entries: Vec<String> = std::fs::read_dir(dir)
             .with_context(|| format!("read {}", dir.display()))?
             .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|p| p.ends_with(".toml"))
+            .map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let full = dir.join(&name);
+                (name, full)
+            })
+            .filter(|(name, full)| name.ends_with(".toml") || full.is_dir())
+            .map(|(name, _)| name)
             .collect();
-        names.sort();
+        entries.sort();
 
         let mut loaded = 0;
-        for name in names {
+        for name in entries {
             let path = dir.join(&name);
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            let wrapped: ConsultantFile =
-                toml::from_str(&text).with_context(|| format!("parse {name}"))?;
-            let cfg = from_raw(wrapped.consultant).with_context(|| format!("validate {name}"))?;
-            overlay_insert(self, cfg);
-            loaded += 1;
+            if path.is_dir() {
+                // Directory package: <id>/consultant.toml + referenced files.
+                let manifest_path = path.join("consultant.toml");
+                let text = match std::fs::read_to_string(&manifest_path) {
+                    Ok(t) => t,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        // A directory that isn't a consultant package (e.g. a
+                        // stray README dir) is skipped, not fatal.
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e).with_context(|| format!("read {}", manifest_path.display()))
+                    }
+                };
+                let wrapped: ConsultantFile = toml::from_str(&text)
+                    .with_context(|| format!("parse {}/consultant.toml", path.display()))?;
+                let mut read = |rel: &str| -> Result<Option<String>> {
+                    let p = path.join(rel);
+                    if !p.is_file() {
+                        return Ok(None);
+                    }
+                    Ok(Some(std::fs::read_to_string(&p)?))
+                };
+                let cfg = from_package(wrapped.consultant, &mut read)
+                    .with_context(|| format!("validate {}", path.display()))?;
+                let id = cfg.id.clone();
+                if id != name {
+                    bail!(
+                        "overlay package directory '{}' must be named by its consultant id ('{id}')",
+                        name
+                    );
+                }
+                overlay_insert(self, cfg);
+                loaded += 1;
+            } else {
+                // Legacy flat single-file package: <id>.toml (inline everything).
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                let wrapped: ConsultantFile =
+                    toml::from_str(&text).with_context(|| format!("parse {name}"))?;
+                let cfg = from_package(wrapped.consultant, &mut |_| Ok(None))
+                    .with_context(|| format!("validate {name}"))?;
+                overlay_insert(self, cfg);
+                loaded += 1;
+            }
         }
         Ok(loaded)
     }
@@ -187,9 +306,45 @@ fn insert(reg: &mut ConsultantRegistry, cfg: ConsultantConfig) {
     reg.by_role.entry(role).or_insert(Arc::new(cfg));
 }
 
-/// Validate + normalize a raw package into a `ConsultantConfig`. The
-/// `system_prompt` is inline text (no file path resolution).
-fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
+/// Load referenced files for an asset slice ref. A missing referenced file
+/// rejects the package (fail-closed).
+fn load_slice(
+    id: &str,
+    bank: &str,
+    raw: RawAssetSlice,
+    read: &mut dyn FnMut(&str) -> Result<Option<String>>,
+) -> Result<AssetSlice> {
+    if raw.id.trim().is_empty() {
+        bail!("consultant '{id}' {bank} slice has empty id");
+    }
+    if raw.file.trim().is_empty() {
+        bail!("consultant '{id}' {bank} slice '{}' has no file", raw.id);
+    }
+    let body = read(&raw.file)
+        .with_context(|| format!("consultant '{id}' {bank} slice '{}'", raw.id))?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "consultant '{id}' {bank} slice '{}' references missing file '{}'",
+                raw.id,
+                raw.file
+            )
+        })?;
+    Ok(AssetSlice {
+        id: raw.id,
+        title: raw.title,
+        file: raw.file,
+        char_budget: raw.char_budget,
+        body,
+    })
+}
+
+/// Validate + normalize a raw package into a `ConsultantConfig`. The persona
+/// and asset/playbook bodies are resolved through `read` (package-relative;
+/// a closure over the embedded archive or the overlay filesystem).
+fn from_package(
+    raw: RawConsultant,
+    read: &mut dyn FnMut(&str) -> Result<Option<String>>,
+) -> Result<ConsultantConfig> {
     let id = raw.id.trim().to_string();
     if id.is_empty() {
         bail!("consultant id may not be empty");
@@ -228,14 +383,94 @@ fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
         }
     }
 
-    // system_prompt is inline text — use it directly.
-    let system_prompt = raw.system_prompt.filter(|s| !s.is_empty());
+    // Persona: prefer the referenced file, else the inline text (legacy).
+    let (system_prompt_file, system_prompt) = match &raw.system_prompt_file {
+        Some(f) if !f.trim().is_empty() => {
+            let body = read(f)
+                .with_context(|| format!("consultant '{id}' system_prompt_file '{f}'"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "consultant '{id}' system_prompt_file '{f}' references a missing file"
+                    )
+                })?;
+            (Some(f.clone()), Some(body))
+        }
+        _ => (None, raw.system_prompt.filter(|s| !s.is_empty())),
+    };
 
-    // Validate playbooks
-    let playbooks = raw.playbooks;
+    // Load the private skills + knowledge banks (referenced files).
+    let mut skills = Vec::with_capacity(raw.skills.len());
+    for raw_slice in raw.skills {
+        skills.push(load_slice(&id, "skills", raw_slice, read)?);
+    }
+    let mut knowledge = Vec::with_capacity(raw.knowledge.len());
+    for raw_slice in raw.knowledge {
+        knowledge.push(load_slice(&id, "knowledge", raw_slice, read)?);
+    }
+    // Slice ids must be unique within a bank (fail-closed, ambiguous injection).
+    for bank in ["skills", "knowledge"] {
+        let slices = if bank == "skills" {
+            &skills
+        } else {
+            &knowledge
+        };
+        let mut seen = std::collections::HashSet::new();
+        for s in slices {
+            if !seen.insert(s.id.clone()) {
+                bail!("consultant '{id}' duplicate {bank} slice id '{}'", s.id);
+            }
+        }
+    }
+
+    // Playbooks: inline (legacy) + referenced files, in declared order.
+    let mut playbooks = Vec::new();
+    for entry in raw.playbooks {
+        match entry {
+            RawPlaybookRef::Inline(pb) => playbooks.push(pb),
+            RawPlaybookRef::File { file } => {
+                if file.trim().is_empty() {
+                    bail!("consultant '{id}' has an empty playbook file reference");
+                }
+                let text = read(&file)
+                    .with_context(|| format!("consultant '{id}' playbook file '{file}'"))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "consultant '{id}' playbook file '{file}' references a missing file"
+                        )
+                    })?;
+                #[derive(Deserialize)]
+                struct PlaybookFile {
+                    playbook: super::playbook::Playbook,
+                }
+                let pbf: PlaybookFile = toml::from_str(&text)
+                    .with_context(|| format!("consultant '{id}' playbook file '{file}'"))?;
+                playbooks.push(pbf.playbook);
+            }
+        }
+    }
     for pb in &playbooks {
         validate_playbook(pb, &id)
             .map_err(|e| anyhow::anyhow!("playbook '{}' in consultant '{id}': {e}", pb.id))?;
+        // Fail-closed: every step's requires_skills/requires_knowledge must
+        // resolve against this consultant's banks.
+        for step in &pb.steps {
+            for sk in &step.requires_skills {
+                if !skills.iter().any(|s| &s.id == sk) {
+                    bail!(
+                        "playbook '{}' in consultant '{id}' step '{}' requires skill '{}' which '{}' does not own",
+                        pb.id, step.id, sk, id
+                    );
+                }
+            }
+            for k in &step.requires_knowledge {
+                if !knowledge.iter().any(|s| &s.id == k) {
+                    bail!(
+                        "playbook '{}' in consultant '{id}' step '{}' requires knowledge '{}' which '{}' does not own",
+                        pb.id, step.id, k, id
+                    );
+                }
+            }
+        }
     }
 
     Ok(ConsultantConfig {
@@ -248,7 +483,7 @@ fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
         scope,
         avatar: raw.avatar,
         summary: raw.summary,
-        system_prompt_file: None,
+        system_prompt_file,
         system_prompt,
         routing: raw.routing,
         models,
@@ -256,5 +491,7 @@ fn from_raw(raw: RawConsultant) -> Result<ConsultantConfig> {
         max_concurrent: raw.max_concurrent.max(1),
         verification: raw.verification,
         playbooks,
+        skills,
+        knowledge,
     })
 }

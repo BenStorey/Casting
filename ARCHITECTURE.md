@@ -837,6 +837,53 @@ PM actor turn (budget model) ← FIRST AND ONLY LLM CALL
 - `HireAgent` still rejects `"pm"` — the PM is a built-in role, not hirable.
 - `actors_with_work` in `src/pm/planning.rs` includes the PM when they have self-assigned tasks (the "pm" carve-out bypasses the standard `agents.contains()` check).
 
+### 14.7 Consultant Packages — Directory Layout & Private Asset Banks (2026-08-17)
+
+Each consultant is its own **directory named by consultant id** (`active-cast/<id>/`),
+not a single flat TOML — so a consultant can carry large reference material and
+a set of private capabilities, and is the natural unit for future sharing/marketplace.
+
+```
+active-cast/<id>/
+  consultant.toml         # manifest: identity, role, models, routing, indices
+  system_prompt.md        # persona (referenced via system_prompt_file)
+  skills/<slice>.md       # capability/procedure slices (differentiator)
+  knowledge/<slice>.md    # declarative reference slices (makes it smarter)
+  playbooks/<pb>.toml     # one playbook per file ([playbook] top-level table)
+```
+
+The manifest keeps identity/role/models/routing inline and **references** the
+persona + asset/playbook bodies by relative path (resolved at load time, so
+large references never bloat the manifest). A legacy single-file package
+(inline `system_prompt` + inline `[[consultant.playbooks]]`) still loads for
+overlay backward compatibility.
+
+**Asset banks (`skills` + `knowledge`)** — a uniform `AssetSlice` used two ways:
+- **skills** = procedures — what this consultant can do that others can't. Surfaced
+  to the PM for routing so it can reason over differentiation.
+- **knowledge** = reference facts — language docs, API cheatsheets — that make the
+  consultant smarter.
+
+Each slice has a `char_budget`. **Playbook steps declare the exact slices they need:**
+
+```toml
+[[playbook.steps]]
+id        = "survey"
+...
+requires_knowledge = ["casting-conventions"]
+requires_skills    = ["worktree-commits"]
+```
+
+At step dispatch the step executor resolves `requires_*` ids against the owning
+consultant's banks (`ConsultantConfig::required_slices`) and the orchestrator
+inlines **only those exact bodies** (truncated to each slice's `char_budget`) into
+the step prompt — never the whole bank. Slices carry through the existing
+cost/budget seam. Loading is **fail-closed**: a step requiring a slice the
+consultant doesn't own rejects the whole package.
+
+`AgentContext.available_assets` surfaces every consultant's skill/knowledge cards
+to the PM (alongside `available_playbooks`) for routing/differentiation reasoning.
+
 ---
 
 ## 15. Reconciler & Drift Management

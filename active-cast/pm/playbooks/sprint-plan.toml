@@ -1,0 +1,29 @@
+[playbook]
+id        = "sprint-plan"
+version   = 1
+title     = "Sprint planning"
+problem   = "planning"
+summary   = "Gather current state and produce a prioritized sprint plan. Standard model."
+cost_class= "planning"
+cost_band = "medium"
+
+[[playbook.steps]]
+id        = "gather"
+title     = "Gather project state"
+model     = "budget"
+prompt    = """Read the current project state: open tasks, active risks, pending decisions,
+and available cast. Summarize in state_snapshot.json.
+"""
+artifact  = "state_snapshot.json"
+produces  = "gather"
+
+[[playbook.steps]]
+id        = "plan"
+title     = "Produce sprint plan"
+model     = "standard"
+prompt    = """Read state_snapshot.json. Produce a prioritized sprint plan with task
+assignments, estimated effort, and dependency ordering. Write sprint_plan.json.
+"""
+artifact  = "sprint_plan.json"
+produces  = "plan"
+reads     = ["gather"]

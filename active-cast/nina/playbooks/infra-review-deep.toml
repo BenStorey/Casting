@@ -1,0 +1,42 @@
+[playbook]
+id        = "infra-review-deep"
+version   = 1
+title     = "Comprehensive infrastructure review"
+problem   = "architecture-review"
+summary   = "Cheap survey, then an expensive critique, then cheap grounding of each finding."
+cost_class= "architecture"
+cost_band = "expensive"
+when        = ["deep", "full scan", "comprehensive", "thorough", "infra", "health review", "scalability"]
+
+[[playbook.steps]]
+id        = "survey"
+title     = "Write ARCHITECTURE.md from the tree"
+model     = "budget"
+prompt    = """Write ARCHITECTURE.md covering modules, data stores, trust boundaries, and
+deploy shape. Do not judge. Cite file paths. Stop when the map is complete.
+"""
+artifact  = "ARCHITECTURE.md"
+produces  = "survey"
+
+[[playbook.steps]]
+id        = "critique"
+title     = "Critique the survey, not the raw tree"
+model     = "premium"
+prompt    = """Read ARCHITECTURE.md only. Emit findings.json: [{id, claim, files[], severity}].
+Do not open files the survey did not cite unless a finding requires one path.
+"""
+artifact  = "findings.json"
+produces  = "findings"
+reads     = ["survey"]
+
+[[playbook.steps]]
+id        = "ground"
+title     = "Confirm or kill each finding against the code"
+model     = "budget"
+prompt    = """For each finding in findings.json, open the cited files and mark
+confirmed|rejected|needs-human with a one-line reason. Write verdict.json.
+Do not add new findings.
+"""
+artifact  = "verdict.json"
+produces  = "verdict"
+reads     = ["findings"]

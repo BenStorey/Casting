@@ -1,0 +1,44 @@
+[playbook]
+id        = "security-adversarial-review"
+version   = 1
+title     = "Security & adversarial review"
+problem   = "security-review"
+summary   = "Budget survey of the codebase, premium adversarial stress critique, then budget grounding of each finding."
+cost_class= "security"
+cost_band = "expensive"
+
+[[playbook.steps]]
+id        = "survey"
+title     = "Survey the codebase structure"
+model     = "budget"
+prompt    = """Read the relevant source files and map the data flow: inputs, transformations,
+persistence, external calls, and output. List every trust boundary. Write
+codebase_map.json.
+"""
+artifact  = "codebase_map.json"
+produces  = "survey"
+
+[[playbook.steps]]
+id        = "critique"
+title     = "Adversarial stress analysis"
+model     = "premium"
+prompt    = """Read codebase_map.json. For each trust boundary, enumerate concrete adversarial
+scenarios: what happens under hostile input, resource exhaustion, concurrent
+access, partial failure, and privilege escalation. Each scenario must be
+testable. Write scenarios.json.
+"""
+artifact  = "scenarios.json"
+produces  = "critique"
+reads     = ["survey"]
+
+[[playbook.steps]]
+id        = "ground"
+title     = "Ground each scenario against the actual code"
+model     = "budget"
+prompt    = """For each scenario in scenarios.json, open the cited files and verify the risk
+is real: confirmed | rejected | needs-human. For confirmed findings, suggest a
+concrete remediation. Write verdict.json.
+"""
+artifact  = "verdict.json"
+produces  = "verdict"
+reads     = ["critique"]

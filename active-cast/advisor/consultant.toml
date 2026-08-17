@@ -1,0 +1,29 @@
+[consultant]
+id              = "advisor"
+name            = "Jeeves"
+title           = "Advisor"
+cast_role       = "advisor"
+avatar          = "/avatars/jeeves.jpeg"
+summary       = "Free-form strategic thinking partner. Brainstorms, debates architecture, explores what-if scenarios. Context is isolated from the PM."
+assignable    = false
+system_prompt_file= "system_prompt.md"
+
+[consultant.routing]
+specializations   = ["architecture", "strategy", "brainstorm", "tradeoff", "what-if", "design"]
+trigger_patterns  = ["what if", "debate", "brainstorm", "is it better to"]
+auto_join         = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-opus-4"
+cost_tier   = "premium"
+temperature = 0.7
+max_tokens  = 8192
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-sonnet-5"
+cost_tier   = "premium"
+
+[consultant.verification]
+review_required   = false

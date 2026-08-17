@@ -97,6 +97,37 @@ pub struct VerificationConfig {
     pub review_required: bool,
 }
 
+/// A named, self-contained knowledge/skill slice in a consultant's private
+/// bank. Uniform shape used two ways:
+/// - `skills` slices are *procedures* — what this consultant can do that
+///   others can't (differentiator). Surfaced to the PM for routing and
+///   injected when a playbook step requires them.
+/// - `knowledge` slices are *declarative reference* — facts that make the
+///   consultant smarter (a language reference, an API cheatsheet). Injected
+///   only at the steps that declare them.
+///
+/// Both are sized (`char_budget`) so the orchestrator can cap injection and
+/// meter it through the existing cost seam — the whole bank is never dumped.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AssetSlice {
+    /// Stable id, unique within the consultant's bank (e.g. "kdb-language").
+    pub id: String,
+    /// Human-readable title.
+    #[serde(default)]
+    pub title: String,
+    /// Source file reference (informational; the body is loaded at load time).
+    #[serde(default)]
+    pub file: String,
+    /// Max characters of this slice's body the orchestrator may inject at a
+    /// step. Bounded context by design.
+    pub char_budget: usize,
+    /// The loaded slice body (resolved from `file` during loading). Skipped on
+    /// serialize so large bodies never bloat config/API responses; loaded in
+    /// memory only.
+    #[serde(skip)]
+    pub body: String,
+}
+
 /// A resolved role identity (from the catalog or a loaded consultant's
 /// cast_role). Owned (not `&'static`) so it can come from configuration.
 #[derive(Debug, Clone, Serialize)]
@@ -155,9 +186,84 @@ pub struct ConsultantConfig {
     /// Validated at load time; bad playbooks reject the whole package.
     #[serde(default)]
     pub playbooks: Vec<playbook::Playbook>,
+    /// The consultant's private **skills** bank — procedure slices
+    /// (differentiator). Injected only when a step that requires them runs.
+    #[serde(default)]
+    pub skills: Vec<AssetSlice>,
+    /// The consultant's private **knowledge** bank — declarative reference
+    /// slices (makes the consultant smarter). Injected only when a step that
+    /// requires them runs.
+    #[serde(default)]
+    pub knowledge: Vec<AssetSlice>,
 }
 
 impl ConsultantConfig {
+    /// Look up a skill slice by id.
+    pub fn skill(&self, id: &str) -> Option<&AssetSlice> {
+        self.skills.iter().find(|s| s.id == id)
+    }
+
+    /// Look up a knowledge slice by id.
+    pub fn knowledge(&self, id: &str) -> Option<&AssetSlice> {
+        self.knowledge.iter().find(|k| k.id == id)
+    }
+
+    /// Resolve an asset slice by id across both banks (skills then knowledge).
+    /// Used by the step executor to fetch required slices for injection.
+    pub fn asset(&self, id: &str) -> Option<&AssetSlice> {
+        self.skill(id).or_else(|| self.knowledge(id))
+    }
+
+    /// Resolve a playbook step's `requires_skills`/`requires_knowledge` ids
+    /// against this consultant's banks into injection-ready slices. Each body
+    /// is truncated to its `char_budget` at a char boundary (loading already
+    /// validated the ids resolve, so missing slices are logged, not fatal).
+    pub fn required_slices(
+        &self,
+        step: &crate::consultants::playbook::PlaybookStep,
+    ) -> Vec<crate::runtime::context::InjectedSlice> {
+        let mut out = Vec::new();
+        let mut push = |slices: &[AssetSlice], kind: &str| {
+            for s in slices {
+                let body = crate::runtime::context::truncate_chars(&s.body, s.char_budget);
+                out.push(crate::runtime::context::InjectedSlice {
+                    kind: kind.to_string(),
+                    id: s.id.clone(),
+                    title: if s.title.is_empty() {
+                        s.id.clone()
+                    } else {
+                        s.title.clone()
+                    },
+                    body,
+                });
+            }
+        };
+        for sk_id in &step.requires_skills {
+            if let Some(s) = self.skill(sk_id) {
+                push(std::slice::from_ref(s), "skill");
+            } else {
+                log::warn!(
+                    "[consultant {}] step '{}' requires skill '{}' but it is missing",
+                    self.id,
+                    step.id,
+                    sk_id
+                );
+            }
+        }
+        for k_id in &step.requires_knowledge {
+            if let Some(k) = self.knowledge(k_id) {
+                push(std::slice::from_ref(k), "knowledge");
+            } else {
+                log::warn!(
+                    "[consultant {}] step '{}' requires knowledge '{}' but it is missing",
+                    self.id,
+                    step.id,
+                    k_id
+                );
+            }
+        }
+        out
+    }
     /// True if this consultant can be assigned implementation work (not a
     /// special coordinator/adviser role).
     pub fn is_assignable(&self) -> bool {

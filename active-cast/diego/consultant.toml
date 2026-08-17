@@ -1,0 +1,50 @@
+[consultant]
+id              = "diego"
+name            = "Diego"
+title           = "Lead Developer"
+cast_role       = "lead_developer"
+avatar          = "/avatars/diego.jpeg"
+summary         = "Default implementation work. Writes code, fixes bugs, implements features at high volume."
+system_prompt_file= "system_prompt.md"
+
+[consultant.routing]
+specializations   = ["implementation", "bug", "feature", "refactor", "rust", "typescript", "react"]
+trigger_patterns  = ["implement", "build", "fix", "bug", "feature", "add"]
+auto_join         = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "deepseek/deepseek-chat"
+cost_tier   = "budget"
+temperature = 0.2
+max_tokens  = 4096
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "luna/luna-1"
+cost_tier   = "budget"
+
+[consultant.verification]
+review_required   = true
+
+# ── Private skill/knowledge banks ─────────────────────────────────────────
+# Injected into a playbook step's context ONLY when the step declares them via
+# requires_skills / requires_knowledge — never the whole bank.
+
+[[consultant.skills]]
+id          = "worktree-commits"
+title       = "Worktree commit & merge hygiene"
+file        = "skills/worktree-commits.md"
+char_budget = 1200
+
+[[consultant.knowledge]]
+id          = "casting-conventions"
+title       = "Casting codebase conventions"
+file        = "knowledge/casting-conventions.md"
+char_budget = 2000
+
+[[consultant.playbooks]]
+file = "playbooks/bug-fix.toml"
+
+[[consultant.playbooks]]
+file = "playbooks/feature-implement.toml"

@@ -1,0 +1,38 @@
+[consultant]
+id              = "pm"
+name            = "mei"
+title           = "Project Manager"
+cast_role       = "project_manager"
+avatar          = "/avatars/mei.jpeg"
+summary         = "Sole interface to the owner. Receives requests, assigns work to the cast, reports status, escalates. May handle tiny safe changes directly."
+assignable      = false
+system_prompt_file= "system_prompt.md"
+
+[consultant.routing]
+specializations   = ["coordination", "planning", "routing", "triage", "escalation", "status"]
+trigger_patterns  = ["assign", "prioritize", "schedule", "status", "report", "where should"]
+auto_join         = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-sonnet-5"
+cost_tier   = "standard"
+temperature = 0.1
+max_tokens  = 4096
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "deepseek/deepseek-chat"
+cost_tier   = "standard"
+
+[consultant.verification]
+review_required   = false
+
+[[consultant.playbooks]]
+file = "playbooks/task-routing.toml"
+
+[[consultant.playbooks]]
+file = "playbooks/sprint-plan.toml"
+
+[[consultant.playbooks]]
+file = "playbooks/chat-interface.toml"

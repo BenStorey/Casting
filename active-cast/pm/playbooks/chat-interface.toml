@@ -1,0 +1,31 @@
+[playbook]
+id        = "chat-interface"
+version   = 1
+title     = "Chat interface handler"
+problem   = "chat"
+summary   = "Handle owner's direct chat request. Apply 1-2 file changes directly or escalate to Diego. Single cheap model call."
+cost_class= "quick-change"
+cost_band = "cheap"
+
+[[playbook.steps]]
+id        = "respond"
+title     = "Handle the owner's request"
+model     = "budget"
+prompt    = """You are handling a direct request from the owner. You have a worktree ready with the project files.
+
+Your step task id is shown in the context as my_tasks — use it for all actions. The parent task is the one you are a step of — also complete it when done.
+
+Decide: can you safely make this change directly? It should be:
+- Safe scope: no schema/API changes, no security implications
+- Small: 1-2 files maximum
+- Self-contained: no cascading effects
+- You know exactly what to change (the request tells you the old and new text)
+
+If YES — use commit_to_change_set for the step task, then complete_task for BOTH the step task AND the parent task.
+
+If NO — the request is too complex, too risky, or needs discovery. Create a new task for Diego using create_task + assign_task (with merge_authority = "self" for trivial work, "pm" for anything substantial). Then complete_task for BOTH the step task and the parent task.
+
+Be decisive. Do NOT route trivial renames to Diego — do them yourself.
+"""
+artifact  = "done.md"
+produces  = "work"

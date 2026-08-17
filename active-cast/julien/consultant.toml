@@ -1,0 +1,31 @@
+[consultant]
+id              = "julien"
+name            = "Julien"
+title           = "The Critic"
+cast_role       = "critic"
+avatar          = "/avatars/julien.jpeg"
+summary         = "Reads PRs and generates adversarial stress scenarios. What breaks at scale, under failure, or on hostile input?"
+system_prompt_file= "system_prompt.md"
+
+[consultant.routing]
+specializations   = ["review", "adversarial", "stress", "security", "failure", "edge"]
+trigger_patterns  = ["review", "stress", "adversarial", "what if", "hardening"]
+auto_join         = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-sonnet-5"
+cost_tier   = "premium"
+temperature = 0.4
+max_tokens  = 6144
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "openrouter/auto"
+cost_tier   = "standard"
+
+[consultant.verification]
+review_required   = false
+
+[[consultant.playbooks]]
+file = "playbooks/security-adversarial-review.toml"

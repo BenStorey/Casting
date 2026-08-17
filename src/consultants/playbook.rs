@@ -86,6 +86,16 @@ pub struct PlaybookStep {
     /// step's `produces`).
     #[serde(default)]
     pub reads: Vec<String>,
+    /// Skill slice ids (from the owning consultant's `skills` bank) that this
+    /// step needs injected into its context to function. Resolved + inlined
+    /// at dispatch time; only these exact slices (never the whole bank).
+    #[serde(default)]
+    pub requires_skills: Vec<String>,
+    /// Knowledge slice ids (from the owning consultant's `knowledge` bank)
+    /// that this step needs injected into its context. Same semantics as
+    /// `requires_skills` — bounded, exact-slice injection.
+    #[serde(default)]
+    pub requires_knowledge: Vec<String>,
 }
 
 /// A named, versioned recipe for solving a problem class.
@@ -198,6 +208,21 @@ pub fn validate_playbook(pb: &Playbook, _consultant_id: &str) -> Result<(), Stri
                     return Err(format!(
                         "playbook '{}' step '{}' reads '{}' which is not produced by any earlier step",
                         pb.id, step.id, read
+                    ));
+                }
+            }
+        }
+        // Validate required-slice ids are non-empty. Resolvability against the
+        // owning consultant's banks is checked at package load (fail-closed).
+        for (label, req) in [
+            ("requires_skills", &step.requires_skills),
+            ("requires_knowledge", &step.requires_knowledge),
+        ] {
+            for id in req {
+                if id.trim().is_empty() {
+                    return Err(format!(
+                        "playbook '{}' step '{}' has an empty {label} id",
+                        pb.id, step.id
                     ));
                 }
             }

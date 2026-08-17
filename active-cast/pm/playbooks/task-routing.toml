@@ -1,0 +1,19 @@
+[playbook]
+id        = "task-routing"
+version   = 1
+title     = "Quick task routing"
+problem   = "routing"
+summary   = "Read an incoming request and route it to the right cast member. Budget model, single step."
+cost_class= "routing"
+cost_band = "cheap"
+
+[[playbook.steps]]
+id        = "route"
+title     = "Analyze and route the incoming request"
+model     = "budget"
+prompt    = """Given the incoming owner request, analyze the scope, problem class, and required
+role. Select the best matching consultant and write routing_decision.json
+with: request_summary, selected_consultant, rationale, and merge_authority.
+"""
+artifact  = "routing_decision.json"
+produces  = "route"

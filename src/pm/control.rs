@@ -572,6 +572,39 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                                 })
                         })
                         .collect();
+                    // Populate each consultant's private skills/knowledge bank as
+                    // cards, so the PM can reason over differentiation ("who holds
+                    // the kdb-language knowledge / the deploy skill this task needs").
+                    context.available_assets = state
+                        .consultants
+                        .all()
+                        .iter()
+                        .flat_map(|c| {
+                            let skill_cards: Vec<_> = c
+                                .skills
+                                .iter()
+                                .map(|s| crate::runtime::context::AssetCard {
+                                    id: format!("{}/skill/{}", c.id, s.id),
+                                    title: s.title.clone(),
+                                    kind: "skill".into(),
+                                    char_budget: s.char_budget,
+                                    consultant_id: c.id.clone(),
+                                })
+                                .collect();
+                            let knowledge_cards: Vec<_> = c
+                                .knowledge
+                                .iter()
+                                .map(|k| crate::runtime::context::AssetCard {
+                                    id: format!("{}/knowledge/{}", c.id, k.id),
+                                    title: k.title.clone(),
+                                    kind: "knowledge".into(),
+                                    char_budget: k.char_budget,
+                                    consultant_id: c.id.clone(),
+                                })
+                                .collect();
+                            skill_cards.into_iter().chain(knowledge_cards)
+                        })
+                        .collect();
                     let correlation = format!("run-{}", e.sequence);
                     let mut planning_failed = false;
                     let out = match orch.plan(&context, e).await {
@@ -719,22 +752,26 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
             let mut context = proj.context_for(actor);
 
             // Populate active_step if the actor is executing a playbook step.
-            if let Some((_task, _pb, step)) = proj
+            if let Some((_task, _pb, step, consultant)) = proj
                 .tasks
                 .iter()
                 .filter(|t| t.assignee.as_deref() == Some(actor))
                 .find_map(|t| {
                     let pb_id = t.playbook_id.as_ref()?;
                     let step_id = t.playbook_step.as_ref()?;
-                    let (_consultant, pb) = state.consultants.playbook(pb_id)?;
+                    let (c, pb) = state.consultants.playbook(pb_id)?;
                     let step = pb.steps.iter().find(|s| s.id == *step_id)?;
-                    Some((t, pb, step))
+                    Some((t, pb, step, c))
                 })
             {
                 let _wt = proj
                     .worktrees
                     .iter()
                     .find(|w| w.task_id.as_deref() == Some(&_task.id));
+                // Resolve the step's required skill/knowledge slices (exact
+                // bodies, already truncated to each slice's char_budget) so
+                // the orchestrator can inject only what the step declared.
+                let required_slices = consultant.required_slices(step);
                 context.active_step = Some(crate::runtime::context::ActiveStepContext {
                     playbook_id: _task.playbook_id.clone().unwrap_or_default(),
                     step_title: step.title.clone(),
@@ -743,6 +780,7 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
                     reads_artifact_paths: step.reads.clone(),
                     produces_artifact: step.artifact.clone(),
                     worktree_path: _wt.map(|w| w.path.clone()),
+                    required_slices,
                 });
             }
 

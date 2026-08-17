@@ -1,0 +1,37 @@
+[consultant]
+id              = "nina"
+name            = "Nina"
+title           = "Systems Architect"
+cast_role       = "systems_architect"
+avatar          = "/avatars/nina.jpeg"
+summary         = "Plans large structural work and performs periodic reviews for codebase health. Design, not DevOps."
+system_prompt_file= "system_prompt.md"
+
+[consultant.routing]
+specializations   = ["architecture", "data-model", "scalability", "structuring", "design"]
+trigger_patterns  = ["architecture", "refactor", "data model", "scal", "restructure"]
+auto_join         = true
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "anthropic/claude-sonnet-5"
+cost_tier   = "premium"
+temperature = 0.2
+max_tokens  = 6144
+
+[[consultant.models]]
+provider    = "openrouter"
+model_id    = "openrouter/auto"
+cost_tier   = "standard"
+
+[consultant.verification]
+review_required   = true
+
+[[consultant.playbooks]]
+file = "playbooks/infra-review-cheap.toml"
+
+[[consultant.playbooks]]
+file = "playbooks/infra-review-deep.toml"
+
+[[consultant.playbooks]]
+file = "playbooks/design-decision.toml"

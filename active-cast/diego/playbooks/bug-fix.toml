@@ -1,0 +1,19 @@
+[playbook]
+id        = "bug-fix"
+version   = 1
+title     = "Bug fix"
+problem   = "bug"
+summary   = "Quick targeted fix for a known bug. Budget model only, single-step."
+cost_class= "bug-fix"
+cost_band = "cheap"
+
+[[playbook.steps]]
+id        = "fix"
+title     = "Identify root cause and apply fix"
+model     = "budget"
+prompt    = """Given the bug description and reproduction steps, identify the root cause in
+the codebase and apply the minimal targeted fix. Add a regression test. Keep
+the change small and scoped.
+"""
+artifact  = "fix.diff"
+produces  = "fix"

@@ -1,0 +1,30 @@
+[playbook]
+id        = "design-decision"
+version   = 1
+title     = "Design decision record"
+problem   = "design-decision"
+summary   = "Produce an Architecture Decision Record for a structural choice. Standard model."
+cost_class= "architecture"
+cost_band = "medium"
+
+[[playbook.steps]]
+id        = "context"
+title     = "Gather design context"
+model     = "budget"
+prompt    = """Given the design problem, survey relevant code areas and list: the driving
+requirement, affected subsystems, existing constraints, and known alternatives.
+Write design_context.md.
+"""
+artifact  = "design_context.md"
+produces  = "context"
+
+[[playbook.steps]]
+id        = "decide"
+title     = "Write the decision record"
+model     = "standard"
+prompt    = """Read design_context.md. Write an ADR with: title, status, context, decision,
+consequences, and rejected alternatives with reasoning. Write adr.md.
+"""
+artifact  = "adr.md"
+produces  = "decision"
+reads     = ["context"]

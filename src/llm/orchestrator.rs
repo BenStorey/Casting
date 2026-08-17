@@ -237,6 +237,25 @@ impl Orchestrator for LlmOrchestrator {
                 ));
             }
 
+            // Inject the step's REQUIRED skill/knowledge slices (exact bodies,
+            // already truncated to each slice's char_budget by the step
+            // executor). Only what the step declared is inlined — never the
+            // whole consultant bank. Labeled by kind so the model can tell a
+            // procedure (how to X) from a reference (facts about X).
+            if !step.required_slices.is_empty() {
+                for sl in &step.required_slices {
+                    let header = match sl.kind.as_str() {
+                        "skill" => "SKILL (procedure — how to do this)",
+                        "knowledge" => "REFERENCE (facts to ground this step in)",
+                        _ => "ASSET",
+                    };
+                    payload_parts.push(format!(
+                        "\n[{header}] {}\n{}\n[/{}]",
+                        sl.title, sl.body, sl.kind
+                    ));
+                }
+            }
+
             let req = ChatRequest {
                 model: resolved.config.model.clone(),
                 messages: vec![

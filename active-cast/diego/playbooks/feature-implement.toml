@@ -1,0 +1,33 @@
+[playbook]
+id        = "feature-implement"
+version   = 1
+title     = "Feature implementation"
+problem   = "feature"
+summary   = "Survey requirements and implement a new feature. Budget survey then standard implement."
+cost_class= "feature-implement"
+cost_band = "medium"
+
+[[playbook.steps]]
+id        = "survey"
+title     = "Survey requirements and design"
+model     = "budget"
+prompt    = """Given the feature request, survey the existing codebase for integration points.
+Produce a brief design doc covering: files to change, new types needed, data
+flow, and test strategy. Cite file paths.
+"""
+artifact  = "DESIGN.md"
+produces  = "survey"
+requires_knowledge = ["casting-conventions"]
+
+[[playbook.steps]]
+id        = "implement"
+title     = "Implement the feature per design"
+model     = "standard"
+prompt    = """Implement the feature following DESIGN.md. Write unit/integration tests. Keep
+changes focused on the declared scope. Flag any surprises uncovered during
+implementation.
+"""
+artifact  = "changes.diff"
+produces  = "implementation"
+reads     = ["survey"]
+requires_skills = ["worktree-commits"]

@@ -176,3 +176,74 @@ fn overlay_replaces_a_default_by_id_and_adds_a_new_specialist() {
     // The roster grew past the embedded seven.
     assert!(reg.count() >= 8);
 }
+
+/// The private skill/knowledge banks ship, resolve, and feed step requirements.
+#[test]
+fn consultant_banks_load_and_require_validation_passes() {
+    let reg = ConsultantRegistry::from_embedded().unwrap();
+    let diego = reg.by_id("diego").expect("diego present");
+
+    // Diego carries a skill + a knowledge slice (the demonstrative enrichment).
+    let skill = diego
+        .skill("worktree-commits")
+        .expect("diego has the worktree-commits skill");
+    assert_eq!(skill.char_budget, 1200);
+    assert!(skill.body.contains("merge authority"), "skill body loaded");
+
+    let knowledge = diego
+        .knowledge("casting-conventions")
+        .expect("diego has the casting-conventions knowledge");
+    assert_eq!(knowledge.char_budget, 2000);
+    assert!(knowledge.body.contains("event log"), "knowledge body loaded");
+
+    // The feature-implement playbook steps require these — loading already
+    // validated the ids resolve against Diego's banks (fail-closed).
+    let (_owner, pb) = reg.playbook("diego/feature-implement").expect("playbook present");
+    let survey = pb.steps.iter().find(|s| s.id == "survey").unwrap();
+    assert_eq!(survey.requires_knowledge, vec!["casting-conventions".to_string()]);
+    let implement = pb.steps.iter().find(|s| s.id == "implement").unwrap();
+    assert_eq!(implement.requires_skills, vec!["worktree-commits".to_string()]);
+
+    // required_slices resolves the exact bodies, truncated to char_budget.
+    let slices = diego.required_slices(survey);
+    assert_eq!(slices.len(), 1);
+    assert_eq!(slices[0].kind, "knowledge");
+    assert_eq!(slices[0].id, "casting-conventions");
+    assert!(slices[0].body.len() <= knowledge.char_budget);
+}
+
+/// A playbook step requiring a slice the consultant doesn't own rejects the
+/// whole package (fail-closed — no ambiguous injection at runtime).
+#[test]
+fn playbook_requiring_unowned_slice_rejects_package() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("extra/playbooks")).unwrap();
+    std::fs::create_dir_all(dir.path().join("extra/knowledge")).unwrap();
+    // Manifest references a knowledge slice the consultant does NOT declare.
+    std::fs::write(
+        dir.path().join("extra/consultant.toml"),
+        "[consultant]\nid = \"extra\"\nname = \"Extra\"\ncast_role = \"stage_manager\"\nsystem_prompt_file = \"system_prompt.md\"\n\n[[consultant.playbooks]]\nfile = \"playbooks/x.toml\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("extra/system_prompt.md"), "persona").unwrap();
+    std::fs::write(
+        dir.path().join("extra/knowledge/only-declared.md"),
+        "this one is declared",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("extra/playbooks/x.toml"),
+        "[playbook]\nid = \"x\"\nversion = 1\ntitle = \"X\"\nproblem = \"x\"\nsummary = \"x\"\ncost_band = \"cheap\"\n\n[[playbook.steps]]\nid = \"s1\"\ntitle = \"S1\"\nmodel = \"budget\"\nprompt = \"do it\"\nartifact = \"a.md\"\nproduces = \"a\"\nrequires_knowledge = [\"undeclared-knowledge\"]\n",
+    )
+    .unwrap();
+
+    let mut reg = ConsultantRegistry::from_embedded().unwrap();
+    let err = reg
+        .overlay_dir(dir.path())
+        .expect_err("requires undeclared knowledge must reject the package");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("undeclared-knowledge"),
+        "error names the missing slice: {msg}"
+    );
+}
