@@ -158,17 +158,33 @@ fn postgres_all_stores_back_the_abstraction() {
 
 #[test]
 fn company_boots_and_onboards_entirely_on_postgres() {
-    // End-to-end: an AppState running its whole lifecycle (seed -> PM loop ->
-    // director message -> onboarding) on the Postgres backend, exactly as a hosted
-    // company would. This is the strongest proof the swap is seamless.
+    // End-to-end: an AppState running its whole lifecycle (seed -> cast ->
+    // budget -> director chat message -> PM loop) on the Postgres backend,
+    // exactly as a hosted company would. This is the strongest proof the swap
+    // is seamless.
+    //
+    // Since 2026-08-16 the PM only acts through the orchestrator (LLM) seam —
+    // with no orchestrator attached the system is properly inert. We wire the
+    // deterministic MockOrchestrator + a budget + a seeded cast, mirroring
+    // tests/decompose_pm.rs::default_onboard_without_decompose_stays_flat, so
+    // a director chat message routes through the chat-interface playbook and
+    // produces tasks on Postgres.
     let Some(store) = connect() else { return };
+    use casting::event::{Actor, Aggregate, Event, EventType};
     use casting::pm::AppState;
+    use casting::runtime::orchestrator::MockOrchestrator;
+    use casting::store::CursorStore as _;
+    use casting::store::EventStore as _;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     let project = format!("pg-company-{}", uuid::Uuid::new_v4());
-    let state = AppState::new(store.clone(), store.clone(), &project);
+    let state = AppState::new(store.clone(), store.clone(), &project)
+        .with_step_delay(Duration::ZERO)
+        .with_orchestrator(Arc::new(MockOrchestrator));
 
-    // Seed (what `cast run` does): project + PM.
-    use casting::event::{Actor, Aggregate, Event, EventType};
+    // Seed (what `cast run` does): project + cast so the chat playbook has
+    // assignees to route to.
     state
         .append(Event::new(
             &project,
@@ -181,23 +197,48 @@ fn company_boots_and_onboards_entirely_on_postgres() {
             serde_json::json!({}),
         ))
         .unwrap();
+    for (id, role) in [("pm", "Project Manager"), ("diego", "Lead Developer")] {
+        state
+            .append(Event::new(
+                &project,
+                Actor::System,
+                EventType::AgentHired,
+                Aggregate {
+                    kind: "agent".into(),
+                    id: id.into(),
+                },
+                serde_json::json!({ "role": role }),
+            ))
+            .unwrap();
+    }
+    // A budget so the orchestrator/dispatch gate doesn't block work.
     state
         .append(Event::new(
             &project,
-            Actor::System,
-            EventType::AgentHired,
-            Aggregate {
-                kind: "agent".into(),
-                id: "pm".into(),
+            Actor::Director {
+                user_id: "ceo".into(),
             },
-            serde_json::json!({ "role": "Project Manager" }),
+            EventType::BudgetSet,
+            Aggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
         ))
         .unwrap();
+    state
+        .cursors
+        .advance(
+            &project,
+            "pm",
+            state.store.latest_sequence(&project).unwrap(),
+        )
+        .unwrap();
 
-    // Owner asks for a build -> drive the PM loop -> onboarding should produce
-    // a plan (tasks, cast hires). The Postgres client uses a blocking sync
-    // connect (its own runtime), so drive_pm runs on a short-lived tokio
-    // runtime only.
+    // Director asks for a build -> drive the PM loop -> the chat-interface
+    // playbook should produce a task on Postgres. The Postgres client uses a
+    // blocking sync connect (its own runtime), so drive_pm runs on a short-lived
+    // tokio runtime only.
     state
         .append(Event::new(
             &project,
@@ -223,7 +264,11 @@ fn company_boots_and_onboards_entirely_on_postgres() {
         proj.tasks.len()
     );
     assert!(
-        proj.agents.iter().any(|a| a.id == "lead-programmer"),
-        "default assignable engineer (Lead Programmer) hired on Postgres"
+        proj.tasks.iter().any(|t| t.id.starts_with("chat-")),
+        "director chat message produced a chat-interface task on Postgres"
+    );
+    assert!(
+        proj.agents.iter().any(|a| a.id == "diego"),
+        "seeded assignable engineer (diego) present on Postgres"
     );
 }
