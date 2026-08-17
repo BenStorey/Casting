@@ -89,8 +89,9 @@ casting/                          (lib.rs — top-level crate)
 │   │   ├── wake.rs               WakeTier enum (tier_of)
 │   │   └── watchdog.rs           Liveness watchdog
 │   ├── llm/                      D2 — LLM provider client + orchestrator
-│   │   ├── config.rs             ProviderConfig (base_url, api_key, model)
-│   │   ├── client.rs             OpenAiClient (chat/completions)
+│   │   ├── config.rs             ProviderConfig (base_url, api_key, model, provider)
+│   │   ├── client.rs             Client seam — OpenAiClient (chat/completions) + AnthropicClient (messages)
+│   │   ├── pricing.rs            PricingResolver — per-model prices (override + models.dev) + metering
 │   │   ├── orchestrator.rs       LlmOrchestrator — implements Orchestrator
 │   │   ├── routing.rs            ModelResolver — per-consultant model routing
 │   │   └── advisor.rs            Advisor reply/summarize endpoints
@@ -199,7 +200,7 @@ Built via `Projection::build(store, project_id)` or from snapshot + tail via `st
 | `Constraint` | id, body, recorded_by |
 | `Opinion` | id, subject, category, statement, recorded_by, status (Active/Superseded), supersedes |
 | `Fact` | id, kind, statement, recorded_by, recorded_at |
-| `CostEntry` | id, agent_id, task_id, cost_class, model_tier, tokens, latency, estimated_usd, incurred_at |
+| `CostEntry` | id, agent_id, task_id, cost_class, model_tier, tokens (prompt/completion/cache split), latency, estimated_usd, cost_status (actual/estimated), reported_cost_usd, incurred_at |
 | `Briefing` | id, source, subject, title, body, assets, brought_in_by, status, supersedes, imported_at |
 | `ExternalRequest` | id, source, external_id, title, body, reporter, labels, url, classification, severity, status, received_at |
 | `Diagram` | id, title, data, saved_by, saved_at |
@@ -578,9 +579,9 @@ struct PlanOutput {
 The real provider implementation:
 1. Builds a system prompt from consultant persona + action vocabulary
 2. Sends `AgentContext` as the user message
-3. Calls OpenAI-compatible `/v1/chat/completions`
+3. Calls the configured provider through the `Client` seam (see 10.6)
 4. Parses the response JSON into `PmAction`s
-5. Returns with `CostMetering` from the API usage response
+5. Returns with `CostMetering` (see 10.7)
 
 Supports per-consultant model routing via `ModelResolver`:
 - Base config from env (provider, base_url, api_key, model)
@@ -604,9 +605,39 @@ Functions: `advisor_reply`, `advisor_summarize`, `advisor_summarize_deterministi
 
 ### 10.5 Provider Config (`src/llm/config.rs`)
 
-`ProviderConfig` resolves from: env vars → `.casting/config.json` → inline spec. Fields: `provider` (e.g. "openrouter"), `base_url`, `api_key`, `model`.
+`ProviderConfig` resolves from: env vars → `.casting/config.json` → inline spec. Fields: `provider` (one of `openrouter` | `openai` | `anthropic` | `litellm`), `base_url`, `api_key`, `model`.
+
+The **persisted** config (`RuntimeConfig`) now carries `provider` and `model` alongside `api_key`, chosen in the setup wizard (`src/workspace/setup.rs` + `frontend/src/SetupWizard.tsx`). On boot `from_env(state_dir)` reads provider/model from env override or the persisted config, defaulting to `openrouter` + `deepseek/deepseek-v4-flash-0731`.
+
+`default_base_url(provider)`: openrouter → `…/api/v1`, openai → `…/v1`, anthropic → `https://api.anthropic.com` (no `/v1` — the Anthropic client appends `/v1/messages`), litellm → localhost:4000.
 
 `from_env(state_dir)` returns `Option<ProviderConfig>` — None when unconfigured (the default).
+
+### 10.6 Provider Seam (`src/llm/client.rs`)
+
+`Client` dispatches a request to whichever wire protocol the configured provider speaks, returning a normalized `ChatCompletion`/`Usage` so the orchestrator and advisor never branch on provider:
+
+| Provider | Client | Protocol |
+|----------|--------|----------|
+| openrouter, openai, litellm, vllm, ollama | `OpenAiClient` | `POST /v1/chat/completions` |
+| anthropic | `AnthropicClient` | `POST /v1/messages` |
+
+The Anthropic adapter is a genuine second protocol (not a config switch): `x-api-key` + `anthropic-version` headers, system messages lifted into a top-level `system` field, `max_tokens` REQUIRED (default 8192), and response `usage` normalized from Anthropic's disjoint buckets (`input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`) into the shared shape, so metering sees the same fields as OpenRouter.
+
+### 10.7 Cost Metering (`src/llm/pricing.rs`)
+
+`CostMetering` (built by `pricing::metering`) records per-call spend with a provenance-aware cost figure and a status:
+
+1. **Actual wins** — if the provider reports exact USD cost (`usage.cost`, which OpenRouter returns in every response), `estimated_usd` = that value and `cost_status = "actual"`. OpenAI/Anthropic direct APIs do NOT report cost → `cost_status = "estimated"`.
+2. **Else estimate** — `uncached_input×P_in + cache_read×P_cache_read + cache_write×P_cache_write + output×P_out`. Cache rates are applied only when known; otherwise cache tokens are lumped at the input rate (conservative).
+3. `CostMetering` also carries `reported_cost_usd`, `cost_status`, and the cache prices; all land in the `CostIncurred` event.
+
+**Price table** — resolved by `PricingResolver` (precedence):
+1. `.casting/prices.json` override — `{ "provider/model": { "input", "output", "cache_read"?, "cache_write"? } }` (USD per 1M tokens). The "config, not code" escape hatch to pin/correct a price or cover a local model.
+2. The cached **models.dev** dataset (`.casting/models_dev_cache.json`) — the same open, key-free source Hermes uses (`https://models.dev/api.json`), covering OpenAI/Anthropic + 100s of providers with real rates. Auto-populated: `fetch_models_dev()` runs at boot behind a 24h TTL (skips when the cache is fresh); failures log and fall back.
+3. Cost-tier fallback (`tier_prices` in `routing.rs`).
+
+So the price table is auto-populated and provider-agnostic — no hardcoded per-model map in code.
 
 ---
 
