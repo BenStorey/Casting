@@ -15,12 +15,14 @@ pub mod advisor;
 pub mod client;
 pub mod config;
 pub mod orchestrator;
+pub mod pricing;
 pub mod routing;
 
 pub use advisor::{
     advisor_reply, advisor_summarize, advisor_summarize_deterministic, AdvisorOutcome,
 };
-pub use client::OpenAiClient;
+pub use client::{AnthropicClient, ChatMessage, ChatRequest, Client, OpenAiClient};
 pub use config::ProviderConfig;
 pub use orchestrator::LlmOrchestrator;
+pub use pricing::{fetch_models_dev, metering, CostPrices, PricingResolver};
 pub use routing::{model_from_consultant, ModelResolver, ResolvedModel};

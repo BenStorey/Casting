@@ -4,10 +4,10 @@
 
 use crate::actions::PmAction;
 use crate::event::Event;
-use crate::llm::client::{ChatMessage, ChatRequest, OpenAiClient};
+use crate::llm::client::{ChatMessage, ChatRequest};
 use crate::llm::config::ProviderConfig;
 use crate::runtime::context::AgentContext;
-use crate::runtime::orchestrator::{CostMetering, Orchestrator, PlanOutput};
+use crate::runtime::orchestrator::{Orchestrator, PlanOutput};
 use anyhow::Result;
 
 /// Classify a cost entry by actor role. Uses the agent's CastRole-derived
@@ -49,6 +49,9 @@ pub struct LlmOrchestrator {
     /// Input/output price per 1M tokens, for metering (if known).
     input_price_per_mtok: Option<f64>,
     output_price_per_mtok: Option<f64>,
+    /// Per-model price resolution (overrides + models.dev), falling back to the
+    /// tier prices above for unknown models.
+    pricing: crate::llm::pricing::PricingResolver,
 }
 
 impl LlmOrchestrator {
@@ -60,7 +63,15 @@ impl LlmOrchestrator {
             resolver,
             input_price_per_mtok: None,
             output_price_per_mtok: None,
+            pricing: Default::default(),
         }
+    }
+
+    /// Attach a per-model pricing resolver (overrides + models.dev cache).
+    /// Without it, metering uses the tier prices (`with_prices` or resolved).
+    pub fn with_pricing(mut self, pricing: crate::llm::pricing::PricingResolver) -> Self {
+        self.pricing = pricing;
+        self
     }
 
     /// Route per-actor through a resolver (per-consultant model bindings).
@@ -180,7 +191,8 @@ impl Orchestrator for LlmOrchestrator {
                 _ => None,
             };
             let resolved = self.resolver.resolve(&context.actor, step_tier);
-            let client = OpenAiClient::new(
+            let client = crate::llm::client::Client::new(
+                &resolved.config.provider,
                 self.http.clone(),
                 resolved.config.base_url.clone(),
                 resolved.config.api_key.clone(),
@@ -285,38 +297,29 @@ impl Orchestrator for LlmOrchestrator {
             let output_price = self
                 .output_price_per_mtok
                 .unwrap_or(resolved.output_price_per_mtok);
-
-            let metering = CostMetering {
-                agent_id: context.actor.clone(),
-                task_id: context.my_tasks.first().cloned(),
-                cost_class: "playbook".into(),
-                model_tier: match resolved.cost_tier {
-                    crate::consultants::CostTier::Premium => "premium",
-                    crate::consultants::CostTier::Standard => "standard",
-                    crate::consultants::CostTier::Budget => "budget",
-                }
-                .into(),
-                model: Some(resolved.config.model.clone()),
-                provider: Some(resolved.config.provider.clone()),
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                cache_read_input_tokens: u
-                    .prompt_tokens_details
-                    .as_ref()
-                    .map(|d| d.cached_tokens)
-                    .unwrap_or(0),
-                cache_creation_input_tokens: u
-                    .prompt_tokens_details
-                    .as_ref()
-                    .map(|d| d.cache_creation_tokens)
-                    .unwrap_or(0),
-                latency_ms,
-                input_price_per_mtok: Some(input_price),
-                output_price_per_mtok: Some(output_price),
-                estimated_usd: (u.prompt_tokens as f64 * input_price
-                    + u.completion_tokens as f64 * output_price)
-                    / 1_000_000.0,
+            let prices = self.pricing.resolve_or(
+                &resolved.config.provider,
+                &resolved.config.model,
+                crate::llm::pricing::CostPrices::from_halves(input_price, output_price),
+            );
+            let model_tier = match resolved.cost_tier {
+                crate::consultants::CostTier::Premium => "premium",
+                crate::consultants::CostTier::Standard => "standard",
+                crate::consultants::CostTier::Budget => "budget",
             };
+
+            let metering = crate::llm::pricing::metering(
+                context.actor.clone(),
+                context.my_tasks.first().cloned(),
+                "playbook".into(),
+                model_tier.into(),
+                resolved.config.model.clone(),
+                resolved.config.provider.clone(),
+                u,
+                latency_ms,
+                prices,
+                completion.usage.cost,
+            );
 
             return Ok(PlanOutput {
                 actions: actions
@@ -330,7 +333,8 @@ impl Orchestrator for LlmOrchestrator {
         // ── Normal (non-step) planning mode ──────────────────────────
         // Per-actor routing: the actor decides the model + persona.
         let resolved = self.resolver.resolve(&context.actor, None);
-        let client = OpenAiClient::new(
+        let client = crate::llm::client::Client::new(
+            &resolved.config.provider,
             self.http.clone(),
             resolved.config.base_url.clone(),
             resolved.config.api_key.clone(),
@@ -379,46 +383,37 @@ impl Orchestrator for LlmOrchestrator {
         let u = &completion.usage;
         // Per-actor prices: an explicit `with_prices` override wins, else the
         // resolved cost_tier prices (so real LLM spend is non-zero and the
-        // budget breaker can trip).
+        // budget breaker can trip). Per-model prices (models.dev/override) take
+        // precedence over both when the model is known.
         let input_price = self
             .input_price_per_mtok
             .unwrap_or(resolved.input_price_per_mtok);
         let output_price = self
             .output_price_per_mtok
             .unwrap_or(resolved.output_price_per_mtok);
-        let estimated_usd = (u.prompt_tokens as f64 * input_price
-            + u.completion_tokens as f64 * output_price)
-            / 1_000_000.0;
-
-        let metering = CostMetering {
-            agent_id: context.actor.clone(),
-            task_id: context.my_tasks.first().cloned(),
-            cost_class: classify_cost(&context.actor, &context.agents),
-            model_tier: match resolved.cost_tier {
-                crate::consultants::CostTier::Premium => "premium",
-                crate::consultants::CostTier::Standard => "standard",
-                crate::consultants::CostTier::Budget => "budget",
-            }
-            .into(),
-            model: Some(resolved.config.model.clone()),
-            provider: Some(resolved.config.provider.clone()),
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            cache_read_input_tokens: u
-                .prompt_tokens_details
-                .as_ref()
-                .map(|d| d.cached_tokens)
-                .unwrap_or(0),
-            cache_creation_input_tokens: u
-                .prompt_tokens_details
-                .as_ref()
-                .map(|d| d.cache_creation_tokens)
-                .unwrap_or(0),
-            latency_ms,
-            input_price_per_mtok: Some(input_price),
-            output_price_per_mtok: Some(output_price),
-            estimated_usd,
+        let prices = self.pricing.resolve_or(
+            &resolved.config.provider,
+            &resolved.config.model,
+            crate::llm::pricing::CostPrices::from_halves(input_price, output_price),
+        );
+        let model_tier = match resolved.cost_tier {
+            crate::consultants::CostTier::Premium => "premium",
+            crate::consultants::CostTier::Standard => "standard",
+            crate::consultants::CostTier::Budget => "budget",
         };
+
+        let metering = crate::llm::pricing::metering(
+            context.actor.clone(),
+            context.my_tasks.first().cloned(),
+            classify_cost(&context.actor, &context.agents),
+            model_tier.into(),
+            resolved.config.model.clone(),
+            resolved.config.provider.clone(),
+            u,
+            latency_ms,
+            prices,
+            completion.usage.cost,
+        );
 
         Ok(PlanOutput {
             actions: actions

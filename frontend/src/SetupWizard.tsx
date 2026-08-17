@@ -27,6 +27,44 @@ const EXP_LEVELS: { value: ExpLevel; label: string; desc: string }[] = [
   },
 ];
 
+/// Which LLM provider the user's key belongs to. OpenRouter is the default
+/// (one key → many models); OpenAI and Anthropic accept first-party API keys.
+type Provider = "openrouter" | "openai" | "anthropic";
+
+const PROVIDERS: {
+  id: Provider;
+  label: string;
+  keysHint: string;
+  defaultModel: string;
+  keyPlaceholder: string;
+  blurb: string;
+}[] = [
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    keysHint: "openrouter.ai/keys",
+    defaultModel: "deepseek/deepseek-v4-flash-0731",
+    keyPlaceholder: "sk-or-v1-...",
+    blurb: "one key, many models — the easiest default",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    keysHint: "platform.openai.com/api-keys",
+    defaultModel: "gpt-4o-mini",
+    keyPlaceholder: "sk-...",
+    blurb: "use your OpenAI API subscription",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    keysHint: "console.anthropic.com/settings/keys",
+    defaultModel: "claude-sonnet-4-5",
+    keyPlaceholder: "sk-ant-...",
+    blurb: "use your Anthropic API subscription",
+  },
+];
+
 /// Step enumeration. Using numbers so we can add/subtract easily.
 type Step =
   | { kind: "welcome" }
@@ -90,6 +128,8 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [projectName, setProjectName] = useState("");
   const [objective, setObjective] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [provider, setProvider] = useState<Provider>("openrouter");
+  const [model, setModel] = useState(PROVIDERS[0].defaultModel);
   const [policyPreset, setPolicyPreset] = useState<PolicyPreset>("balanced");
   // Which classes should ask the owner (true = ask, false = pm can decide)
   const [policyOverrides, setPolicyOverrides] = useState<Record<string, boolean>>(() => {
@@ -119,6 +159,9 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   );
 
   const stepIndex = STEPS.findIndex((s) => s.kind === step.kind);
+
+  // The provider metadata for the currently-selected provider.
+  const activeProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
 
   const canContinue = (() => {
     switch (step.kind) {
@@ -243,7 +286,10 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         status?.roles?.map((r) => r.id) ?? [],
         ownerName.trim() || undefined,
         expLevel ?? undefined,
-        apiKey.trim() || undefined
+        apiKey.trim() || undefined,
+        undefined,
+        provider,
+        model.trim() || undefined
       );
       // Apply policy overrides: for classes where the owner chose a non-default
       // involvement, POST to /api/policy. The backend fires DecisionPolicyChanged.
@@ -627,39 +673,67 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               Connect your AI provider
             </h2>
             <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
-              Casting uses an AI model to power the team. You'll need an API key
-              from your provider of choice. We default to OpenRouter — it gives
-              you access to many models through one key.
+              Pick the provider your API key belongs to. OpenRouter is the
+              easiest default — one key, many models. You can also use a
+              first-party OpenAI or Anthropic API key.
             </p>
-            <div className="bg-card border rounded-xl p-5 text-left space-y-3">
+            {/* Provider selector */}
+            <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto">
+              {PROVIDERS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setProvider(p.id);
+                    setModel(p.defaultModel);
+                  }}
+                  className={
+                    "rounded-lg border p-3 text-sm transition-all " +
+                    (provider === p.id
+                      ? "border-primary bg-primary/10 shadow-sm"
+                      : "border-border bg-card hover:border-primary/40")
+                  }
+                >
+                  <div className="font-semibold">{p.label}</div>
+                  <div className="text-xs text-muted-foreground mt-1 leading-tight">
+                    {p.blurb}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {/* Get-key hint for the selected provider */}
+            <div className="bg-card border rounded-xl p-5 text-left space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <span className="text-primary">1.</span>
                 <span>
-                  Go to{" "}
+                  Create an API key at{" "}
                   <a
-                    href="https://openrouter.ai/keys"
+                    href={`https://${activeProvider.keysHint}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="underline underline-offset-2 hover:text-primary"
                   >
-                    openrouter.ai/keys
+                    {activeProvider.keysHint}
                   </a>
                 </span>
               </div>
               <div className="flex items-center gap-2 text-sm font-medium">
                 <span className="text-primary">2.</span>
-                <span>Create a key (add a small credit balance)</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="text-primary">3.</span>
-                <span>Paste it below</span>
+                <span>Model</span>
               </div>
             </div>
             <Input
               className="text-center font-mono text-sm max-w-sm mx-auto"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={activeProvider.defaultModel}
+              onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
+            />
+            <Input
+              className="text-center font-mono text-sm max-w-sm mx-auto"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-or-v1-..."
+              placeholder={activeProvider.keyPlaceholder}
               onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
               autoFocus
             />
@@ -715,10 +789,20 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Provider</span>
+                  <span className="font-medium">{activeProvider.label}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Model</span>
+                  <span className="font-medium font-mono text-xs max-w-[55%] text-right break-all">
+                    {model}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">API key</span>
                   <span className="font-medium">
                     {apiKey
-                      ? `sk-or-...${apiKey.slice(-4)}`
+                      ? `...${apiKey.slice(-4)}`
                       : "Not set"}
                   </span>
                 </div>

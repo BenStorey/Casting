@@ -76,7 +76,8 @@ pub async fn advisor_reply(
         });
     }
 
-    let client = crate::llm::client::OpenAiClient::new(
+    let client = crate::llm::client::Client::new(
+        &resolved.config.provider,
         client.clone(),
         resolved.config.base_url.clone(),
         resolved.config.api_key.clone(),
@@ -98,33 +99,22 @@ pub async fn advisor_reply(
     }
 
     let u = &completion.usage;
-    let estimated_usd = (u.prompt_tokens as f64 * resolved.input_price_per_mtok
-        + u.completion_tokens as f64 * resolved.output_price_per_mtok)
-        / 1_000_000.0;
-    let metering = Some(crate::runtime::orchestrator::CostMetering {
-        agent_id: advisor.clone(),
-        task_id: None,
-        cost_class: "research".into(),
-        model_tier: "premium".into(),
-        model: Some(resolved.config.model.clone()),
-        provider: Some(resolved.config.provider.clone()),
-        prompt_tokens: u.prompt_tokens,
-        completion_tokens: u.completion_tokens,
-        cache_read_input_tokens: u
-            .prompt_tokens_details
-            .as_ref()
-            .map(|d| d.cached_tokens)
-            .unwrap_or(0),
-        cache_creation_input_tokens: u
-            .prompt_tokens_details
-            .as_ref()
-            .map(|d| d.cache_creation_tokens)
-            .unwrap_or(0),
+    let prices = crate::llm::pricing::CostPrices::from_halves(
+        resolved.input_price_per_mtok,
+        resolved.output_price_per_mtok,
+    );
+    let metering = Some(crate::llm::pricing::metering(
+        advisor.clone(),
+        None,
+        "research".into(),
+        "premium".into(),
+        resolved.config.model.clone(),
+        resolved.config.provider.clone(),
+        u,
         latency_ms,
-        input_price_per_mtok: Some(resolved.input_price_per_mtok),
-        output_price_per_mtok: Some(resolved.output_price_per_mtok),
-        estimated_usd,
-    });
+        prices,
+        completion.usage.cost,
+    ));
 
     Ok(AdvisorOutcome { reply, metering })
 }
@@ -226,7 +216,8 @@ pub async fn advisor_summarize(
         return Ok("Advisor conversation handed off to PM.".to_string());
     }
 
-    let client = crate::llm::client::OpenAiClient::new(
+    let client = crate::llm::client::Client::new(
+        &resolved.config.provider,
         client.clone(),
         resolved.config.base_url.clone(),
         resolved.config.api_key.clone(),

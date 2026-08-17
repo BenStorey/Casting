@@ -45,9 +45,15 @@ pub(crate) struct SetupIn {
     /// Experience level calibration: "novice" | "somewhat" | "confident".
     #[serde(default)]
     experience_level: Option<String>,
-    /// LLM provider API key (OpenRouter). Stored for D2 wiring.
+    /// LLM provider API key. Stored for D2 wiring.
     #[serde(default)]
     api_key: Option<String>,
+    /// Which LLM provider the key belongs to: "openrouter" | "openai" | "anthropic".
+    #[serde(default)]
+    provider: Option<String>,
+    /// Optional model id for the provider (defaults when unset).
+    #[serde(default)]
+    model: Option<String>,
     #[serde(default)]
     cast: Vec<String>,
     #[serde(default)]
@@ -103,6 +109,8 @@ pub(crate) async fn setup_handler(
             input.director_name.as_deref(),
             input.experience_level.as_deref(),
             input.api_key.as_deref(),
+            input.provider.as_deref(),
+            input.model.as_deref(),
         );
     }
 

@@ -46,6 +46,9 @@ impl std::fmt::Debug for ProviderConfig {
 pub fn default_base_url(provider: &str) -> Option<&'static str> {
     match provider {
         "openrouter" => Some("https://openrouter.ai/api/v1"),
+        "openai" => Some("https://api.openai.com/v1"),
+        // Anthropic has no `/v1` here: the Anthropic client appends `/v1/messages`.
+        "anthropic" => Some("https://api.anthropic.com"),
         "litellm" => Some("http://localhost:4000/v1"),
         _ => None,
     }
@@ -74,11 +77,18 @@ pub fn from_env(state_dir: Option<&Path>) -> Result<Option<ProviderConfig>> {
     if let Some(dir) = state_dir {
         if let Some(cfg) = read_config(dir) {
             if let Some(api_key) = cfg.api_key.filter(|k| !k.is_empty()) {
-                let provider =
-                    std::env::var("CAST_LLM_PROVIDER").unwrap_or_else(|_| "openrouter".into());
+                // Provider/model: explicit env override wins, else the value the
+                // user chose at setup (provider + model), else the OpenRouter
+                // defaults.
+                let provider = std::env::var("CAST_LLM_PROVIDER")
+                    .ok()
+                    .filter(|p| !p.is_empty())
+                    .or(cfg.provider.clone())
+                    .unwrap_or_else(|| "openrouter".into());
                 let model = std::env::var("CAST_LLM_MODEL")
                     .ok()
                     .filter(|m| !m.is_empty())
+                    .or(cfg.model.clone())
                     .unwrap_or_else(|| DEFAULT_OPENROUTER_MODEL.to_string());
                 let base_url = match std::env::var("CAST_LLM_BASE_URL") {
                     Ok(u) if !u.is_empty() => u,
@@ -116,4 +126,67 @@ fn from_env_inner(api_key: String) -> Result<ProviderConfig> {
         api_key,
         model,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Prove that a provider + model persisted by the setup wizard (in
+    /// `.casting/config.json`) flows through `from_env` into the resolved
+    /// ProviderConfig — i.e. the setup → boot LLM wiring round-trips.
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("casting-cfg-{tag}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn persisted_provider_and_model_flow_through_from_env() {
+        if std::env::var_os("CAST_LLM_API_KEY").is_some() {
+            return; // env override would short-circuit; avoid flakiness
+        }
+        let dir = temp_dir("anthropic");
+        std::fs::write(
+            dir.join("config.json"),
+            r#"{"name":"t","api_key":"sk-ant-test","provider":"anthropic","model":"claude-sonnet-4-5"}"#,
+        )
+        .unwrap();
+        let cfg = from_env(Some(&dir)).unwrap().unwrap();
+        assert_eq!(cfg.provider, "anthropic");
+        assert_eq!(cfg.model, "claude-sonnet-4-5");
+        assert_eq!(cfg.base_url, "https://api.anthropic.com");
+        assert_eq!(cfg.api_key, "sk-ant-test");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persisted_defaults_to_openrouter_when_provider_unset() {
+        if std::env::var_os("CAST_LLM_API_KEY").is_some() {
+            return;
+        }
+        let dir = temp_dir("openrouter");
+        std::fs::write(
+            dir.join("config.json"),
+            r#"{"name":"t","api_key":"sk-or-123"}"#,
+        )
+        .unwrap();
+        let cfg = from_env(Some(&dir)).unwrap().unwrap();
+        assert_eq!(cfg.provider, "openrouter");
+        assert_eq!(cfg.base_url, "https://openrouter.ai/api/v1");
+        assert_eq!(cfg.model, DEFAULT_OPENROUTER_MODEL);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn openai_default_base_url_is_correct() {
+        assert_eq!(
+            default_base_url("openai"),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(
+            default_base_url("anthropic"),
+            Some("https://api.anthropic.com")
+        );
+    }
 }

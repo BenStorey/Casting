@@ -838,3 +838,125 @@ async fn live_openrouter_round_trip() {
         .find(|e| e.event_type == EventType::CostIncurred);
     assert!(cost.is_some(), "live LLM metered a CostIncurred");
 }
+
+// === Anthropic adapter: it must speak /v1/messages, NOT chat/completions ===
+
+/// Prove the `Client` seam routes anthropic to the messages protocol and
+/// normalizes the response back into the shared Usage shape (total prompt +
+/// cache split), so metering sees the same fields as OpenRouter.
+#[tokio::test]
+async fn anthropic_client_speaks_messages_protocol() {
+    use axum::{routing::post, Json, Router};
+    use casting::llm::{ChatMessage, ChatRequest, Client};
+    use std::sync::Mutex;
+
+    let captured: Arc<Mutex<Option<(HeaderMap, serde_json::Value)>>> = Arc::new(Mutex::new(None));
+
+    let app = Router::new().route(
+        "/v1/messages",
+        post({
+            let captured = captured.clone();
+            |headers: HeaderMap, body: Json<serde_json::Value>| async move {
+                *captured.lock().unwrap() = Some((headers, body.0.clone()));
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "content": [{ "type": "text", "text": "assistant reply" }],
+                        "usage": {
+                            "input_tokens": 900,
+                            "output_tokens": 100,
+                            "cache_read_input_tokens": 100,
+                            "cache_creation_input_tokens": 50
+                        }
+                    })),
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap();
+    // base_url WITHOUT /v1 — the Anthropic client appends /v1/messages. Confirm
+    // the seam selects the anthropic protocol from the provider name alone.
+    let client = Client::new(
+        "anthropic",
+        http,
+        format!("http://{addr}"),
+        "test-key".into(),
+    );
+
+    let req = ChatRequest {
+        model: "claude-sonnet-4-5".into(),
+        messages: vec![
+            ChatMessage {
+                role: "system".into(),
+                content: "You are the PM.".into(),
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: "Plan the build.".into(),
+            },
+        ],
+        temperature: Some(0.2),
+        max_tokens: Some(500),
+        response_format: None,
+    };
+    let comp = client.chat(&req).await.unwrap();
+
+    // Response normalization: total prompt from the disjoint buckets + split.
+    assert_eq!(comp.content, "assistant reply");
+    assert_eq!(comp.usage.prompt_tokens, 900 + 100 + 50);
+    assert_eq!(comp.usage.completion_tokens, 100);
+    assert_eq!(
+        comp.usage
+            .prompt_tokens_details
+            .as_ref()
+            .unwrap()
+            .cached_tokens,
+        100
+    );
+    assert_eq!(
+        comp.usage
+            .prompt_tokens_details
+            .as_ref()
+            .unwrap()
+            .cache_creation_tokens,
+        50
+    );
+    // Anthropic does not report USD cost.
+    assert!(comp.usage.cost.is_none());
+
+    // Wire shape: system lifted out, messages = user only, HEADERS right, and
+    // the URL path hit was /v1/messages (it responded with our messages handler).
+    let (headers, body) = captured.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        headers.get("x-api-key").and_then(|v| v.to_str().ok()),
+        Some("test-key")
+    );
+    assert_eq!(
+        headers
+            .get("anthropic-version")
+            .and_then(|v| v.to_str().ok()),
+        Some("2023-06-01")
+    );
+    assert_eq!(body["model"], "claude-sonnet-4-5");
+    assert_eq!(body["system"], "You are the PM.");
+    assert_eq!(body["max_tokens"], 500);
+    assert!(
+        (body["temperature"].as_f64().unwrap() - 0.2).abs() < 1e-3,
+        "temperature should be ~0.2"
+    );
+    let msgs = body["messages"].as_array().unwrap();
+    assert_eq!(
+        msgs.len(),
+        1,
+        "system must be lifted out of the messages array"
+    );
+    assert_eq!(msgs[0]["role"], "user");
+    assert_eq!(msgs[0]["content"], "Plan the build.");
+}

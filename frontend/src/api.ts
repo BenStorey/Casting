@@ -551,7 +551,9 @@ export async function submitSetup(
   ownerName?: string,
   experienceLevel?: string,
   apiKey?: string,
-  ownerToken?: string
+  ownerToken?: string,
+  provider?: string,
+  model?: string
 ): Promise<SetupResult> {
   return j<SetupResult>("/api/setup", {
     method: "POST",
@@ -564,6 +566,8 @@ export async function submitSetup(
       experience_level: experienceLevel || undefined,
       api_key: apiKey || undefined,
       owner_token: ownerToken || undefined,
+      provider: provider || undefined,
+      model: model || undefined,
     }),
   });
 }

@@ -53,7 +53,17 @@ pub struct CostMetering {
     /// Per-1M-token rates used to compute `estimated_usd` (for reconstruction).
     pub input_price_per_mtok: Option<f64>,
     pub output_price_per_mtok: Option<f64>,
-    /// Estimated USD cost of the call.
+    /// Per-1M-token CACHE rates (when known; `None` = cache billed at input).
+    pub cache_read_price_per_mtok: Option<f64>,
+    pub cache_write_price_per_mtok: Option<f64>,
+    /// Exact USD cost reported by the provider for this call (OpenRouter
+    /// `usage.cost`), when it reports one. `None` for OpenAI/Anthropic direct.
+    pub reported_cost_usd: Option<f64>,
+    /// How `estimated_usd` was derived: "actual" (provider-reported) or
+    /// "estimated" (token-count × price).
+    pub cost_status: String,
+    /// The USD cost of the call: provider-reported when available, else the
+    /// token-count × price estimate.
     pub estimated_usd: f64,
 }
 

@@ -301,10 +301,32 @@ impl AppState {
                     (*self.consultants).clone(),
                 )
                 .with_default_persona(persona.clone());
+                // Per-model pricing (overrides + models.dev cache). Loaded at
+                // boot; a background refresh keeps the models.dev cache current.
+                let pricing = crate::llm::pricing::PricingResolver::load(state_dir);
+                if let Some(dir) = state_dir {
+                    let dir = dir.to_path_buf();
+                    let fetch_http = http.clone();
+                    // Best-effort background refresh only when a tokio runtime
+                    // is live (normal `cast run`); failures are logged and the
+                    // tier defaults cover the gap.
+                    if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                        rt.spawn(async move {
+                            if let Err(e) =
+                                crate::llm::pricing::fetch_models_dev(&dir, &fetch_http).await
+                            {
+                                log::warn!(
+                                    "models.dev price refresh failed (using tier defaults): {e:#}"
+                                );
+                            }
+                        });
+                    }
+                }
                 self.with_http_client(http.clone())
                     .with_orchestrator(Arc::new(
                         crate::llm::LlmOrchestrator::new(http, cfg, persona)
-                            .with_resolver(resolver),
+                            .with_resolver(resolver)
+                            .with_pricing(pricing),
                     ))
             }
             Ok(None) => self,
@@ -706,6 +728,10 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     "latency_ms": m.latency_ms,
                     "input_price_per_mtok": m.input_price_per_mtok,
                     "output_price_per_mtok": m.output_price_per_mtok,
+                    "cache_read_price_per_mtok": m.cache_read_price_per_mtok,
+                    "cache_write_price_per_mtok": m.cache_write_price_per_mtok,
+                    "reported_cost_usd": m.reported_cost_usd,
+                    "cost_status": m.cost_status,
                     "estimated_usd": m.estimated_usd,
                 }),
             ))?;

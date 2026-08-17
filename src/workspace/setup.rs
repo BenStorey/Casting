@@ -176,6 +176,8 @@ pub fn persist_setup_prefs(
     director_name: Option<&str>,
     experience_level: Option<&str>,
     api_key: Option<&str>,
+    provider: Option<&str>,
+    model: Option<&str>,
 ) -> Result<()> {
     let prior = read_config(dir).unwrap_or(RuntimeConfig {
         name: String::new(),
@@ -183,6 +185,8 @@ pub fn persist_setup_prefs(
         experience_level: None,
         director_token: None,
         api_key: None,
+        provider: None,
+        model: None,
         telegram_token: None,
         telegram_chat_id: None,
     });
@@ -194,6 +198,8 @@ pub fn persist_setup_prefs(
             .or(prior.experience_level),
         director_token: prior.director_token,
         api_key: api_key.map(|s| s.to_string()).or(prior.api_key),
+        provider: provider.map(|s| s.to_string()).or(prior.provider),
+        model: model.map(|s| s.to_string()).or(prior.model),
         telegram_token: prior.telegram_token,
         telegram_chat_id: prior.telegram_chat_id,
     };
@@ -280,6 +286,15 @@ pub struct RuntimeConfig {
     /// Falls through as a fallback to the env var in the LLM config loader.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// LLM provider the api_key belongs to: "openrouter" | "openai" | "anthropic".
+    /// Chosen in the setup wizard; read back by the LLM config loader. Defaults
+    /// to "openrouter" when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// The model id for the configured provider (e.g. "gpt-4o", "claude-sonnet-4-5").
+    /// Optional; when unset the provider's default is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Persisted Telegram channel config (2026-08-14). Set via the UI
     /// `POST /api/telegram/configure` so a user of Casting never touches env.
     /// Both are secrets-adjacent (a bot token; a user's chat id) and live in
@@ -299,6 +314,8 @@ fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
         experience_level: None,
         director_token: spec.director_token.clone(),
         api_key: None,
+        provider: None,
+        model: None,
         telegram_token: None,
         telegram_chat_id: None,
     };
@@ -332,6 +349,8 @@ pub fn persist_telegram_config(
         experience_level: None,
         director_token: None,
         api_key: None,
+        provider: None,
+        model: None,
         telegram_token: None,
         telegram_chat_id: None,
     });
@@ -341,6 +360,8 @@ pub fn persist_telegram_config(
         experience_level: prior.experience_level,
         director_token: prior.director_token,
         api_key: prior.api_key,
+        provider: prior.provider,
+        model: prior.model,
         telegram_token: Some(token.into()),
         telegram_chat_id: Some(chat_id),
     };
