@@ -94,7 +94,7 @@ async fn owner_hire_adds_an_agent_of_a_role() {
         },
         serde_json::json!({}),
     );
-    for e in action.to_events("proj-cast", "director", &cause, "hire") {
+    for e in action.to_events("proj-cast", "director", &cause, "hire", None) {
         state.append(e).unwrap();
     }
 
@@ -156,7 +156,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
         validate(&proposal, "mei", &proj, Some(&state.consultants)).is_ok(),
         "PM may propose a hire for a known role"
     );
-    for e in proposal.to_events("proj-cast", "mei", &cause, "corr-1") {
+    for e in proposal.to_events("proj-cast", "mei", &cause, "corr-1", None) {
         state.append(e).unwrap();
     }
 

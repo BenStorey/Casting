@@ -1,8 +1,8 @@
 //! Tests for the ownership boundary (docs/DIRECTORSHIP_BOUNDARY.md, D5): the
-//! self-identity guard, the collocated-but-self-ignored `.casting/` state dir,
-//! path sandboxing, and the pinned git runner. These encode the safety
-//! invariant that Casting can never conduct on the wrong repo — least of all
-//! the repo that built it.
+//! self-identity guard, the EXTERNAL state dir (state lives under a separate
+//! dir, NEVER inside the artifact repo), path sandboxing, and the pinned git
+//! runner. These encode the safety invariant that Casting can never conduct on
+//! the wrong repo — least of all the repo that built it.
 //!
 //! All git-like tests use throwaway repos under tempdir; none ever touch the
 //! product repo at /home/ben/casting.
@@ -12,40 +12,43 @@ use casting::store::SqliteEventStore;
 use casting::workspace::{Selfhost, Workspace};
 use std::path::Path;
 
-/// A fresh, existing `repo` dir inside a tempdir (state is collocated in
-/// `<repo>/.casting/`, so no separate state dir is needed).
-fn repo_dir() -> (tempfile::TempDir, std::path::PathBuf) {
+/// A fresh, existing `repo` dir inside a tempdir, plus a SEPARATE state dir
+/// (state lives OUTSIDE the repo, under `<tmp>/state/`).
+fn repo_dir() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
-    (tmp, repo)
+    let state_dir = tmp.path().join("state");
+    std::fs::create_dir_all(&state_dir).unwrap();
+    (tmp, repo, state_dir)
 }
 
 #[test]
-fn state_is_collocated_in_a_gitignored_casting_dir_under_the_repo() {
-    let (tmp, repo) = repo_dir();
+fn state_dir_is_outside_the_repo_and_resolved() {
+    let (tmp, repo, state_dir) = repo_dir();
     let _ = tmp;
 
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
 
-    // State lives INSIDE the repo, in <repo>/.casting/ (collocated, not a
-    // separate path). This is the new model.
-    assert_eq!(ws.casting_dir(), &repo.join(".casting"));
-    assert!(ws.casting_dir().starts_with(&ws.repo));
+    // State lives OUTSIDE the repo (never collocated in <repo>/.casting/), so the
+    // artifact repo is never mutated by Casting's own data.
+    assert_eq!(ws.casting_dir(), &state_dir);
+    assert!(!ws.casting_dir().starts_with(&ws.repo));
+    assert!(!ws.repo.starts_with(ws.casting_dir()));
+}
 
-    // ensure_self_ignored creates the dir + a gitignore so the whole thing is
-    // ignored and never shows up as pending changes in the user's repo.
-    ws.ensure_self_ignored().unwrap();
-    assert!(ws.casting_dir().exists());
-    let gi = ws.casting_dir().join(".gitignore");
-    assert_eq!(
-        std::fs::read_to_string(&gi).unwrap(),
-        "*\n",
-        ".casting/.gitignore must ignore everything in the dir"
+#[test]
+fn refuses_state_dir_inside_the_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    // Trying to put state INSIDE the repo must be refused.
+    let err = Workspace::open(&repo, &repo.join(".casting"), Selfhost::Disabled)
+        .expect_err("state dir inside the repo must be refused");
+    assert!(
+        err.to_string().contains("outside"),
+        "error must explain state must live outside the repo: {err}"
     );
-
-    // Idempotent: a second call doesn't fail.
-    ws.ensure_self_ignored().unwrap();
 }
 
 #[test]
@@ -56,39 +59,47 @@ fn refuses_the_repo_that_built_it_without_selfhost() {
         return;
     };
     // Selfhost::Disabled must refuse the Casting source repo.
-    let err = Workspace::open(Path::new(root), Selfhost::Disabled)
-        .expect_err("source repo should be refused without Selfhost::Enabled");
+    let err = Workspace::open(
+        Path::new(root),
+        Path::new("/tmp/casting-state-1"),
+        Selfhost::Disabled,
+    )
+    .expect_err("source repo should be refused without Selfhost::Enabled");
     assert!(
         err.to_string().contains("self-host"),
         "error must mention self-hosting: {err}"
     );
     // Selfhost::Enabled works trivially.
-    Workspace::open(Path::new(root), Selfhost::Enabled)
-        .expect("source repo with Selfhost::Enabled should work");
+    Workspace::open(
+        Path::new(root),
+        Path::new("/tmp/casting-state-2"),
+        Selfhost::Enabled,
+    )
+    .expect("source repo with Selfhost::Enabled should work");
 }
 
 #[test]
 fn refuses_a_repo_with_casting_identity_without_selfhost() {
-    let (retain, repo) = repo_dir();
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
     std::fs::write(repo.join("Cargo.toml"), "name = \"casting\"\n").unwrap();
     // Selfhost::Disabled must refuse a repo with Casting identity.
-    let err = Workspace::open(&repo, Selfhost::Disabled)
+    let err = Workspace::open(&repo, &state_dir, Selfhost::Disabled)
         .expect_err("a repo naming Casting should be refused without Selfhost::Enabled");
     assert!(
         err.to_string().contains("self-host"),
         "error must mention self-hosting: {err}"
     );
     // Selfhost::Enabled allows it.
-    let ws = Workspace::open(&repo, Selfhost::Enabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Enabled).unwrap();
     assert_eq!(ws.selfhost(), Selfhost::Enabled);
 }
 
 #[test]
 fn resolve_under_resolves_inside_repo_and_rejects_escape() {
-    let (retain, repo) = repo_dir();
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
 
     // A normal relative path resolves under the repo.
     assert_eq!(
@@ -111,9 +122,9 @@ fn resolve_under_resolves_inside_repo_and_rejects_escape() {
 
 #[test]
 fn git_command_pins_the_repo_and_a_worktree_boundary() {
-    let (retain, repo) = repo_dir();
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
 
     let cmd = ws.git_command();
     let args: Vec<String> = cmd
@@ -149,14 +160,13 @@ fn git_command_pins_the_repo_and_a_worktree_boundary() {
 }
 
 #[test]
-fn event_store_lives_in_casting_dir_and_is_gitignored() {
-    let (retain, repo) = repo_dir();
+fn event_store_lives_in_external_state_dir_and_repo_stays_clean() {
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
-    ws.ensure_self_ignored().unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
     ws.ensure_repo().unwrap();
 
-    // Open the store via the collocated .casting/ dir and append a real event.
+    // Open the store via the EXTERNAL state dir and append a real event.
     let store = SqliteEventStore::open(ws.casting_dir().join("events.db")).unwrap();
     let ev = casting::event::Event::new(
         "proj",
@@ -170,9 +180,14 @@ fn event_store_lives_in_casting_dir_and_is_gitignored() {
     );
     store.append(ev).unwrap();
 
-    // The state DB lives inside .casting/, gitignored — so it never shows up
-    // as a pending change / tracked file.
+    // The state DB lives in the EXTERNAL state dir, and the repo is untouched.
     assert!(ws.casting_dir().join("events.db").exists());
+    assert!(!repo.join("events.db").exists());
+    assert!(
+        !repo.join(".casting").exists(),
+        "no .casting must appear in the repo"
+    );
+    // The repo has nothing tracked beyond what we did not add.
     ws.git_command().arg("add").arg("-A").output().unwrap();
     let status = ws
         .git_command()
@@ -183,15 +198,15 @@ fn event_store_lives_in_casting_dir_and_is_gitignored() {
     let out = String::from_utf8_lossy(&status.stdout).to_string();
     assert!(
         !out.contains("events.db"),
-        ".casting/ events.db must be gitignored, but git status shows: {out}"
+        "events.db must not land in the repo: {out}"
     );
 }
 
 #[test]
 fn ensure_repo_initializes_a_git_repo_when_missing() {
-    let (retain, repo) = repo_dir();
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
 
     // No .git yet.
     assert!(!repo.join(".git").exists());
@@ -208,9 +223,9 @@ fn ensure_repo_initializes_a_git_repo_when_missing() {
 
 #[test]
 fn ensure_repo_leaves_existing_repo_untouched() {
-    let (retain, repo) = repo_dir();
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
 
     // Pre-create a git repo with a commit.
     ws.git_command().arg("init").output().unwrap();
@@ -236,9 +251,9 @@ fn ensure_repo_leaves_existing_repo_untouched() {
 
 #[test]
 fn head_and_branch_resolve_after_init() {
-    let (retain, repo) = repo_dir();
+    let (retain, repo, state_dir) = repo_dir();
     let _ = retain;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
     ws.ensure_repo().unwrap();
 
     // A fresh repo has no commits: head() is None, branch() is None.

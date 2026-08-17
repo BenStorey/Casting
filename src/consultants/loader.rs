@@ -1,6 +1,6 @@
 //! Loaders for consultant packages: the **embedded curated defaults** (shipped
 //! with the binary from the `active-cast/` directory) plus **filesystem overlays**
-//! from `<project>/.casting/consultants/` (user-dropped or id-replacing packages).
+//! from `~/.casting/<slug>/consultants/` (user-dropped or id-replacing packages).
 //!
 //! Since 2026-08-17 each consultant is its own **directory named by consultant
 //! id**, not a single flat TOML. A directory package has a fixed structure:
@@ -139,7 +139,6 @@ fn default_max_concurrent() -> usize {
 
 /// Reads a package-relative file. Returns `Ok(None)` if absent, `Err` if it
 /// exists but cannot be read (embedded UTF-8 error, filesystem IO error).
-
 impl ConsultantRegistry {
     /// Load the curated default set embedded in the binary (the `active-cast/`
     /// directory of per-consultant package directories). Validates that all 7
@@ -185,8 +184,8 @@ impl ConsultantRegistry {
         Ok(reg)
     }
 
-    /// Overlay user-supplied consultant packages from `dir` (the collocated
-    /// `<project>/.casting/consultants/` directory) onto this registry.
+    /// Overlay user-supplied consultant packages from `dir` (the
+    /// `~/.casting/<slug>/consultants/` directory) onto this registry.
     ///
     /// A package directory here is `<dir>/<id>/` (its own consultant.toml +
     /// referenced files). A legacy flat `<dir>/<id>.toml` single-file package

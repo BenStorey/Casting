@@ -53,16 +53,43 @@ where
     }
 }
 
-/// Log every incoming API request and its response status.
+/// Log each *meaningful* incoming request once (request line only). Static
+/// assets (SPA bundles, images, fonts) are served on every page load and add no
+/// signal, so they're skipped entirely. Response status is NOT logged for 2xx
+/// (that's just noise); only non-2xx responses surface, as a WARN, so auth
+/// rejections / validation failures stay visible without flooding the log.
+fn is_static_asset(path: &str) -> bool {
+    if path == "/" {
+        return true;
+    }
+    if path.starts_with("/assets/") {
+        return true;
+    }
+    const EXTS: &[&str] = &[
+        ".js", ".mjs", ".css", ".map", ".woff", ".woff2", ".ttf", ".eot", ".svg", ".png", ".jpg",
+        ".jpeg", ".gif", ".ico", ".webp", ".wasm",
+    ];
+    EXTS.iter().any(|e| path.ends_with(e))
+}
+
 async fn log_request(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
-    log::info!("→ {} {}", method, uri);
+    let path = uri.path();
+    let is_static = is_static_asset(path);
+    if !is_static {
+        log::info!("→ {} {}", method, uri);
+    }
     let response = next.run(req).await;
-    log::info!("← {} {} → {}", method, uri, response.status().as_u16());
+    if !is_static {
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            log::warn!("← {} {} → {} (NON-2xx)", method, uri, status);
+        }
+    }
     response
 }
 

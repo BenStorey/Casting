@@ -582,7 +582,8 @@ fn gate_rejects_reproposing_an_open_subject() {
         None,
     )
     .is_ok());
-    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "mei", &cause(), "run-1") {
+    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "mei", &cause(), "run-1", None)
+    {
         st.append(ev).unwrap();
     }
 
@@ -604,7 +605,8 @@ fn gate_rejects_reproposing_an_open_subject() {
 fn gate_allows_different_subject_after_one_is_open() {
     use casting::actions;
     let st = state_with_pm_and_cast();
-    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "mei", &cause(), "run-1") {
+    for ev in (propose_decision("Pick a DB")).to_events("proj-anti", "mei", &cause(), "run-1", None)
+    {
         st.append(ev).unwrap();
     }
     // A DIFFERENT subject is still fine.

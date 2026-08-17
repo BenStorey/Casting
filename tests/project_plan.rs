@@ -268,7 +268,7 @@ fn set_priority_action_emits_task_priority_changed_and_reduces() {
         task_id: "task-a".into(),
         priority: Priority::Critical,
     }
-    .to_events("proj-plan", "mei", &cause, "corr-1");
+    .to_events("proj-plan", "mei", &cause, "corr-1", None);
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::TaskPriorityChanged);
     assert_eq!(evs[0].data["to"], serde_json::json!("critical"));

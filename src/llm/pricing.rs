@@ -6,11 +6,11 @@
 //! OpenAI and Anthropic direct APIs only return tokens).
 //!
 //! Prices resolve through a precedence ladder (first match wins):
-//!   1. A local **override** table (`.casting/prices.json`) — the "config, not
+//!   1. A local **override** table (`~/.casting/<slug>/prices.json`) — the "config, not
 //!      code" escape hatch: pin a price, correct a stale one, or cover a local
 //!      model (LiteLLM/Ollama) models.dev doesn't know.
 //!   2. The **models.dev** open dataset (`https://models.dev/api.json`) cached
-//!      to `.casting/models_dev_cache.json` — the same community-maintained
+//!      to `~/.casting/<slug>/models_dev_cache.json` — the same community-maintained
 //!      source Hermes uses, covering OpenAI/Anthropic/OpenRouter + 100+ other
 //!      providers, with real input/output/cache_read/cache_write rates.
 //!   3. A caller-supplied fallback (the consultant cost-tier prices) for
@@ -80,18 +80,18 @@ pub struct PricingResolver {
 }
 
 impl PricingResolver {
-    /// Load overrides (`.casting/prices.json`) and the models.dev cache
-    /// (`.casting/models_dev_cache.json`) from the state dir, if present.
+    /// Load overrides (`~/.casting/<slug>/prices.json`) and the models.dev cache
+    /// (`~/.casting/<slug>/models_dev_cache.json`) from the state dir, if present.
     /// Missing files are simply empty — callers fall back to tier prices.
     pub fn load(state_dir: Option<&Path>) -> Self {
         let mut r = PricingResolver::default();
         if let Some(dir) = state_dir {
-            if let Some(raw) = std::fs::read_to_string(dir.join("prices.json")).ok() {
+            if let Ok(raw) = std::fs::read_to_string(dir.join("prices.json")) {
                 if let Some(map) = parse_prices_json(&raw) {
                     r.overrides = map;
                 }
             }
-            if let Some(raw) = std::fs::read_to_string(dir.join("models_dev_cache.json")).ok() {
+            if let Ok(raw) = std::fs::read_to_string(dir.join("models_dev_cache.json")) {
                 r.models_dev = parse_models_dev(&raw);
             }
         }
@@ -177,7 +177,7 @@ pub fn metering(
     }
 }
 
-/// Parse a `.casting/prices.json` override table: `{ "provider/model": { ... } }`.
+/// Parse a `~/.casting/<slug>/prices.json` override table: `{ "provider/model": { ... } }`.
 pub fn parse_prices_json(raw: &str) -> Option<HashMap<PriceKey, CostPrices>> {
     let v: serde_json::Value = serde_json::from_str(raw).ok()?;
     let obj = v.as_object()?;

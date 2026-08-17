@@ -8,14 +8,16 @@
 use casting::workspace::{ProvisionedWorktree, Selfhost, Workspace};
 use std::path::Path;
 
-/// A fresh, existing `repo` dir inside a tempdir (state collocated in
-/// `<repo>/.casting/`), with a real git repo and one commit so worktrees can
-/// branch off HEAD.
-fn repo_dir() -> (tempfile::TempDir, std::path::PathBuf) {
+/// A fresh, existing `repo` dir inside a tempdir with a separate state dir
+/// (state lives OUTSIDE the repo, under `<tmp>/state/`), a real git repo and one
+/// commit so worktrees can branch off HEAD.
+fn repo_dir() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let state_dir = tmp.path().join("state");
+    std::fs::create_dir_all(&state_dir).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
     ws.ensure_repo().unwrap();
     std::fs::write(repo.join("README.md"), "hello\n").unwrap();
     ws.git_command().arg("add").arg(".").output().unwrap();
@@ -25,18 +27,18 @@ fn repo_dir() -> (tempfile::TempDir, std::path::PathBuf) {
         .arg("initial")
         .output()
         .unwrap();
-    (tmp, repo)
+    (tmp, repo, state_dir)
 }
 
-fn ws(repo: &Path) -> Workspace {
-    Workspace::open(repo, Selfhost::Disabled).unwrap()
+fn ws(repo: &Path, state_dir: &Path) -> Workspace {
+    Workspace::open(repo, state_dir, Selfhost::Disabled).unwrap()
 }
 
 #[test]
 fn provision_creates_an_isolated_worktree_on_its_own_branch() {
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
 
     let wt = ws
         .provision_worktree("task-381", "authentication", 8090)
@@ -44,8 +46,8 @@ fn provision_creates_an_isolated_worktree_on_its_own_branch() {
 
     // Branch follows the casting/task-<id>-<slug> convention.
     assert_eq!(wt.branch, "casting/task-381-authentication");
-    // Worktree lives under <repo>/.casting/worktrees/<task_id> (self-ignored).
-    assert_eq!(wt.path, repo.join(".casting/worktrees/task-381"));
+    // Worktree lives under <state>/worktrees/<task_id> (state is outside the repo).
+    assert_eq!(wt.path, state_dir.join("worktrees/task-381"));
     assert!(wt.path.exists(), "worktree dir must exist");
 
     // The worktree's checked-out branch is its own (not main).
@@ -62,9 +64,9 @@ fn provision_creates_an_isolated_worktree_on_its_own_branch() {
 
 #[test]
 fn each_worktree_gets_a_private_build_target() {
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
 
     let a = ws
         .provision_worktree("task-381", "authentication", 8090)
@@ -81,9 +83,9 @@ fn each_worktree_gets_a_private_build_target() {
 
 #[test]
 fn each_worktree_gets_a_distinct_port() {
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
 
     let a = ws
         .provision_worktree("task-381", "authentication", 8090)
@@ -100,9 +102,9 @@ fn each_worktree_gets_a_distinct_port() {
 
 #[test]
 fn worktrees_do_not_touch_main_or_the_shared_checkout() {
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
     let main_head = ws.head().unwrap();
 
     ws.provision_worktree("task-381", "authentication", 8090)
@@ -130,9 +132,9 @@ fn worktrees_do_not_touch_main_or_the_shared_checkout() {
 
 #[test]
 fn provision_is_idempotent_per_task() {
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
 
     let a = ws
         .provision_worktree("task-381", "authentication", 8090)
@@ -147,9 +149,9 @@ fn provision_is_idempotent_per_task() {
 
 #[test]
 fn remove_worktree_deletes_the_worktree() {
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
 
     let wt = ws
         .provision_worktree("task-381", "authentication", 8090)
@@ -203,8 +205,8 @@ fn worktree_provisioned_event_projects_worktree_and_change_set() {
             serde_json::json!({
                 "task_id": "task-381",
                 "branch": "casting/task-381-authentication",
-                "path": "/repo/.casting/worktrees/task-381",
-                "cargo_target_dir": "/repo/.casting/worktrees/task-381/target",
+                "path": "/state/worktrees/task-381",
+                "cargo_target_dir": "/state/worktrees/task-381/target",
                 "port": 8090,
             }),
         ))
@@ -385,8 +387,8 @@ async fn pm_physically_provisions_worktrees_with_workspace() {
     use std::sync::Arc;
     use std::time::Duration;
 
-    let (_tmp, repo) = repo_dir(); // real git repo with an initial commit
-    let ws = ws(&repo);
+    let (_tmp, repo, state_dir) = repo_dir(); // real git repo with an initial commit
+    let ws = ws(&repo, &state_dir);
     let state = {
         let store = casting::store::SqliteEventStore::in_memory().unwrap();
         let cursors = casting::store::SqliteCursorStore::in_memory().unwrap();
@@ -570,9 +572,9 @@ fn commit_in_worktree_lands_on_the_isolated_branch() {
     use casting::workspace::Selfhost;
     use std::path::Path;
 
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = Workspace::open(&repo, Selfhost::Disabled).unwrap();
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled).unwrap();
     let wt = ws
         .provision_worktree("task-381", "authentication", 8090)
         .unwrap();
@@ -612,8 +614,8 @@ fn commit_in_worktree_lands_on_the_isolated_branch() {
 fn reconciler_releases_done_worktrees_and_unbinds_slot() {
     use std::sync::Arc;
 
-    let (_tmp, repo) = repo_dir();
-    let ws = ws(&repo);
+    let (_tmp, repo, state_dir) = repo_dir();
+    let ws = ws(&repo, &state_dir);
     // Provision two worktrees for DIFFERENT consultants so slots don't collide.
     ws.provision_persistent_worktree("consultant-a", 0, "task-381", 8090)
         .unwrap();
@@ -714,9 +716,9 @@ fn worktree_surfaces_in_context_and_operating_model() {
     use casting::runtime::context::WorktreeInfo;
 
     // Build a projection via the WorktreeProvisioned reducer.
-    let (tmp, repo) = repo_dir();
+    let (tmp, repo, state_dir) = repo_dir();
     let _tmp = tmp;
-    let ws = ws(&repo);
+    let ws = ws(&repo, &state_dir);
     // Build a projection directly (no store needed — pure derivation).
     let proj = casting::projection::Projection {
         project_id: "proj".into(),

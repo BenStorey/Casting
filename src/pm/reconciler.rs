@@ -262,7 +262,13 @@ fn opinion_drift(state: &AppState) -> Result<u32> {
             continue;
         }
         let events = match &cause {
-            Some(c) => action.to_events(&state.project, who, c, &correlation),
+            Some(c) => action.to_events(
+                &state.project,
+                who,
+                c,
+                &correlation,
+                state.workspace.as_ref().map(|w| w.state_dir.as_path()),
+            ),
             None => Vec::new(),
         };
         for event in events {

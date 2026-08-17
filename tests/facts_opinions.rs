@@ -247,7 +247,7 @@ fn supersede_opinion_action_through_gate_and_events() {
         opinion_id: "op-old".into(),
         by_opinion_id: "op-new".into(),
     }
-    .to_events(&state.project, "director", &cause, "corr-1");
+    .to_events(&state.project, "director", &cause, "corr-1", None);
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::OpinionSuperseded);
     assert_eq!(evs[0].aggregate.id, "op-old");
@@ -321,7 +321,7 @@ fn record_opinion_action_to_events() {
         statement: "Single-director auth is enough".into(),
         supersedes: None,
     }
-    .to_events(&state.project, "director", &cause, "corr-1");
+    .to_events(&state.project, "director", &cause, "corr-1", None);
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::OpinionRecorded);
     assert_eq!(evs[0].aggregate.id, "op-9");
@@ -341,7 +341,7 @@ fn pm_can_narrate_opinions_and_facts() {
         statement: "The event log is the only authority".into(),
         supersedes: None,
     }
-    .to_events(&state.project, "mei", &cause, "corr-1");
+    .to_events(&state.project, "mei", &cause, "corr-1", None);
     state
         .append(opinion_ev.into_iter().next().unwrap())
         .unwrap();
@@ -351,7 +351,7 @@ fn pm_can_narrate_opinions_and_facts() {
         kind: "tasks".into(),
         statement: "the board has 3 tasks".into(),
     }
-    .to_events(&state.project, "mei", &cause, "corr-1");
+    .to_events(&state.project, "mei", &cause, "corr-1", None);
     state.append(fact_ev.into_iter().next().unwrap()).unwrap();
 
     let proj = Projection::build(&state.store, &state.project).unwrap();

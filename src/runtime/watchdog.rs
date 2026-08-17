@@ -205,7 +205,7 @@ pub fn audit(state: &AppState, config: &WatchConfig, now: DateTime<Utc>) -> Resu
     let action = PmAction::PauseWork {
         reason: sig.detail.clone(),
     };
-    for ev in action.to_events(&state.project, "system", &cause, "watchdog") {
+    for ev in action.to_events(&state.project, "system", &cause, "watchdog", None) {
         state.append(ev)?;
     }
     eprintln!("[watchdog] auto-paused: {}", sig.detail);

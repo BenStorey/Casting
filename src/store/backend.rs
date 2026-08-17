@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// A concrete storage backend: one handle serving all three traits.
 pub enum Backend {
-    /// Default: a per-project SQLite DB file under the project's `.casting/`.
+    /// Default: a per-project SQLite DB file under the project's `~/.casting/<slug>/`.
     Sqlite {
         events: Arc<crate::store::SqliteEventStore>,
         cursors: Arc<crate::store::SqliteCursorStore>,
@@ -26,7 +26,7 @@ pub enum Backend {
 }
 
 impl Backend {
-    /// Open the default SQLite backend for a project's `.casting/` dir.
+    /// Open the default SQLite backend for a project's `~/.casting/<slug>/` dir.
     pub fn sqlite(casting_dir: &Path) -> Result<Self> {
         Ok(Backend::Sqlite {
             events: Arc::new(crate::store::SqliteEventStore::open(
@@ -74,7 +74,7 @@ impl Backend {
 }
 
 /// Parse a `--db` / `CAST_DB` backend selector into a `Backend`.
-///   - `sqlite` (default) — per-project `.casting/` SQLite files.
+///   - `sqlite` (default) — per-project `~/.casting/<slug>/` SQLite files.
 ///   - `postgres://...` / a libpq string — hosted Postgres.
 pub fn from_selector(selector: &str, casting_dir: &Path) -> Result<Backend> {
     let sel = selector.trim();

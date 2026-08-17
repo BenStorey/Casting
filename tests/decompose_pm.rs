@@ -141,7 +141,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         parent: "task-feature".into(),
         children: children.clone(),
     })
-    .to_events("proj", "mei", &cause, "corr-decompose")
+    .to_events("proj", "mei", &cause, "corr-decompose", None)
     {
         state.append(ev).unwrap();
     }
@@ -152,7 +152,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
         blocking_task_id: "feature-db".into(),
         required_state: casting::types::TaskStatus::Done,
     })
-    .to_events("proj", "mei", &cause, "corr-edge")
+    .to_events("proj", "mei", &cause, "corr-edge", None)
     {
         state.append(ev).unwrap();
     }
@@ -164,7 +164,7 @@ async fn onboard_with_decompose_fans_out_parallel_children_and_orders_them() {
             assignee: "diego".into(),
             merge_authority: casting::types::MergeAuthority::SelfMerge,
         })
-        .to_events("proj", "mei", &cause, "corr-assign")
+        .to_events("proj", "mei", &cause, "corr-assign", None)
         {
             state.append(ev).unwrap();
         }

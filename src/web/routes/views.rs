@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::Json;
 
 /// GET /api/consultants — the loaded consultant registry (embedded defaults +
-/// any user overlay from `.casting/consultants/`): identity, role, system
+/// any user overlay from ~/.casting/<slug>/consultants/`): identity, role, system
 /// prompt, routing hints, model binding, verification. Configuration, never
 /// authority (who's hired stays in the event log). Read by the D2 orchestrator
 /// and the UI.

@@ -468,7 +468,7 @@ async fn pm_proposes_governance_change_and_owner_approval_applies_it() {
         strength: DirectiveStrength::Required,
         supersedes: Some("directive-v1".into()),
     };
-    for ev in proposal.to_events("proj-dir", "mei", &cause, "corr-1") {
+    for ev in proposal.to_events("proj-dir", "mei", &cause, "corr-1", None) {
         state.append(ev).unwrap();
     }
 

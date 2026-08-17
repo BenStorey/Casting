@@ -1,8 +1,10 @@
 //! The Ownership Boundary (D5).
 //!
 //! Casting operates on exactly one repo — the one it is explicitly handed at
-//! startup — and keeps its internal state collocated in `<repo>/.casting/`
-//! (gitignored, so it never pollutes the user's git history). All Git runs
+//! startup — and keeps its internal state OUTSIDE that repo, under
+//! `~/.casting/<slug>/` (the user's home, never the artifact repo). This means
+//! the artifact repo is never mutated by Casting's own data: the project stays
+//! byte-identical to how it was before Casting touched it. All Git runs
 //! through a single pinned runner so a bare `git` call can never resolve to
 //! the wrong repo.
 //!
@@ -28,13 +30,15 @@ pub enum Selfhost {
 
 /// The canonical workspace: which artifact repo Casting drives, where its own
 /// state lives, and whether self-hosting is permitted. Both paths are absolute
-/// and canonical; they are guaranteed distinct and non-nested.
+/// and canonical; they are guaranteed distinct and non-nested (the state dir
+/// lives under the user's home, never inside the artifact repo).
 #[derive(Debug, Clone)]
 pub struct Workspace {
     /// Canonical absolute path to the artifact repo agents operate in.
     pub repo: PathBuf,
-    /// Canonical absolute path to Casting's internal state dir (`--state-dir`).
-    /// Never inside `repo` (and `repo` is never inside it).
+    /// Canonical absolute path to Casting's internal state dir
+    /// (`~/.casting/<slug>/`). Never inside `repo` (and `repo` is never inside
+    /// it) — Casting never writes into the artifact repo.
     pub state_dir: PathBuf,
     selfhost: Selfhost,
 }
@@ -44,16 +48,30 @@ impl Workspace {
     /// boundary:
     ///
     /// 1. the repo resolves to a canonical absolute path;
-    /// 2. Casting's own state lives **collocated** in `<repo>/.casting/` (a
-    ///    gitignored directory — the whole dir is self-ignored so it never
-    ///    pollutes the user's git history);
+    /// 2. Casting's own state lives OUTSIDE the repo, at the explicitly-provided
+    ///    `state_dir` (e.g. `~/.casting/<slug>/`);
     /// 3. unless `Selfhost::Enabled`, refuse to operate on the repo that built
     ///    this binary (embedded source root) or any repo whose identity is the
     ///    Casting crate (`name = "casting"`).
-    pub fn open(repo: &Path, selfhost: Selfhost) -> Result<Self> {
+    pub fn open(repo: &Path, state_dir: &Path, selfhost: Selfhost) -> Result<Self> {
         let repo = repo
             .canonicalize()
             .with_context(|| format!("canonicalize artifact repo {}", repo.display()))?;
+        let state_dir = state_dir
+            .canonicalize()
+            .or_else(|_| {
+                // State dir may not exist yet — resolve relative to cwd so the
+                // path is still absolute and canonical-for-comparison.
+                let p = if state_dir.is_absolute() {
+                    state_dir.to_path_buf()
+                } else {
+                    std::env::current_dir()
+                        .unwrap_or_else(|_| PathBuf::from("."))
+                        .join(state_dir)
+                };
+                p.canonicalize().or(Ok::<PathBuf, std::io::Error>(p))
+            })
+            .with_context(|| format!("resolve state dir {}", state_dir.display()))?;
 
         if selfhost == Selfhost::Disabled && is_casting_source(&repo) {
             bail!(
@@ -63,7 +81,10 @@ impl Workspace {
             );
         }
 
-        let state_dir = repo.join(".casting");
+        // Hard invariant: Casting's state MUST live outside the artifact repo,
+        // so the repo is never mutated by our own data.
+        ensure_outside_repo(&repo, &state_dir)?;
+
         Ok(Workspace {
             repo,
             state_dir,
@@ -71,24 +92,10 @@ impl Workspace {
         })
     }
 
-    /// The `.casting/` directory (Casting's internal state lives here,
-    /// collocated inside the project repo and self-ignored by git).
+    /// The state directory (Casting's internal state lives here, under the
+    /// user's home — never inside the artifact repo).
     pub fn casting_dir(&self) -> &Path {
         &self.state_dir
-    }
-
-    /// Ensure Casting's state directory exists and is **self-ignored**: write
-    /// `<repo>/.casting/.gitignore` = `*` (idempotent) so the whole directory
-    /// never shows up as untracked/pending in the user's repo. Also makes sure
-    /// the directory itself exists. Called at startup.
-    pub fn ensure_self_ignored(&self) -> Result<()> {
-        std::fs::create_dir_all(&self.state_dir)
-            .with_context(|| format!("create casting dir {}", self.state_dir.display()))?;
-        let gi = self.state_dir.join(".gitignore");
-        if !gi.exists() {
-            std::fs::write(&gi, "*\n").with_context(|| format!("write {}", gi.display()))?;
-        }
-        Ok(())
     }
 
     /// Whether self-hosting is enabled on this workspace.
@@ -153,8 +160,8 @@ impl Workspace {
         cmd
     }
 
-    /// Where per-task worktrees live: `<repo>/.casting/worktrees/` (inside the
-    /// collocated, self-ignored casting dir so they never pollute git status).
+    /// Where per-task worktrees live: `<state_dir>/worktrees/` (the project's
+    /// state dir, OUTSIDE the repo — so they never pollute git status).
     pub fn worktrees_root(&self) -> PathBuf {
         self.state_dir.join("worktrees")
     }
@@ -254,9 +261,9 @@ impl Workspace {
     /// distinct API port so concurrent consultants cannot collide. Idempotent
     /// per task id (a second call for the same task returns the existing one).
     ///
-    /// Worktrees live under `<repo>/.casting/worktrees/` (self-ignored). The
-    /// branch is created off the current HEAD; `main` (the protected branch) is
-    /// never touched. Returns the provisioned workspace.
+    /// Worktrees live under `<state_dir>/worktrees/` (the project's state dir,
+    /// OUTSIDE the repo). The branch is created off the current HEAD; `main` (the
+    /// protected branch) is never touched. Returns the provisioned workspace.
     pub fn provision_worktree(
         &self,
         task_id: &str,
@@ -496,6 +503,30 @@ pub struct ProvisionedWorktree {
     pub cargo_target_dir: PathBuf,
     /// Distinct API port so each consultant's dev server can run in parallel.
     pub port: u16,
+}
+
+/// Hard invariant: Casting's state directory must live OUTSIDE the artifact
+/// repo, so the repo is never mutated by our own data. Refuses (a) a state dir
+/// inside the repo, and (b) a repo inside the state dir (which would also
+/// defeat the separation).
+fn ensure_outside_repo(repo: &Path, state_dir: &Path) -> Result<()> {
+    if state_dir.starts_with(repo) {
+        bail!(
+            "Casting state dir {} is inside the artifact repo {} — state must live \
+             outside the repo (use ~/.casting). Set CASTING_HOME to relocate it.",
+            state_dir.display(),
+            repo.display()
+        );
+    }
+    if repo.starts_with(state_dir) {
+        bail!(
+            "artifact repo {} is inside the Casting state dir {} — these must be \
+             distinct paths.",
+            repo.display(),
+            state_dir.display()
+        );
+    }
+    Ok(())
 }
 
 fn is_casting_source(repo: &Path) -> bool {

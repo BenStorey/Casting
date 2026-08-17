@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchSetupStatus, submitSetup, type SetupRole, type SetupStatus, type ConsultantConfig } from "./api";
+import { fetchSetupStatus, submitSetup, type SetupRole, type SetupStatus, type SetupResult, type ConsultantConfig } from "./api";
 import { useCastStore } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,6 +118,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<SetupResult | null>(null);
 
   // Wizard data
   const [step, setStep] = useState<Step>({ kind: "welcome" });
@@ -176,7 +177,13 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       case "existing-project":
         return existingProject !== null;
       case "project-details":
-        return projectName.trim().length > 0 && objective.trim().length > 0;
+        return (
+          projectName.trim().length > 0 &&
+          objective.trim().length > 0 &&
+          // First run (no project configured yet): the wizard is CREATING the
+          // project, so we must also collect the artifact repo path.
+          (status?.project_exists !== false || projectPath.trim().length > 0)
+        );
       case "policies":
         return true;
       case "api-key":
@@ -280,7 +287,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      await submitSetup(
+      const res = await submitSetup(
         projectName.trim(),
         objective.trim(),
         status?.roles?.map((r) => r.id) ?? [],
@@ -289,8 +296,19 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         apiKey.trim() || undefined,
         undefined,
         provider,
-        model.trim() || undefined
+        model.trim() || undefined,
+        // First run (no project yet): the wizard is creating the project, so
+        // include the artifact repo path. Otherwise the repo is already known.
+        status?.project_exists === false ? projectPath.trim() : undefined
       );
+      // On first run the project was just created: there is no booted workspace
+      // yet, so don't fire policy changes (they'd hit a server with no state).
+      // Show a success screen telling the user to restart `cast run` instead.
+      if (res.created) {
+        setCreated(res);
+        setBusy(false);
+        return;
+      }
       // Apply policy overrides: for classes where the owner chose a non-default
       // involvement, POST to /api/policy. The backend fires DecisionPolicyChanged.
       for (const dc of DECISION_CLASSES) {
@@ -311,6 +329,26 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   };
 
   const current = castMembers[step.kind === "cast-intro" ? step.index : -1];
+
+  if (created) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-gradient-to-b from-background to-muted/30">
+        <div className="w-full max-w-xl space-y-8">
+          <div className="text-center space-y-4">
+            <div className="text-5xl">🎉</div>
+            <h2 className="text-2xl font-bold">Project &ldquo;{created.name}&rdquo; created</h2>
+            <p className="text-muted-foreground">
+              State is at <code>~/.casting/{created.slug}</code> (port {created.port}).
+            </p>
+            <p className="text-muted-foreground">
+              Stop this <code>cast run</code> and start it again &mdash; it will now
+              auto-select this project and launch the workspace.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-gradient-to-b from-background to-muted/30">
@@ -592,6 +630,19 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
                   onKeyDown={(e) => e.key === "Enter" && e.metaKey && canContinue && nextStep()}
                 />
               </div>
+              {status?.project_exists === false && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground block mb-1">
+                    Artifact repo path
+                  </label>
+                  <Input
+                    value={projectPath}
+                    onChange={(e) => setProjectPath(e.target.value)}
+                    placeholder="/path/to/your/repo (must already exist)"
+                    onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
+                  />
+                </div>
+              )}
             </div>
             <div className="flex justify-center gap-3">
               <Button variant="ghost" onClick={prevStep}>

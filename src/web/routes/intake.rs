@@ -109,7 +109,7 @@ pub(crate) async fn brief_handler(
         serde_json::json!({}),
     );
     let ev = action
-        .to_events(&state.project, "director", &cause, "brief")
+        .to_events(&state.project, "director", &cause, "brief", None)
         .into_iter()
         .next()
         .ok_or_else(|| {
@@ -197,7 +197,7 @@ pub(crate) async fn request_handler(
         serde_json::json!({}),
     );
     let ev = action
-        .to_events(&state.project, proj.pm_id(), &cause, "request")
+        .to_events(&state.project, proj.pm_id(), &cause, "request", None)
         .into_iter()
         .next()
         .ok_or_else(|| {
@@ -252,7 +252,7 @@ pub(crate) async fn diagram_handler(
         serde_json::json!({}),
     );
     let ev = action
-        .to_events(&state.project, proj.pm_id(), &cause, "diagram")
+        .to_events(&state.project, proj.pm_id(), &cause, "diagram", None)
         .into_iter()
         .next()
         .ok_or_else(|| {

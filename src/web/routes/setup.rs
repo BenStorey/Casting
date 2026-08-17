@@ -31,6 +31,7 @@ pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<
         .collect();
     Json(serde_json::json!({
         "configured": has_cast,
+        "project_exists": state.state_dir.is_some(),
         "roles": roles,
     }))
 }
@@ -58,6 +59,11 @@ pub(crate) struct SetupIn {
     cast: Vec<String>,
     #[serde(default)]
     director_token: Option<String>,
+    /// Path to the artifact repo this project wraps. Required only when no
+    /// project exists yet (the wizard is CREATING one); when configuring an
+    /// already-initialized project this is ignored (the repo is already known).
+    #[serde(default)]
+    repo_path: Option<String>,
 }
 
 /// POST /api/setup — the first-run wizard's submit. Hires the chosen cast
@@ -74,11 +80,99 @@ pub(crate) async fn setup_handler(
     headers: HeaderMap,
     Json(input): Json<SetupIn>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // First-run project CREATION: when no project is configured yet (the setup
+    // server attaches no `state_dir`) AND a repo path is supplied, the wizard is
+    // creating one from scratch. We persist the project's state dir here; the
+    // user then restarts `cast run`, which auto-selects the now-existing sole
+    // project and boots the workspace. Without a repo path there's nothing to
+    // create, so we fall through to the existing open configure path below.
+    if state.state_dir.is_none() {
+        if let Some(repo_path) = input.repo_path.as_deref().filter(|s| !s.is_empty()) {
+            let repo = std::path::Path::new(repo_path);
+            if !repo.exists() {
+                log::warn!(
+                    "[setup] first-run project creation rejected: artifact repo not found: {repo_path}"
+                );
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("artifact repo not found: {repo_path}"),
+                ));
+            }
+            let slug = crate::workspace::setup::slugify(&input.name);
+            let dir = crate::workspace::setup::project_dir(&slug)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            if dir.exists() {
+                log::warn!(
+                    "[setup] first-run project creation rejected: slug '{slug}' already exists"
+                );
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("a project with slug '{slug}' already exists"),
+                ));
+            }
+            log::info!(
+                "[setup] creating first-run project: name='{}' slug='{}' repo='{}'",
+                input.name,
+                slug,
+                repo_path
+            );
+            std::fs::create_dir_all(&dir).map_err(|e| {
+                log::error!("[setup] failed to create project dir {dir:?}: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("create {dir:?}: {e}"),
+                )
+            })?;
+            let port = crate::workspace::setup::next_port()
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let director_token = input.director_token.as_deref().filter(|t| !t.is_empty());
+            crate::workspace::setup::persist_location(&dir, &input.name, &slug, repo, port)
+                .and_then(|_| {
+                    crate::workspace::setup::persist_config(&dir, &input.name, director_token)
+                })
+                .and_then(|_| {
+                    crate::workspace::setup::persist_setup_prefs(
+                        &dir,
+                        input.director_name.as_deref(),
+                        input.experience_level.as_deref(),
+                        input.api_key.as_deref(),
+                        input.provider.as_deref(),
+                        input.model.as_deref(),
+                    )
+                })
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            log::info!(
+                "[setup] first-run project created: slug='{}' -> {} (port {})",
+                slug,
+                dir.display(),
+                port
+            );
+            return Ok(Json(serde_json::json!({
+                "ok": true,
+                "created": true,
+                "slug": slug,
+                "port": port,
+                "name": input.name,
+            })));
+        }
+    }
+
     // `ensure_hires` handles empty (hire the whole roster from the directory);
     // a non-empty `cast` selects specific roles to hire.
     let cast_roles = input.cast;
-    let hires = crate::workspace::setup::ensure_hires(&state, &cast_roles)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let hires = crate::workspace::setup::ensure_hires(&state, &cast_roles).map_err(|e| {
+        log::warn!("[setup] configure failed (ensure_hires): {e}");
+        (StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    log::info!(
+        "[setup] configuring existing project '{}' (hired {} role(s))",
+        state
+            .state_dir
+            .as_ref()
+            .map(|d| d.display().to_string())
+            .unwrap_or_default(),
+        hires.len()
+    );
 
     // Persist the director token + name so `cast run` picks up auth on restart.
     if let Some(dir) = &state.state_dir {

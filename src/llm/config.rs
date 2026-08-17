@@ -6,7 +6,7 @@
 //!
 //! Config resolution order:
 //!   1. Env vars (CAST_LLM_API_KEY, CAST_LLM_PROVIDER, etc.)
-//!   2. Persisted config from `.casting/config.json` (set via setup wizard)
+//!   2. Persisted config from `~/.casting/<slug>/config.json` (set via setup wizard)
 //!   3. Defaults (openrouter + deepseek-v4-flash)
 
 use crate::workspace::setup::read_config;
@@ -58,10 +58,10 @@ pub fn default_base_url(provider: &str) -> Option<&'static str> {
 ///
 /// Resolution order:
 ///   1. Env vars (CAST_LLM_API_KEY, CAST_LLM_PROVIDER, CAST_LLM_MODEL, CAST_LLM_BASE_URL)
-///   2. Persisted `.casting/config.json` (api_key + defaults)
+///   2. Persisted `~/.casting/<slug>/config.json` (api_key + defaults)
 ///
-/// `state_dir` is the `.casting/` directory path, set during `cast run`.
-/// Pass `None` to check env vars only.
+/// `state_dir` is the project's state-dir path (~/.casting/<slug>/), set during
+/// `cast run`. Pass `None` to check env vars only.
 ///
 /// When the persisted path finds an API key but no model/provider, defaults
 /// are used (openrouter + deepseek/deepseek-v4-flash-0731).
@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     /// Prove that a provider + model persisted by the setup wizard (in
-    /// `.casting/config.json`) flows through `from_env` into the resolved
+    /// `~/.casting/<slug>/config.json`) flows through `from_env` into the resolved
     /// ProviderConfig — i.e. the setup → boot LLM wiring round-trips.
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("casting-cfg-{tag}-{}", std::process::id()));

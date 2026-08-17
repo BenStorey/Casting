@@ -173,6 +173,7 @@ fn audit_is_idempotent_and_owner_can_resume() {
             .pop()
             .unwrap(),
         "resume",
+        None,
     ) {
         state.append(ev).unwrap();
     }

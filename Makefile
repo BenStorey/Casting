@@ -20,15 +20,20 @@
 #
 # Rust lives in ~/.cargo (rustup standalone). Non-login shells don't have it on
 # PATH, so we add it explicitly rather than relying on the environment.
+#
+# State layout: each project's state lives OUTSIDE the artifact repo, under
+# ~/.casting/<slug>/ (honour $CASTING_HOME to relocate). `cast run` runs exactly
+# one project per invocation — pass --project <slug>, or let it auto-select the
+# sole project. To drive a specific project, set PROJECT to its slug.
 
 SHELL := /bin/bash
 CARGO_HOME := $(HOME)/.cargo
 export PATH := $(CARGO_HOME)/bin:$(PATH)
 
-# The workspace `cast run` drives. Defaults to the current directory when
-# running `make dev` or `make run` — `.casting/` state lives in the project root.
-# Override: make run REPO_DIR=/path/to/project
-REPO_DIR ?= .
+# The project slug `cast run` drives. `cast run` auto-selects the sole project,
+# or lists them and errors if more than one exists (then pass PROJECT=<slug>).
+# Override: make run PROJECT=acme
+PROJECT ?=
 CAST_ADDR ?= 127.0.0.1:8080
 
 .PHONY: all dev run frontend test lint fmt clean deploy-dev restart
@@ -56,21 +61,21 @@ lint:
 fmt:
 	cargo fmt
 
-# Run the whole workspace from ONE binary (API + embedded UI) on the single
-# project dir (no registry — Casting is single-project).
+# Run the whole workspace from ONE binary (API + embedded UI) for a given
+# project. `cast run` auto-selects when exactly one project exists; otherwise
+# pass PROJECT=<slug>. State lives under ~/.casting/<slug>/, never in the repo.
 run: build
-	mkdir -p $(REPO_DIR)
-	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(REPO_DIR)
+	@test -n "$(PROJECT)" || echo "tip: cast run auto-selects the sole project, or pass PROJECT=<slug>"
+	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(if [ -n "$(PROJECT)" ]; then echo --project $(PROJECT); fi)
 
 # Live UI dev: cast run (API on :8080) + Vite HMR (on :5000, proxies /api).
 # Both in one shell; Ctrl-C stops both. Kill any stale processes on the ports first.
 dev: build
-	mkdir -p $(REPO_DIR)
 	@echo "→ freeing ports :8080 and :5000…"
 	@fuser -k 8080/tcp 5000/tcp 2>/dev/null || true
 	@echo "→ starting cast run (API :$(CAST_ADDR)) + Vite HMR (:5000); Ctrl-C to stop both"
 	trap 'kill 0' INT TERM EXIT; \
-	RUST_LOG=info CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(REPO_DIR) & \
+	CAST_ADDR=$(CAST_ADDR) ./target/debug/cast run $(if [ -n "$(PROJECT)" ]; then echo --project $(PROJECT); fi) & \
 	cd frontend && npm run dev
 
 # --- Dev-host deploy (dev.benstorey.com) ------------------------------------
@@ -94,10 +99,8 @@ restart:
 clean:
 	cargo clean
 
-# Purge all Casting state from the project dir — equivalent to
-# `rm -rf .casting`. Ask for confirmation.
+# Purge a project's state under ~/.casting/<slug> (full reset). Equivalent to
+# `rm -rf ~/.casting/<slug>`. Pass the slug (or blank to target the sole project).
 purge:
-	@test -d $(REPO_DIR)/.casting || { echo "no state to purge at $(REPO_DIR)"; exit 0; }; \
-	read -p "Delete .casting/? [y/N] " ans; \
-	[ "$$ans" = "y" ] || { echo "aborted"; exit 0; }; \
-	rm -rf $(REPO_DIR)/.casting && echo "✓ purged — ready for cast run"
+	@read -p "Project slug to purge? (leave blank for the sole project) " SLUG; \
+	./target/debug/cast purge $${SLUG:-} --force && echo "✓ purged"

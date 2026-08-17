@@ -91,7 +91,7 @@ pub struct AppState {
     /// activity that embeds a raw secret value (the no-secret-in-log invariant).
     pub secrets: Option<Arc<crate::workspace::secrets::SecretStore>>,
     /// The loaded consultant registry (2026-08-13): the curated embedded
-    /// defaults overlaid by any user packages in `<project>/.casting/consultants/`.
+    /// defaults overlaid by any user packages in `~/.casting/<slug>/consultants/`.
     /// Answers "what consultants exist + what are they configured to do" for the
     /// D2 orchestrator / `/api/consultants`. Configuration, never authority.
     pub consultants: Arc<crate::consultants::ConsultantRegistry>,
@@ -238,7 +238,7 @@ impl AppState {
     }
 
     /// Builder-style: replace the consultant registry (e.g. the curated
-    /// defaults overlaid with user packages from `.casting/consultants/`).
+    /// defaults overlaid with user packages from ~/.casting/<slug>/consultants/`).
     pub fn with_consultants(
         mut self,
         consultants: Arc<crate::consultants::ConsultantRegistry>,
@@ -1004,7 +1004,13 @@ async fn run_planned(state: &AppState, cause: &Event, planned: Vec<PlannedAction
                 continue;
             }
         }
-        for event in action.to_events(&state.project, &who, cause, &correlation) {
+        for event in action.to_events(
+            &state.project,
+            &who,
+            cause,
+            &correlation,
+            state.workspace.as_ref().map(|w| w.state_dir.as_path()),
+        ) {
             // Idempotency guard: skip a real-entity DOMAIN event that was ALREADY
             // applied for this same planning cause. Without this, a mid-drain
             // failure (cursor not advanced) that re-drains the same causes would

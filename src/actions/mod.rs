@@ -34,13 +34,3 @@ pub use director::{
     director_policy_changed, director_work_paused, director_work_resumed,
 };
 pub use policy::{validate, PolicyError};
-
-pub mod actions {
-    //! Backward-compat re-exports so callers using the old `crate::actions::actions::*` paths
-    //! (introduced during the module rename) keep resolving. Remove after a cleanup pass.
-    pub use super::{
-        action_vocab_for, director_budget_set, director_decision_made, director_directive_created,
-        director_policy_changed, director_work_paused, director_work_resumed, is_valid_assignee,
-        validate, PmAction, PolicyError, TaskSpec, DIRECTOR,
-    };
-}

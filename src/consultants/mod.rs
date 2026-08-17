@@ -9,7 +9,7 @@
 //! The curated defaults ship **embedded in the binary** (the `cast/` directory)
 //! so a fresh `cast run` works with zero setup. A user/technical power user can
 //! **drop additional TOML files** (or override a default by id) into
-//! `<project>/.casting/consultants/` — the loader overlays them on top of the
+//! `~/.casting/<slug>/consultants/` — the loader overlays them on top of the
 //! embedded defaults. This is the \"drop a config file to add a consultant\"
 //! story, and because every package is self-contained + id-namespaced, the same
 //! files are what a sharing/marketplace layer would later distribute.

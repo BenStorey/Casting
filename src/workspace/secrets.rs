@@ -6,7 +6,7 @@
 //! `Shell { cmd }` or `LlmCall { prompt }`), `ActivityScheduled` persists it
 //! into the durable history immortally. So:
 //!
-//! - Values live only in this store, on disk under `<project>/.casting/`
+//! - Values live only in this store, on disk under ~/.casting/<slug>/
 //!   (already gitignored), NEVER in an event.
 //! - An `Activity` references a secret by NAME using a placeholder token
 //!   `@secret:NAME@`; the [runner/executor] substitutes at EXECUTION time in
@@ -42,7 +42,7 @@ pub struct SecretStore {
 }
 
 impl SecretStore {
-    /// Load from `<dir>/.casting/secrets.json` (gitignored), if present. A
+    /// Load from `~/.casting/<slug>/secrets.json` (gitignored), if present. A
     /// missing file yields an empty store (with persistence armed for `set`).
     pub fn load(casting_dir: &Path) -> Result<SecretStore> {
         let path = casting_dir.join("secrets.json");

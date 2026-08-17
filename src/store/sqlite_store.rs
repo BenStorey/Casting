@@ -57,7 +57,7 @@ impl SqliteEventStore {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         // Exclusive locking mode prevents a second `cast run` process from opening
-        // the same database file, avoiding dual-PM-process conflicts on the .casting/ dir.
+        // the same database file, avoiding dual-PM-process conflicts on the project state dir.
         conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
         conn.execute_batch(SCHEMA)?;
         Ok(SqliteEventStore {

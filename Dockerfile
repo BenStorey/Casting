@@ -17,9 +17,9 @@
 #     casting run my-project
 #   docker run --rm casting --help        # explore the CLI
 #
-# Casting's state lives in the user's ~/.casting/ registry (name -> repo) and,
-# per project, collocated in <repo>/.casting/. Mount both so a container run
-# sees the same projects as a host run.
+# Casting's state lives in the user's ~/.casting/ registry of projects (one
+# directory per project, each holding its own state + port — never inside the
+# repo). Mount that so a container run sees the same projects as a host run.
 
 # ---- Stage 1: build the SPA -------------------------------------------------
 FROM node:22-alpine AS frontend

@@ -3,7 +3,7 @@
 //! `POST /api/telegram/configure` — a user of Casting pastes their BotFather
 //! token; the server validates it, brands the bot as the PM (display name +
 //! description), discovers the director's chat_id, persists the secret to the
-//! gitignored `.casting/config.json`, and starts the run loop. The result is
+//! `~/.casting/<slug>/config.json` (file mode 0600), and starts the run loop. The result is
 //! the bot identity + chat_id (or "chat not linked yet" if the director hasn't
 //! DM'd the bot).
 //!

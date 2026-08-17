@@ -20,7 +20,6 @@ pub const DIRECTOR: &str = "director";
 /// implementation work (its conversations stay isolated from the event log);
 /// the PM may self-assign small direct work via the `chat-interface` playbook,
 /// so it is not treated as a blocked assignee.
-
 /// True if `candidate` is a valid task assignee: either the human director, the
 /// PM (for self-assigned small work via the chat-interface playbook), or a
 /// hired agent — and never one of the other reserved special roles. (director

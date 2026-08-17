@@ -531,6 +531,7 @@ export interface SetupRole {
 
 export interface SetupStatus {
   configured: boolean;
+  project_exists: boolean;
   roles: SetupRole[];
 }
 
@@ -538,6 +539,10 @@ export interface SetupResult {
   ok: boolean;
   hires: [string, string][];
   objective: string;
+  created?: boolean;
+  name?: string;
+  slug?: string;
+  port?: number;
 }
 
 export function fetchSetupStatus(): Promise<SetupStatus> {
@@ -553,7 +558,8 @@ export async function submitSetup(
   apiKey?: string,
   ownerToken?: string,
   provider?: string,
-  model?: string
+  model?: string,
+  repoPath?: string
 ): Promise<SetupResult> {
   return j<SetupResult>("/api/setup", {
     method: "POST",
@@ -562,6 +568,7 @@ export async function submitSetup(
       name,
       objective,
       cast,
+      repo_path: repoPath || undefined,
       owner_name: ownerName || undefined,
       experience_level: experienceLevel || undefined,
       api_key: apiKey || undefined,
@@ -883,8 +890,8 @@ export function subscribe(
         ? `/api/events/stream?after=${lastSeq}`
         : "/api/events/stream";
     const es = new EventSource(url);
+    es.onopen = () => onStatus?.(true);
     es.addEventListener("event", (raw: MessageEvent) => {
-      onStatus?.(true);
       let bumped = false;
       try {
         const ev = JSON.parse(raw.data);

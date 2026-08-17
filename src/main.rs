@@ -5,6 +5,7 @@
 //! read them back by sequence, and exercise a durable cursor.
 
 use anyhow::{Context, Result};
+use casting::consultants::ConsultantRegistry;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::{self, AppState};
 use casting::store::CursorStore;
@@ -12,25 +13,103 @@ use casting::store::EventStore;
 use casting::store::SqliteEventStore;
 use casting::web;
 use casting::workspace::git_observer as git;
+use casting::workspace::setup::{casting_home, read_config, slugify, RuntimeConfig};
 use casting::workspace::{Selfhost, Workspace};
 use std::path::{Path, PathBuf};
 
-/// Helper: parse the project directory from the tail of args, defaulting to "."
-/// if the first token is a flag (--something). This lets `cast brief --subject X`
-/// work without a project dir.
-fn parse_dir_or_first_non_flag(args: &[String]) -> PathBuf {
-    args.first()
-        .filter(|a| !a.starts_with("--"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+/// Helper: parse the project slug from `--project <slug>` (or `--project=<slug>`)
+/// if present in args, else None.
+fn parse_project_arg(args: &[String]) -> Option<String> {
+    if let Some(pos) = args.iter().position(|a| a == "--project") {
+        return args.get(pos + 1).cloned();
+    }
+    args.iter()
+        .find_map(|a| a.strip_prefix("--project="))
+        .map(|s| s.to_string())
+}
+
+/// Resolve which project to operate on, given an optional `--project <slug>`:
+///   - explicit slug -> that project's dir under ~/.casting/<slug>/;
+///   - no slug -> if exactly one project exists, auto-select it; if none, error
+///     telling the user to run `cast init`; if more than one, error listing them.
+///
+/// Returns the project's state dir plus its persisted config.
+/// Scan `~/.casting/` for every project that has a readable `config.json`,
+/// returning each project's state dir plus its persisted config. Used by both
+/// `resolve_project` (to pick one) and `do_run` (to detect "no projects yet").
+fn discover_projects() -> Vec<(PathBuf, RuntimeConfig)> {
+    let home = match casting_home() {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+    let Some(rd) = std::fs::read_dir(&home).ok() else {
+        return Vec::new();
+    };
+    let found: Vec<(PathBuf, RuntimeConfig)> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .filter_map(|d| read_config(&d).map(|c| (d, c)))
+        .collect();
+    log::info!(
+        "discovered {} Casting project(s) under {}",
+        found.len(),
+        home.display()
+    );
+    found
+}
+
+/// Resolve which project to operate on, given an optional `--project <slug>`:
+///   - explicit slug -> that project's dir under ~/.casting/<slug>/;
+///   - no slug -> if exactly one project exists, auto-select it; if none, error
+///     telling the user to run `cast init`; if more than one, error listing them.
+///
+/// Returns the project's state dir plus its persisted config.
+fn resolve_project(slug: Option<String>) -> Result<(PathBuf, RuntimeConfig)> {
+    match slug {
+        Some(s) => {
+            let dir = casting_home()?.join(&s);
+            let cfg = read_config(&dir).with_context(|| {
+                format!(
+                    "no project '{s}' — expected state dir at {} (run `cast init <repo> --name ...` first)",
+                    dir.display()
+                )
+            })?;
+            Ok((dir, cfg))
+        }
+        None => {
+            let existing = discover_projects();
+            match existing.len() {
+                0 => anyhow::bail!(
+                    "no Casting projects found under {}. Run `cast init <repo> --name <name>` first.",
+                    casting_home()?.display()
+                ),
+                1 => Ok(existing.into_iter().next().unwrap()),
+                _ => {
+                    let home = casting_home()?;
+                    let list = existing
+                        .iter()
+                        .map(|(_, c)| format!("  - {} (slug: {})", c.name, c.slug.clone().unwrap_or_default()))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    anyhow::bail!(
+                        "multiple projects found under {} — pass --project <slug>:\n{}",
+                        home.display(),
+                        list
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Open a project's storage backend from the CLI (workspace + selector), then
 /// build an integrity-enforcing, snapshot-aware AppState. Shared by the
 /// command-line write paths (brief/request) so they can't drift (review
-/// refactor 2026-08-10).
-fn open_state(repo: &Path, db: Option<&str>) -> Result<AppState> {
-    let ws = Workspace::open(repo, Selfhost::Disabled)?;
+/// refactor 2026-08-10). The workspace's state dir is supplied explicitly
+/// (it lives under `~/.casting/<slug>/`, NOT inside the repo).
+fn open_state(repo: &Path, state_dir: &Path, db: Option<&str>) -> Result<AppState> {
+    let ws = Workspace::open(repo, state_dir, Selfhost::Disabled)?;
     let selector = db
         .map(str::to_string)
         .or_else(|| std::env::var("CAST_DB").ok())
@@ -41,7 +120,7 @@ fn open_state(repo: &Path, db: Option<&str>) -> Result<AppState> {
     let snapshots = backend.snapshots();
     let mut state = setup_state(store, cursors, snapshots);
     // Harness guard (2026-08-13, secrets.rs): attach the per-project secret
-    // store (gitignored, NEVER in the event log). The executor then refuses to
+    // store (NEVER in the event log). The executor then refuses to
     // schedule/execute an activity that embeds a raw secret value. The runner
     // resolves `@secret:NAME@` at execution time, in memory.
     state = state.with_secrets(casting::workspace::secrets::SecretStore::load(
@@ -65,25 +144,14 @@ fn setup_state(
     state
 }
 
-const PROJECT_DIR: &str = ".casting";
 const PROJECT_ID: &str = "project-demo";
-const DEFAULT_ADDR: &str = "127.0.0.1:8080";
 
-struct ProjectPaths {
-    db: PathBuf,
-    cursors: PathBuf,
-}
-
-impl ProjectPaths {
-    fn for_dir(dir: &Path) -> Result<Self> {
-        let db = dir.join(PROJECT_DIR).join("events.db");
-        let cursors = dir.join(PROJECT_DIR).join("cursors.db");
-        Ok(ProjectPaths { db, cursors })
-    }
-}
+/// Where casting stores its databases inside a project's state dir.
+const CASTING_SUBDIR_DB: &str = "events.db";
+const CASTING_SUBDIR_CURSORS: &str = "cursors.db";
 
 /// Load the consultant registry for a project: the curated embedded defaults
-/// overlaid by any user-supplied packages in `<project>/.casting/consultants/`
+/// overlaid by any user-supplied packages in `~/.casting/<slug>/consultants/`
 /// (drop a `.toml` to add a consultant, reuse its `id` to override a default).
 /// A malformed user package is surfaced (not silently dropped); a missing
 /// directory is a no-op.
@@ -122,6 +190,9 @@ fn main() -> Result<()> {
         })
         .init();
     log::info!("Casting starting up");
+    if std::env::var("RUST_LOG").is_err() {
+        log::info!("tip: set RUST_LOG=cast=debug (or RUST_LOG=debug) for verbose logs");
+    }
 
     let args: Vec<String> = std::env::args().collect();
     let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("help");
@@ -132,47 +203,63 @@ fn main() -> Result<()> {
             do_init(init)
         }
         "smoke" => {
-            let dir_str = args.get(2).map(|s| s.as_str()).unwrap_or(".");
-            let dir = Path::new(dir_str);
-            do_smoke(dir)
+            let slug = parse_project_arg(&args[2..]);
+            do_smoke(slug)
         }
-        // `cast run [<project-dir>]` — boot the ONE project. Defaults to current
-        // directory. `.casting/` state lives in the project root.
+        // `cast run [--project <slug>] [--db <selector>] [--selfhost]` — boot the
+        // ONE project. With no `--project`, auto-selects the sole project under
+        // ~/.casting, or lists them if more than one exists. State lives under
+        // `~/.casting/<slug>/`, never in the repo.
         "run" => {
-            let dir = args.get(2).map(|s| s.as_str()).unwrap_or(".");
+            let project = args
+                .windows(2)
+                .find(|w| w[0] == "--project")
+                .and_then(|w| w.get(1))
+                .cloned();
             let db = args
                 .windows(2)
                 .find(|w| w[0] == "--db")
                 .and_then(|w| w.get(1))
                 .cloned();
-            do_run(PathBuf::from(dir), db)
+            do_run(project, db)
         }
-        // `cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->`
+        // `cast brief [--project <slug>] [--subject S] [--source SRC] [--title T] <file|->`
         "brief" => {
-            let dir = parse_dir_or_first_non_flag(&args[2..]);
-            do_brief(&args[3..], &dir)
+            let project = args
+                .windows(2)
+                .find(|w| w[0] == "--project")
+                .and_then(|w| w.get(1))
+                .cloned();
+            do_brief(&args[2..], project)
         }
-        // `cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>`
+        // `cast request [--project <slug>] [--source SRC] [--reporter R] [--label L] <title>`
         "request" => {
-            let dir = parse_dir_or_first_non_flag(&args[2..]);
-            do_request(&args[3..], &dir)
+            let project = args
+                .windows(2)
+                .find(|w| w[0] == "--project")
+                .and_then(|w| w.get(1))
+                .cloned();
+            do_request(&args[3..], project)
         }
         "log" => {
             let log = parse_log(&args[2..])?;
             do_log(log)
         }
-        // `cast purge <project-dir> [--force]` — delete .casting/ state dir
-        // to reset the project to a clean slate. Equivalent to
-        // `rm -rf <project-dir>/.casting`. With --force, skip confirmation.
+        // `cast purge <slug> [--force]` — delete a project's state dir under
+        // ~/.casting/<slug> to reset it to a clean slate. Defaults to the sole
+        // project when exactly one exists. With --force, skip confirmation.
         "purge" => {
-            let dir = args.get(2).map(|s| s.as_str()).unwrap_or(".");
+            let slug = args
+                .get(2)
+                .map(|s| s.as_str())
+                .map(|s| s.trim_start_matches("--project=").to_string());
             let force = args.iter().any(|a| a == "--force");
-            do_purge(Path::new(dir), force)
+            do_purge(slug, force)
         }
         "help" | "--help" | "-h" => {
             println!(
                 "cast — Casting autonomous software company\n\n\
-                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--director-token=..] [--directive=stmt|scope]\n                                create + configure a project\n  cast run [<project-dir>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (defaults to current dir)\n  cast purge [<project-dir>] [--force]\n                                delete .casting/ state directory (reset to clean slate)\n                                (defaults to current dir)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [<project-dir>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [<project-dir>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project:\n  Casting is SINGLE-PROJECT. The binary relates to exactly one project (the\n  dir you pass). Multi-project is deliberately NOT supported — the cloud\n  service later will be the multi-project-in-one-window differentiator.\n  State lives collocated in <project-dir>/.casting/ (gitignored).\n\n                 Env:\n  CAST_ADDR       bind address for `cast run` (default {DEFAULT_ADDR})\n  CAST_DB         storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_DIRECTOR_TOKEN director auth token (or set via `cast init --director-token`)\n  CAST_SELFHOST   1 to enable self-hosting instead of --selfhost\n"
+                 USAGE:\n  cast init <project-dir> [--interactive] [--name=..] [--project=..] [--objective=..] [--cast=a,b] [--director-token=..] [--directive=stmt|scope]\n                                create + configure a project (state goes to ~/.casting/<slug>/)\n  cast run [--project <slug>] [--db <selector>] [--selfhost]\n                                start the workspace (PM + web UI) for the project\n                                (auto-selects the sole project when one exists)\n  cast purge [<slug>] [--force]\n                                delete a project's ~/.casting/<slug> state (reset to clean slate)\n  cast smoke [<dir>]            append sample events and replay them\n  cast brief [--project <slug>] [--subject S] [--source SRC] [--title T] <file|->\n                                import EXTERNAL advisor content as an advisory briefing\n  cast request [--project <slug>] [--source SRC] [--reporter R] [--label L] <title>\n                                receive an EXTERNAL request (issue/PR) into the intake\n  cast log --db <events.db> [--project <id>] [--verify]\n                                dump / verify the raw event stream\n\n                 Single-project (per Casting process):\n  Casting runs EXACTLY ONE project per `cast run`. State lives OUTSIDE the repo,\n  under ~/.casting/<slug>/ (honour $CASTING_HOME to relocate). Each project owns\n  its own database and a unique port (assigned at `cast init`), so two projects\n  on one machine never collide — run two `cast run --project <slug>` instances.\n  The artifact repo is never touched by Casting's own data.\n\n                 Env:\n  CASTING_HOME   root for all project state (default ~/.casting)\n  CAST_ADDR      bind address for `cast run` (defaults to the project's port)\n  CAST_DB        storage backend selector ('sqlite' or a libpq Postgres string)\n  CAST_DIRECTOR_TOKEN director auth token (or set via `cast init --director-token`)\n  CAST_SELFHOST  1 to enable self-hosting instead of --selfhost\n"
             );
             Ok(())
         }
@@ -180,10 +267,24 @@ fn main() -> Result<()> {
     }
 }
 
+/// Resolve the (repo, state_dir) pair for the CLI write paths (brief/request),
+/// given an optional `--project <slug>`. Reuses [`resolve_project`] so the
+/// auto-select-when-one-exists behaviour is identical to `cast run`.
+fn resolve_repo_state(slug: Option<String>) -> Result<(PathBuf, PathBuf)> {
+    let (state_dir, cfg) = resolve_project(slug)?;
+    let repo = cfg
+        .repo_path
+        .as_ref()
+        .map(PathBuf::from)
+        .context("project config is missing repo_path; re-run `cast init`")?;
+    Ok((repo, state_dir))
+}
+
 /// `cast brief` — import EXTERNAL advisor content (a text file, or stdin via
 /// `-`) as an ADVISORY briefing: it can inform context but never sets rules.
-/// Usage: `cast brief <project-name> [--subject S] [--source SRC] [--title T] <file|->`
-fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
+/// Usage: `cast brief [--project <slug>] [--subject S] [--source SRC] [--title T] <file|->`
+fn do_brief(args: &[String], project: Option<String>) -> Result<()> {
+    let (repo, state_dir) = resolve_repo_state(project)?;
     let (mut subject, mut source, mut title) = (
         "general".to_string(),
         "jeeves".to_string(),
@@ -226,7 +327,7 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = open_state(repo, None)?;
+        let state = open_state(&repo, &state_dir, None)?;
 
         let source_clone = source.clone();
         let body_len = body.len();
@@ -266,7 +367,7 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
                     )
                 });
             let ev = action
-                .to_events(&state.project, "director", &cause, "brief")
+                .to_events(&state.project, "director", &cause, "brief", None)
                 .into_iter()
                 .next()
                 .expect("ImportBriefing produces one event");
@@ -285,7 +386,9 @@ fn do_brief(args: &[String], repo: &std::path::Path) -> Result<()> {
 /// `cast request` — receive an EXTERNAL request (a GitHub issue/PR, an email,
 /// a form submission) into the product's intake surface. Recorded with
 /// provenance + deterministic triage; NOT the director's own intent.
-fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
+/// Usage: `cast request [--project <slug>] [--source SRC] [--reporter R] [--label L] <title>`
+fn do_request(args: &[String], project: Option<String>) -> Result<()> {
+    let (repo, state_dir) = resolve_repo_state(project)?;
     let (mut source, mut reporter) = ("external".to_string(), "external".to_string());
     let mut labels: Vec<String> = Vec::new();
     let mut title: Option<&str> = None;
@@ -311,14 +414,14 @@ fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
             }
         }
     }
-    let title = title.context("usage: cast request <project> [flags] <title>")?;
+    let title = title.context("usage: cast request [--project <slug>] [flags] <title>")?;
     if title.trim().is_empty() {
         anyhow::bail!("request title is empty");
     }
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     rt.block_on(async move {
-        let state = open_state(repo, None)?;
+        let state = open_state(&repo, &state_dir, None)?;
 
         let proj = state.projection()?;
         let action = casting::actions::PmAction::ReceiveExternalRequest {
@@ -353,7 +456,7 @@ fn do_request(args: &[String], repo: &std::path::Path) -> Result<()> {
                     )
                 });
             let ev = action
-                .to_events(&state.project, "mei", &cause, "request")
+                .to_events(&state.project, "mei", &cause, "request", None)
                 .into_iter()
                 .next()
                 .expect("ReceiveExternalRequest produces one event");
@@ -379,6 +482,8 @@ struct InitArgs {
     dir: PathBuf,
     interactive: bool,
     name: Option<String>,
+    /// Optional explicit slug for the state dir. Defaults to slugify(name).
+    project: Option<String>,
     objective: Option<String>,
     cast: Vec<String>,
     director_token: Option<String>,
@@ -389,6 +494,7 @@ fn parse_init(args: &[String]) -> Result<InitArgs> {
     let mut dir = None;
     let mut interactive = false;
     let mut name = None;
+    let mut project = None;
     let mut objective = None;
     let mut cast = Vec::new();
     let mut director_token = None;
@@ -400,6 +506,14 @@ fn parse_init(args: &[String]) -> Result<InitArgs> {
             "--interactive" | "-i" => interactive = true,
             "--name" => {
                 name = Some(args.get(i + 1).context("--name requires a value")?.clone());
+                i += 1;
+            }
+            "--project" => {
+                project = Some(
+                    args.get(i + 1)
+                        .context("--project requires a value")?
+                        .clone(),
+                );
                 i += 1;
             }
             "--objective" => {
@@ -444,9 +558,10 @@ fn parse_init(args: &[String]) -> Result<InitArgs> {
     }
 
     Ok(InitArgs {
-        dir: dir.context("usage: cast init <state-dir> [--interactive] [--name=..] [--objective=..] [--cast=a,b] [--director-token=..]")?,
+        dir: dir.context("usage: cast init <project-dir> [--interactive] [--name=..] [--project=..] [--objective=..] [--cast=a,b] [--director-token=..]")?,
         interactive,
         name,
+        project,
         objective,
         cast,
         director_token,
@@ -494,8 +609,11 @@ fn do_init(mut args: InitArgs) -> Result<()> {
         }
     }
 
+    // Capture the name up front — it drives the slug + display.
+    let name = args.name.clone().unwrap_or_else(|| "Casting demo".into());
+
     let spec = casting::workspace::setup::SetupSpec {
-        name: args.name.clone().unwrap_or_else(|| "Casting demo".into()),
+        name: name.clone(),
         roles: args.cast.clone(),
         director_token: args.director_token.clone(),
         directives: args
@@ -527,31 +645,61 @@ fn do_init(mut args: InitArgs) -> Result<()> {
 
     let plan = casting::workspace::setup::SetupPlan::build(spec)?;
 
-    // State lives collocated in <project>/.casting/ (gitignored).
-    std::fs::create_dir_all(&args.dir).context("create project dir")?;
-    let casting_dir = args.dir.join(".casting");
-    let ws = Workspace::open(&args.dir, Selfhost::Disabled)?;
-    ws.ensure_self_ignored()
-        .context("ensure .casting self-ignored")?;
+    // Resolve the artifact repo (the thing Casting drives) and the project slug
+    // under ~/.casting/<slug>/. State lives OUTSIDE the repo so the repo is
+    // never mutated by Casting's own data.
+    let repo = args
+        .dir
+        .canonicalize()
+        .with_context(|| format!("resolve artifact repo path for {}", args.dir.display()))?;
+    let slug = match &args.project {
+        Some(p) => slugify(p),
+        None => slugify(&name),
+    };
+    // Slug-collision guard: a project with this slug already exists.
+    let home = casting_home()?;
+    let state_dir = home.join(&slug);
+    if state_dir.exists() {
+        anyhow::bail!(
+            "project slug '{slug}' already exists at {}. Choose a different --project, \
+             or `cast purge {slug}` first.",
+            state_dir.display()
+        );
+    }
 
-    let written = plan.apply(&casting_dir)?;
-    // Write a no-secrets config template to the repo root (like .env.example).
-    casting::workspace::setup::write_template(&args.dir, &plan.spec.name)?;
+    // Assign a unique port for this project (next free port).
+    let port = casting::workspace::setup::next_port()?;
+
+    // Write the location config (name, slug, repo_path, port) first so a crash
+    // mid-init still leaves a resolvable record.
+    std::fs::create_dir_all(&state_dir)
+        .with_context(|| format!("create state dir {}", state_dir.display()))?;
+    casting::workspace::setup::persist_location(&state_dir, &name, &slug, &repo, port)?;
+
+    // The workspace now points its state dir at ~/.casting/<slug>/, not the repo.
+    // Opening it here enforces the ownership boundary (refuses the Casting source
+    // repo unless self-hosting) before we write anything.
+    let _ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled)?;
+
+    let written = plan.apply(&state_dir)?;
+    // Write a no-secrets config template into the REPO root (like .env.example),
+    // documenting the canonical config shape — never live state.
+    casting::workspace::setup::write_template(&repo, &name)?;
     println!(
-        "   project ready at {} (run `cast run {}`)",
-        args.dir.display(),
-        args.dir.display()
+        "   📁 project '{}' (slug {}) ready — state in {}",
+        name,
+        slug,
+        state_dir.display()
     );
+    println!("   🚪 will serve on port {port} (run `cast run --project {slug}`)");
     if written == 0 {
         println!(
-            "Company already set up at {} — no changes.",
-            args.dir.display()
+            "Company already seeded at {} — no changes (re-run applies events idempotently).",
+            state_dir.display()
         );
     } else {
         println!(
-            "🎬 {} is live at {}\n   Team: {}",
-            plan.spec.name,
-            args.dir.display(),
+            "🎬 {name} is live\n   Team: {}",
             plan.hires
                 .iter()
                 .map(|(id, role)| format!("{id} ({role})"))
@@ -590,26 +738,71 @@ fn preflight(ws: &Workspace, repo_created: bool) {
     }
 }
 
-/// `cast run` — boot the whole workspace: enforce the ownership boundary, seed
-/// the project, start the simulated PM control loop, and serve the API +
-/// embedded React UI from one binary.
-fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
-    let ws = Workspace::open(&project, Selfhost::Disabled)?;
+/// `cast run` — boot the whole workspace: resolve the project (by slug or
+/// auto-select the sole one), enforce the ownership boundary, seed the project,
+/// start the simulated PM control loop, and serve the API + embedded React UI
+/// from one binary on the project's assigned port.
+fn do_run(project_slug: Option<String>, db: Option<String>) -> Result<()> {
+    // Resolve which project to run. If none exist yet, boot the first-run setup
+    // server (it serves the wizard that creates the project); a later `cast run`
+    // then auto-selects the now-existing sole project.
+    let projects = discover_projects();
+    let (state_dir, cfg) = match (project_slug, projects.len()) {
+        (Some(s), _) => resolve_project(Some(s))?,
+        (None, 0) => return run_setup_server(db),
+        (None, 1) => projects.into_iter().next().unwrap(),
+        (None, _) => {
+            let home = casting_home()?;
+            let list = projects
+                .iter()
+                .map(|(_, c)| {
+                    format!(
+                        "  - {} (slug: {})",
+                        c.name,
+                        c.slug.clone().unwrap_or_default()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            anyhow::bail!(
+                "multiple projects found under {} — pass --project <slug>:\n{}",
+                home.display(),
+                list
+            );
+        }
+    };
+
+    // The repo_path recorded at init is the artifact repo Casting drives.
+    let repo = cfg
+        .repo_path
+        .as_ref()
+        .map(PathBuf::from)
+        .context("project config is missing repo_path; re-run `cast init`")?;
+    if !repo.exists() {
+        anyhow::bail!(
+            "artifact repo {} for project '{}' no longer exists.\n\
+             If you moved it, update the path (e.g. `cast project set-repo <new-path>` — \
+             coming soon); for now, `cast purge {}` and re-`cast init`.",
+            repo.display(),
+            cfg.name,
+            cfg.slug.clone().unwrap_or_default()
+        );
+    }
+
+    // The port this project listens on (recorded at init, overridable via env).
+    let port = cfg.port.unwrap_or(8080);
+    let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| format!("127.0.0.1:{port}"));
+
+    let ws = Workspace::open(&repo, &state_dir, Selfhost::Disabled)?;
 
     // Ensure the artifact repo is a real git repo (git-init if missing). This
     // wires Git into the workspace at startup (Git slice increment 1).
     let created = ws.ensure_repo().context("ensure git repo")?;
 
-    // Casting's internal state lives collocated in <repo>/.casting/, which is
-    // self-ignored by git (so it never shows as pending changes).
-    ws.ensure_self_ignored()
-        .context("ensure .casting self-ignored")?;
-
     preflight(&ws, created);
 
     // Open the storage backend: --db flag, else the CAST_DB env var, else
-    // SQLite (the default). Postgres is swappable behind
-    // the same traits.
+    // SQLite (the default). Postgres is swappable behind the same traits.
     let backend = {
         let selector = db
             .or_else(|| std::env::var("CAST_DB").ok())
@@ -619,8 +812,6 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
     let store = backend.events();
     let cursors = backend.cursors();
     let snapshots = backend.snapshots();
-
-    let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
 
     let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
     let ws = std::sync::Arc::new(ws);
@@ -639,7 +830,7 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
             // worktrees when a consultant is summoned (2026-08-12).
             .with_workspace(ws.clone())
             // The consultant registry: curated embedded defaults overlaid by
-            // any user-supplied packages in <project>/.casting/consultants/
+            // any user-supplied packages in ~/.casting/<slug>/consultants/
             // (drop a .toml to add a consultant, reuse an id to override one).
             .with_consultants(load_consultants(&ws))
             // D2 LLM wiring: when CAST_LLM_API_KEY is set, attach the real
@@ -699,7 +890,7 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
         tokio::spawn(pm::run_pm(state.clone(), (*ws_for_pm).clone()));
 
         // Telegram director channel (2026-08-14): enabled from (in priority order)
-        // a persisted `.casting/config.json` (set via the UI
+        // a persisted `~/.casting/<slug>/config.json` (set via the UI
         // POST /api/telegram/configure) then the `CAST_TELEGRAM_TOKEN`/CHAT_ID
         // env vars. Attaches the channel + spawns the cursor-driven run loop
         // exactly once (idempotent via AppState.telegram_started). Off by
@@ -742,6 +933,57 @@ fn do_run(project: std::path::PathBuf, db: Option<String>) -> Result<()> {
             .await
             .context("axum server error")?;
         Ok(())
+    })
+}
+
+/// Boot the first-run setup server when no project exists yet.
+///
+/// Serves the embedded SPA + the `/api/setup` endpoints on the default port so
+/// the browser wizard can create the project's state dir (name + slug + repo
+/// path + port). The wizard does NOT require an existing project, so `cast run`
+/// works straight from a clean machine. After the wizard creates the project, a
+/// subsequent `cast run` auto-selects it and boots the real workspace.
+fn run_setup_server(db: Option<String>) -> Result<()> {
+    let _ = db; // no project store yet; the wizard creates one on submit.
+    let home = casting_home().unwrap_or_else(|_| PathBuf::from("~/.casting"));
+    log::info!(
+        "[setup] no project configured — serving first-run wizard (projects scanned from {})",
+        home.display()
+    );
+    println!("🎬 No Casting project configured yet — starting the first-run setup wizard.");
+    println!("   Open http://127.0.0.1:8080 in your browser to configure a project.");
+    println!("   Once you've set it up, restart `cast run` to launch the workspace.\n");
+
+    // Minimal runtime state: an in-memory store (the wizard's project gets its
+    // own persisted store on submit) and the embedded consultant catalogue so
+    // the wizard can list roles. No workspace is attached — state_dir is None,
+    // which tells /api/setup to CREATE the project rather than configure one.
+    let store = SqliteEventStore::in_memory().context("in-memory event store")?;
+    let cursors =
+        casting::store::SqliteCursorStore::in_memory().context("in-memory cursor store")?;
+    let mut state = AppState::new(store, cursors, PROJECT_ID).with_integrity();
+    if std::env::var("CAST_DECOMPOSE").is_ok() {
+        state = state.with_decompose();
+    }
+    let state = state.with_consultants(std::sync::Arc::new(
+        ConsultantRegistry::from_embedded()
+            .expect("embedded consultant defaults should always load; this is a build bug"),
+    ));
+
+    let port = 8080u16;
+    let addr = std::env::var("CAST_ADDR").unwrap_or_else(|_| format!("127.0.0.1:{port}"));
+
+    let rt = tokio::runtime::Runtime::new().context("create tokio runtime")?;
+    rt.block_on(async move {
+        let app = web::router(state);
+        let listener = tokio::net::TcpListener::bind(&addr)
+            .await
+            .with_context(|| format!("bind {addr}"))?;
+        println!("🧰 Setup wizard ready: http://{addr}");
+        axum::serve(listener, app)
+            .await
+            .context("axum server error")?;
+        Ok::<(), anyhow::Error>(())
     })
 }
 
@@ -859,11 +1101,14 @@ fn seed_project(state: &AppState) -> Result<()> {
 }
 
 /// Append a representative slice of domain events and prove append->read_since
-/// and cursor resume. Purely a harness; real agents fill this in later.
-fn do_smoke(dir: &Path) -> Result<()> {
-    let paths = ProjectPaths::for_dir(dir)?;
-    let store = SqliteEventStore::open(&paths.db)?;
-    let cursors = casting::store::SqliteCursorStore::open(&paths.cursors)?;
+/// and cursor resume. Purely a harness; real agents fill this in later. Writes
+/// into the resolved project's state dir.
+fn do_smoke(slug: Option<String>) -> Result<()> {
+    let (state_dir, _cfg) = resolve_project(slug)?;
+    let db = state_dir.join(CASTING_SUBDIR_DB);
+    let cursors_path = state_dir.join(CASTING_SUBDIR_CURSORS);
+    let store = SqliteEventStore::open(&db)?;
+    let cursors = casting::store::SqliteCursorStore::open(&cursors_path)?;
 
     let project = "project-demo";
 
@@ -968,17 +1213,25 @@ fn do_smoke(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `cast purge <project-dir>` — delete the `.casting/` state directory to reset
-/// a project to a clean slate. Asks for confirmation unless `--force` is passed.
-fn do_purge(dir: &Path, force: bool) -> Result<()> {
-    let state_dir = dir.join(".casting");
+/// `cast purge [<slug>] [--force]` — delete a project's state dir under
+/// ~/.casting/<slug> to reset it to a clean slate. With no slug, defaults to the
+/// sole project when exactly one exists. Asks for confirmation unless `--force`.
+fn do_purge(slug: Option<String>, force: bool) -> Result<()> {
+    let (state_dir, cfg) = resolve_project(slug)?;
     if !state_dir.exists() {
-        println!("nothing to purge at {} (already clean)", dir.display());
+        println!(
+            "nothing to purge at {} (already clean)",
+            state_dir.display()
+        );
         return Ok(());
     }
 
     if !force {
-        eprint!("Delete {}? [y/N] ", state_dir.display());
+        eprint!(
+            "Delete project '{}' state at {}? [y/N] ",
+            cfg.name,
+            state_dir.display()
+        );
         use std::io::Write;
         std::io::stdout().flush()?;
         let mut input = String::new();
@@ -993,8 +1246,9 @@ fn do_purge(dir: &Path, force: bool) -> Result<()> {
     std::fs::remove_dir_all(&state_dir)
         .with_context(|| format!("remove {}", state_dir.display()))?;
     println!(
-        "✓ purged {} — project is clean, ready for `cast init`",
-        dir.display()
+        "✓ purged {} — project '{}' is clean, ready for `cast init`",
+        state_dir.display(),
+        cfg.name
     );
     Ok(())
 }

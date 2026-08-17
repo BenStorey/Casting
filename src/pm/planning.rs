@@ -149,7 +149,7 @@ pub(crate) fn insert_worktree_provisions(
                 claimed_ports.insert(port);
                 let slot = (0..).find(|s| !claimed_slots.contains(s)).unwrap_or(0);
                 claimed_slots.insert(slot);
-                let cargo_target_dir = format!(".casting/worktrees/{who}-{slot}/target");
+                let cargo_target_dir = format!("worktrees/{who}-{slot}/target");
                 let prov = (
                     projection.pm_id().to_string(),
                     PmAction::ProvisionWorktree {
@@ -353,7 +353,7 @@ pub(crate) fn expand_playbooks(
             let claimed_slots: std::collections::HashSet<usize> =
                 projection.worktrees.iter().map(|w| w.slot).collect();
             let slot = (0..).find(|s| !claimed_slots.contains(s)).unwrap_or(0);
-            let cargo_target_dir = format!(".casting/worktrees/{assignee}-{slot}/target");
+            let cargo_target_dir = format!("worktrees/{assignee}-{slot}/target");
             expanded.push((
                 who_pm.clone(),
                 PmAction::ProvisionWorktree {

@@ -60,6 +60,13 @@ function actorName(a: EventEnvelope["actor"]): string {
   return ((a as Record<string, unknown>).id as string) ?? "system";
 }
 
+// Coalesce SSE-triggered projection refreshes. The backend can emit a burst of
+// events (e.g. ~10 on startup); fetching the full projection once per event
+// hammers /api/state. We cap it to at most one fetch per window.
+const STATE_REFRESH_THROTTLE_MS = 250;
+let lastStateFetchAt = 0;
+let stateRefreshScheduled = false;
+
 async function fetchWithError<T>(resource: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
@@ -86,6 +93,23 @@ export const useCastStore = create<CastStore>((set, get) => ({
   // (model, graph, inbox) change less frequently and are fetched on initial load
   // and lazy refreshes.
   refreshState: async () => {
+    // Coalesce bursts of SSE events into a single fetch. If events arrive
+    // faster than the throttle window, schedule one trailing refresh instead of
+    // slamming /api/state on every event.
+    const now = Date.now();
+    const sinceLast = now - lastStateFetchAt;
+    if (sinceLast < STATE_REFRESH_THROTTLE_MS) {
+      if (!stateRefreshScheduled) {
+        stateRefreshScheduled = true;
+        const wait = STATE_REFRESH_THROTTLE_MS - sinceLast;
+        setTimeout(() => {
+          stateRefreshScheduled = false;
+          void get().refreshState();
+        }, wait);
+      }
+      return;
+    }
+    lastStateFetchAt = now;
     const errors: ResourceError[] = [];
     try {
       const s = await fetchWithError("state", fetchState).catch((err) => {
@@ -188,6 +212,7 @@ export const useCastStore = create<CastStore>((set, get) => ({
   },
 
   start: () => {
+    let wasConnected = false;
     const unsub = subscribe(
       (seqBump) => {
         // SSE event arrived: mark stream live, then do a FAST refresh
@@ -199,10 +224,13 @@ export const useCastStore = create<CastStore>((set, get) => ({
         void get().refreshState();
       },
       (connected) => {
+        // Count only genuine reconnects (disconnected -> connected), not the
+        // initial connect or a stray duplicate status.
         set((cur) => ({
           streamConnected: connected,
-          reconnects: connected ? cur.reconnects + 1 : cur.reconnects,
+          reconnects: connected && !wasConnected ? cur.reconnects + 1 : cur.reconnects,
         }));
+        wasConnected = connected;
       }
     );
     set({ streamConnected: true });

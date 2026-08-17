@@ -97,7 +97,7 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
         title: "Design Build a todo app".into(),
         kind: "feature".into(),
     }
-    .to_events("proj-idem", "mei", &cause, &corr);
+    .to_events("proj-idem", "mei", &cause, &corr, None);
     for e in task_created {
         state.append(e).unwrap();
     }
@@ -106,7 +106,7 @@ async fn failed_drain_rereads_but_does_not_duplicate_domain_events() {
         assignee: "marcus-reed".into(),
         merge_authority: casting::types::MergeAuthority::SelfMerge,
     }
-    .to_events("proj-idem", "mei", &cause, &corr);
+    .to_events("proj-idem", "mei", &cause, &corr, None);
     for e in task_assigned {
         state.append(e).unwrap();
     }

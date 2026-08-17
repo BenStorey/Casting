@@ -181,6 +181,9 @@ pub fn persist_setup_prefs(
 ) -> Result<()> {
     let prior = read_config(dir).unwrap_or(RuntimeConfig {
         name: String::new(),
+        slug: None,
+        repo_path: None,
+        port: None,
         director_name: None,
         experience_level: None,
         director_token: None,
@@ -192,6 +195,9 @@ pub fn persist_setup_prefs(
     });
     let cfg = RuntimeConfig {
         name: prior.name,
+        slug: prior.slug,
+        repo_path: prior.repo_path,
+        port: prior.port,
         director_name: director_name.map(|s| s.to_string()).or(prior.director_name),
         experience_level: experience_level
             .map(|s| s.to_string())
@@ -268,10 +274,27 @@ fn apply_to_store(store: &SqliteEventStore, spec: &SetupSpec) -> Result<u32> {
     Ok(written)
 }
 
-/// Runtime config persisted by setup and read by `cast run` (name + auth).
+/// Runtime config persisted by setup and read by `cast run` (name + auth +
+/// where the project lives). State is stored OUTSIDE the artifact repo, under
+/// `~/.casting/<slug>/`, so the repo is never mutated by Casting's own data.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeConfig {
     pub name: String,
+    /// Stable slug used as the name of this project's state directory. Assigned
+    /// ONCE at `cast init` from the company name and NEVER recomputed — so the
+    /// display `name` can change later without orphaning state, and the dir is
+    /// location-independent (moving the repo does not move state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    /// Canonical absolute path to the artifact repo this project wraps. Recorded
+    /// at init; if the repo moves, update this (e.g. `cast project set-repo`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_path: Option<String>,
+    /// The port this project's `cast run` binds to. Assigned at init to the
+    /// next free port (8080, 8081, …) so multiple projects on one machine
+    /// never clash. Persisted so restarts are stable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
     /// What the director wants to be called (e.g. "Ben").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub director_name: Option<String>,
@@ -298,7 +321,7 @@ pub struct RuntimeConfig {
     /// Persisted Telegram channel config (2026-08-14). Set via the UI
     /// `POST /api/telegram/configure` so a user of Casting never touches env.
     /// Both are secrets-adjacent (a bot token; a user's chat id) and live in
-    /// the gitignored `.casting/` dir, never in committed config.
+    /// the project state dir, never in committed config.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub telegram_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -307,17 +330,150 @@ pub struct RuntimeConfig {
 
 const CONFIG_FILE: &str = "config.json";
 
-fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
+/// Resolve the user's home directory using only the standard library
+/// (no external crate). Follows `$HOME` first; on Windows, falls back to the
+/// `USERPROFILE` dir.
+fn home_dir_std() -> Option<std::path::PathBuf> {
+    if let Some(h) = std::env::var_os("HOME") {
+        if !h.is_empty() {
+            return Some(std::path::PathBuf::from(h));
+        }
+    }
+    if cfg!(windows) {
+        if let Some(p) = std::env::var_os("USERPROFILE") {
+            if !p.is_empty() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+    }
+    None
+}
+
+/// The root under which every project's state is stored (outside any repo).
+/// Honours `$CASTING_HOME`, defaulting to `~/.casting`.
+pub fn casting_home() -> Result<std::path::PathBuf> {
+    if let Some(h) = std::env::var_os("CASTING_HOME") {
+        return Ok(std::path::PathBuf::from(h));
+    }
+    let home = home_dir_std()
+        .context("could not determine the user's home directory (set $CASTING_HOME)")?;
+    Ok(home.join(".casting"))
+}
+
+/// Slugify a human name into a stable, filesystem-safe identifier:
+/// lowercased, non-alphanumerics become `-`, collapsed, trimmed, and capped.
+/// "Acme Corp" -> "acme-corp", "My_App 2.0!" -> "my-app-2-0".
+pub fn slugify(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = false;
+    for ch in name.chars().flat_map(|c| c.to_lowercase()) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    // Avoid an empty slug (e.g. a name with no alphanumerics).
+    if trimmed.is_empty() {
+        return "project".to_string();
+    }
+    trimmed.chars().take(64).collect()
+}
+
+/// The directory holding one project's state: `~/.casting/<slug>/`.
+pub fn project_dir(slug: &str) -> Result<std::path::PathBuf> {
+    Ok(casting_home()?.join(slug))
+}
+
+/// Choose the next free project port: scan existing project configs for the max
+/// assigned `port`, then return `max+1` (starting at 8080). Stable across
+/// restarts because each project persists its own port.
+pub fn next_port() -> Result<u16> {
+    const BASE: u16 = 8080;
+    // Start one below BASE so the first project lands on BASE (8080).
+    let mut max = BASE.saturating_sub(1);
+    if let Ok(home) = casting_home() {
+        if let Ok(entries) = std::fs::read_dir(&home) {
+            for entry in entries.flatten() {
+                if !entry.path().is_dir() {
+                    continue;
+                }
+                if let Some(cfg) = read_config(&entry.path()) {
+                    if let Some(p) = cfg.port {
+                        max = max.max(p);
+                    }
+                }
+            }
+        }
+    }
+    Ok(max + 1)
+}
+
+/// Persist the *location* fields (name, slug, repo_path, port) for a freshly
+/// created project. This is the source of truth read by `cast run`.
+pub fn persist_location(
+    dir: &std::path::Path,
+    name: &str,
+    slug: &str,
+    repo_path: &std::path::Path,
+    port: u16,
+) -> Result<()> {
     let cfg = RuntimeConfig {
-        name: spec.name.clone(),
+        name: name.to_string(),
+        slug: Some(slug.to_string()),
+        repo_path: Some(repo_path.to_string_lossy().into_owned()),
+        port: Some(port),
         director_name: None,
         experience_level: None,
-        director_token: spec.director_token.clone(),
+        director_token: None,
         api_key: None,
         provider: None,
         model: None,
         telegram_token: None,
         telegram_chat_id: None,
+    };
+    let json = serde_json::to_string_pretty(&cfg)?;
+    let path = dir.join(CONFIG_FILE);
+    std::fs::write(&path, json).context("write project location config")?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+        .context("set config file permissions to 0600")?;
+    Ok(())
+}
+
+fn write_config(dir: &std::path::Path, spec: &SetupSpec) -> Result<()> {
+    // Merge into any existing config so location fields (slug/repo_path/port)
+    // written by `persist_location` are preserved — this is called by
+    // `SetupPlan::apply` for a freshly-seeded company and must not clobber them.
+    let prior = read_config(dir).unwrap_or(RuntimeConfig {
+        name: String::new(),
+        slug: None,
+        repo_path: None,
+        port: None,
+        director_name: None,
+        experience_level: None,
+        director_token: None,
+        api_key: None,
+        provider: None,
+        model: None,
+        telegram_token: None,
+        telegram_chat_id: None,
+    });
+    let cfg = RuntimeConfig {
+        name: spec.name.clone(),
+        slug: prior.slug,
+        repo_path: prior.repo_path,
+        port: prior.port,
+        director_name: prior.director_name,
+        experience_level: prior.experience_level,
+        director_token: spec.director_token.clone(),
+        api_key: prior.api_key,
+        provider: prior.provider,
+        model: prior.model,
+        telegram_token: prior.telegram_token,
+        telegram_chat_id: prior.telegram_chat_id,
     };
     let json = serde_json::to_string_pretty(&cfg)?;
     let path = dir.join(CONFIG_FILE);
@@ -345,6 +501,9 @@ pub fn persist_telegram_config(
 ) -> Result<()> {
     let prior = read_config(dir).unwrap_or(RuntimeConfig {
         name: String::new(),
+        slug: None,
+        repo_path: None,
+        port: None,
         director_name: None,
         experience_level: None,
         director_token: None,
@@ -356,6 +515,9 @@ pub fn persist_telegram_config(
     });
     let cfg = RuntimeConfig {
         name: prior.name,
+        slug: prior.slug,
+        repo_path: prior.repo_path,
+        port: prior.port,
         director_name: prior.director_name,
         experience_level: prior.experience_level,
         director_token: prior.director_token,

@@ -43,7 +43,7 @@ fn risk_raises_and_resolves_via_the_gate() {
             subject: "Data loss during migration".into(),
             severity: "high".into(),
         })
-        .to_events("proj-sem", "mei", &cause, "corr-1");
+        .to_events("proj-sem", "mei", &cause, "corr-1", None);
         assert_eq!(evs[0].event_type, EventType::RiskRaised);
         for e in evs {
             state.append(e).unwrap();
@@ -73,7 +73,7 @@ fn risk_raises_and_resolves_via_the_gate() {
         risk_id: "risk-1".into(),
         status: RiskStatus::Resolved,
     })
-    .to_events("proj-sem", "mei", &cause, "corr-2");
+    .to_events("proj-sem", "mei", &cause, "corr-2", None);
     for e in evs {
         state.append(e).unwrap();
     }
@@ -108,7 +108,7 @@ fn assumptions_and_constraints_are_recorded_semantic_notes() {
         id: "assume-1".into(),
         body: "Users can reach the internet".into(),
     })
-    .to_events("proj-sem", "mei", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1", None)
     {
         state.append(ev).unwrap();
     }
@@ -116,7 +116,7 @@ fn assumptions_and_constraints_are_recorded_semantic_notes() {
         id: "constr-1".into(),
         body: "Must run in a single binary".into(),
     })
-    .to_events("proj-sem", "mei", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1", None)
     {
         state.append(ev).unwrap();
     }
@@ -138,7 +138,7 @@ fn open_risks_surface_in_the_plan_and_resolved_ones_do_not() {
         subject: "Migration data loss".into(),
         severity: "high".into(),
     })
-    .to_events("proj-sem", "mei", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1", None)
     {
         state.append(ev).unwrap();
     }
@@ -147,7 +147,7 @@ fn open_risks_surface_in_the_plan_and_resolved_ones_do_not() {
         subject: "Transient network blip".into(),
         severity: "low".into(),
     })
-    .to_events("proj-sem", "mei", &cause, "corr-1")
+    .to_events("proj-sem", "mei", &cause, "corr-1", None)
     {
         state.append(ev).unwrap();
     }
@@ -155,7 +155,7 @@ fn open_risks_surface_in_the_plan_and_resolved_ones_do_not() {
         risk_id: "risk-closed".into(),
         status: RiskStatus::Resolved,
     })
-    .to_events("proj-sem", "mei", &cause, "corr-2")
+    .to_events("proj-sem", "mei", &cause, "corr-2", None)
     {
         state.append(ev).unwrap();
     }

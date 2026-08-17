@@ -103,37 +103,43 @@ React 19 + TypeScript + Vite + Tailwind CSS + Zustand (state management). The SP
 
 | Backend | Use case | How to select |
 |---------|----------|---------------|
-| **SQLite** (default) | Single-user, local, zero-infra | `cast run <dir>` (auto) |
+| **SQLite** (default) | Single-user, local, zero-infra | `cast run` (auto-selects the sole project, or `--project <slug>`) |
 | **PostgreSQL** | Multi-process / production | `CAST_DB=postgres://...` or `--db` flag |
+
+> **State location:** Casting keeps its own state OUTSIDE the artifact repo, under
+> `~/.casting/<slug>/` (honour `$CASTING_HOME` to relocate). The repo is never
+> modified by Casting's internal data — no `.casting/` directory is ever written
+> into it. Each project has its own state directory, database, and port.
 
 ---
 
 ## CLI reference
 
 ```text
-cast init <project-dir>
-  Create + configure a project. Interactive wizard in the browser;
-  headless via --name, --owner-token, --cast, etc.
+cast init <project-dir> [--name N] [--project <slug>] [--objective ..] [--cast ..] [--owner-token ..] [--interactive]
+  Register + configure a project in ~/.casting/<slug>/ (name -> repo + port).
+  Interactive wizard in the browser; headless via --name/--project/--owner-token/--cast.
+  The repo itself is never written to (state lives outside it).
 
-cast run <project-dir>
-  Start the workspace: PM loop runs, web API serves on :8080,
-  embedded SPA or Vite HMR frontend available.
+cast run [--project <slug>] [--db <selector>] [--selfhost]
+  Start the workspace for ONE project: PM loop runs, web API serves the
+  configured port, embedded SPA or Vite HMR frontend available.
+  With no --project, auto-selects the sole project, or lists them if >1.
 
-cast purge <project-dir> [--force]
-  Delete .casting/ state directory — full reset. Project keeps
-  its git history; Casting forgets everything.
+cast purge [<slug>] [--force]
+  Delete a project's ~/.casting/<slug>/ state directory — full reset. The repo
+  keeps its git history; Casting forgets everything.
 
-cast brief <project-dir> [--subject S] [--source SRC] [--title T] <file|->
-  Import external content as an advisory briefing (advises, never
-  sets rules).
+cast brief [--project <slug>] [--subject S] [--source SRC] [--title T] <file|->
+  Import external content as an advisory briefing (advises, never sets rules).
 
-cast request <project-dir> [--source SRC] [--reporter R] [--label L] <title>
+cast request [--project <slug>] [--source SRC] [--reporter R] [--label L] <title>
   Receive an external request (e.g. GitHub issue) into the intake.
 
 cast log --db <events.db> [--project <id>] [--verify]
   Dump or verify the raw event stream.
 
-cast smoke <dir>
+cast smoke [--project <slug>]
   Append sample events and replay them (harness/test tool).
 ```
 

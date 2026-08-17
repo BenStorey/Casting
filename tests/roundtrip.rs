@@ -126,7 +126,7 @@ fn seed_run_actions(state: &AppState) {
         priority: Priority::High,
     };
     validate(&set_pri, "mei", &proj, None).unwrap();
-    for e in set_pri.to_events(P, "mei", &cause(), "corr") {
+    for e in set_pri.to_events(P, "mei", &cause(), "corr", None) {
         state.append(e).unwrap();
     }
 
@@ -137,7 +137,7 @@ fn seed_run_actions(state: &AppState) {
         by_opinion_id: "op-2".into(),
     };
     validate(&sup_op, "mei", &proj, None).unwrap();
-    for e in sup_op.to_events(P, "mei", &cause(), "corr") {
+    for e in sup_op.to_events(P, "mei", &cause(), "corr", None) {
         state.append(e).unwrap();
     }
 
@@ -148,7 +148,7 @@ fn seed_run_actions(state: &AppState) {
         by_decision_id: "d-v2".into(),
     };
     validate(&sup_dec, "mei", &proj, None).unwrap();
-    for e in sup_dec.to_events(P, "mei", &cause(), "corr") {
+    for e in sup_dec.to_events(P, "mei", &cause(), "corr", None) {
         state.append(e).unwrap();
     }
 }

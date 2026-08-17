@@ -531,7 +531,7 @@ pub struct Worktree {
     pub task_id: Option<String>,
     /// The worktree's current branch ("main" when free, "casting/task-<id>" when bound).
     pub branch: String,
-    /// Filesystem path to the worktree (under <repo>/.casting/worktrees/).
+    /// Filesystem path to the worktree (under <state_dir>/worktrees/).
     pub path: String,
     /// Private build target dir so concurrent builds don't stomp each other.
     pub cargo_target_dir: String,

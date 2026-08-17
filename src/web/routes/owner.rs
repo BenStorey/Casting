@@ -172,7 +172,7 @@ pub(crate) async fn hire_handler(
         serde_json::json!({ "to": proj.pm_id(), "body": "hiring" }),
     );
     let last = action
-        .to_events(&state.project, "director", &cause, "hire")
+        .to_events(&state.project, "director", &cause, "hire", None)
         .into_iter()
         .map(|e| state.append(e))
         .collect::<Result<Vec<_>, _>>()

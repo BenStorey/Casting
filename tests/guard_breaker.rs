@@ -202,7 +202,7 @@ fn pause_and_resume_block_and_unblock_dispatch() {
     for ev in (PmAction::PauseWork {
         reason: "manual hold".into(),
     })
-    .to_events("proj-guard", "director", &cause(), "guard")
+    .to_events("proj-guard", "director", &cause(), "guard", None)
     {
         state.append(ev).unwrap();
     }
@@ -212,7 +212,7 @@ fn pause_and_resume_block_and_unblock_dispatch() {
     assert!(reason.contains("manual hold"));
 
     // Owner resumes -> clears.
-    for ev in (PmAction::ResumeWork).to_events("proj-guard", "director", &cause(), "guard") {
+    for ev in (PmAction::ResumeWork).to_events("proj-guard", "director", &cause(), "guard", None) {
         state.append(ev).unwrap();
     }
     let p = proj(&state);

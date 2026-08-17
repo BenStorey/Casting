@@ -731,7 +731,7 @@ mod tests {
             title: "Auth".into(),
             kind: "feature".into(),
         }
-        .to_events("p", "mei", &cause, "corr");
+        .to_events("p", "mei", &cause, "corr", None);
         for e in &parent_ev {
             p.apply(e);
         }
@@ -751,7 +751,7 @@ mod tests {
                 },
             ],
         }
-        .to_events("p", "mei", &cause, "corr");
+        .to_events("p", "mei", &cause, "corr", None);
         assert_eq!(evs.len(), 3, "TaskDecomposed + 2 TaskCreated");
         assert_eq!(evs[0].event_type, EventType::TaskDecomposed);
         assert!(evs[1..]
@@ -798,7 +798,7 @@ mod tests {
                     title: (*id).into(),
                     kind: "feature".into(),
                 }
-                .to_events("p", "mei", &cause, "c")
+                .to_events("p", "mei", &cause, "c", None)
             })
             .collect();
         for e in &created {
@@ -810,7 +810,7 @@ mod tests {
             blocking_task_id: "db".into(),
             required_state: TaskStatus::Done,
         })
-        .to_events("p", "mei", &cause, "c")
+        .to_events("p", "mei", &cause, "c", None)
         {
             p.apply(&e);
         }
@@ -830,7 +830,7 @@ mod tests {
             task_id: "db".into(),
             result: "schema done".into(),
         })
-        .to_events("p", "mei", &cause, "c")
+        .to_events("p", "mei", &cause, "c", None)
         {
             p.apply(&e);
         }

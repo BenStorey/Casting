@@ -3,17 +3,26 @@ use super::action::PmAction;
 use crate::event::{Actor, Aggregate, Event, EventType, Metadata};
 use crate::pm::DecisionClass;
 use serde_json::{json, Value};
+use std::path::Path;
 
 impl PmAction {
     /// Map an action, performed by `who`, into the ordered domain events that
     /// record it — with provenance (`causation`/`correlation`/`agent_run_id`)
     /// already attached. Returns zero events for `NoOp`.
+    ///
+    /// `state_dir` is the project's state directory (`~/.casting/<slug>/`), if
+    /// known at the call site. It is used to record the ABSOLUTE worktree path
+    /// for `ProvisionWorktree` (the physical worktree is created under
+    /// `<state_dir>/worktrees/...`) so the projected `path` matches reality.
+    /// Call sites without a workspace (intake/owner) pass `None`; they never
+    /// emit `ProvisionWorktree`, so the fallback relative path is irrelevant.
     pub fn to_events(
         &self,
         project: &str,
         who: &str,
         cause: &Event,
         correlation: &str,
+        state_dir: Option<&Path>,
     ) -> Vec<Event> {
         let actor = actor_for(who);
         let meta = linked(cause, correlation);
@@ -188,11 +197,26 @@ impl PmAction {
                 // build target is a private subdir inside the worktree). The
                 // projection records both: `path` = the worktree root (which
                 // physically exists), `cargo_target_dir` = its private target.
-                let path = cargo_target_dir
-                    .strip_suffix("/target")
-                    .or_else(|| cargo_target_dir.strip_suffix("\\target"))
-                    .unwrap_or(cargo_target_dir)
-                    .to_string();
+                //
+                // When the state dir is known, record the ABSOLUTE path so the
+                // projection matches where `Workspace::provision_persistent_worktree`
+                // actually creates the tree (`<state_dir>/worktrees/<assignee>-<slot>`).
+                // Otherwise fall back to the relative path from the action (tests /
+                // call sites without a workspace — they never provision).
+                let (path, cargo_target_dir) = if let Some(sd) = state_dir {
+                    let root = sd.join("worktrees").join(format!("{assignee}-{slot}"));
+                    (
+                        root.to_string_lossy().into_owned(),
+                        root.join("target").to_string_lossy().into_owned(),
+                    )
+                } else {
+                    let p = cargo_target_dir
+                        .strip_suffix("/target")
+                        .or_else(|| cargo_target_dir.strip_suffix("\\target"))
+                        .unwrap_or(cargo_target_dir)
+                        .to_string();
+                    (p, cargo_target_dir.clone())
+                };
                 // Branch follows the casting/task-* convention: the slug is an
                 // optional suffix on the task id.
                 let branch = if slug.is_empty() {

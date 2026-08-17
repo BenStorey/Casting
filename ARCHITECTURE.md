@@ -268,7 +268,7 @@ pub trait EventStore: Send + Sync {
 ```
 
 ### 4.2 SQLite Backend (`src/store/sqlite_store.rs`)
-- Three files in `.casting/`: `events.db`, `cursors.db`, `snapshots.db` — one per store (not a single `events.db`)
+- Three files in `~/.casting/<slug>/` (the project's state dir, outside the repo): `events.db`, `cursors.db`, `snapshots.db` — one per store (not a single `events.db`)
 - WAL mode for concurrent read/write
 - Exclusive locking mode prevents a second process from operating on the same database (dual-PM guard)
 - Sequence assignment via `SELECT MAX(sequence)+1` inside IMMEDIATE transaction
@@ -605,7 +605,7 @@ Functions: `advisor_reply`, `advisor_summarize`, `advisor_summarize_deterministi
 
 ### 10.5 Provider Config (`src/llm/config.rs`)
 
-`ProviderConfig` resolves from: env vars → `.casting/config.json` → inline spec. Fields: `provider` (one of `openrouter` | `openai` | `anthropic` | `litellm`), `base_url`, `api_key`, `model`.
+`ProviderConfig` resolves from: env vars → `~/.casting/<slug>/config.json` → inline spec. Fields: `provider` (one of `openrouter` | `openai` | `anthropic` | `litellm`), `base_url`, `api_key`, `model`.
 
 The **persisted** config (`RuntimeConfig`) now carries `provider` and `model` alongside `api_key`, chosen in the setup wizard (`src/workspace/setup.rs` + `frontend/src/SetupWizard.tsx`). On boot `from_env(state_dir)` reads provider/model from env override or the persisted config, defaulting to `openrouter` + `deepseek/deepseek-v4-flash-0731`.
 
@@ -633,8 +633,8 @@ The Anthropic adapter is a genuine second protocol (not a config switch): `x-api
 3. `CostMetering` also carries `reported_cost_usd`, `cost_status`, and the cache prices; all land in the `CostIncurred` event.
 
 **Price table** — resolved by `PricingResolver` (precedence):
-1. `.casting/prices.json` override — `{ "provider/model": { "input", "output", "cache_read"?, "cache_write"? } }` (USD per 1M tokens). The "config, not code" escape hatch to pin/correct a price or cover a local model.
-2. The cached **models.dev** dataset (`.casting/models_dev_cache.json`) — the same open, key-free source Hermes uses (`https://models.dev/api.json`), covering OpenAI/Anthropic + 100s of providers with real rates. Auto-populated: `fetch_models_dev()` runs at boot behind a 24h TTL (skips when the cache is fresh); failures log and fall back.
+1. `~/.casting/<slug>/prices.json` override — `{ "provider/model": { "input", "output", "cache_read"?, "cache_write"? } }` (USD per 1M tokens). The "config, not code" escape hatch to pin/correct a price or cover a local model.
+2. The cached **models.dev** dataset (`~/.casting/<slug>/models_dev_cache.json`) — the same open, key-free source Hermes uses (`https://models.dev/api.json`), covering OpenAI/Anthropic + 100s of providers with real rates. Auto-populated: `fetch_models_dev()` runs at boot behind a 24h TTL (skips when the cache is fresh); failures log and fall back.
 3. Cost-tier fallback (`tier_prices` in `routing.rs`).
 
 So the price table is auto-populated and provider-agnostic — no hardcoded per-model map in code.
@@ -733,14 +733,14 @@ Two modes:
 ```rust
 pub struct Workspace {
     pub repo: PathBuf,       // canonical absolute path to the artifact repo
-    pub state_dir: PathBuf,  // canonical path to .casting/
+    pub state_dir: PathBuf,  // canonical path to ~/.casting/<slug>/
     selfhost: Selfhost,
 }
 ```
 
 **Self-hosting guard:** `Selfhost::Disabled` refuses to operate on the Casting source repo (checks embedded source root + `name = "casting"` in Cargo.toml). Requires explicit `--selfhost` flag or `CAST_SELFHOST=1`.
 
-**State collocation:** All Casting internal state lives in `<repo>/.casting/` — a self-ignored directory (`*` in `.gitignore`) so it never pollutes the user's git history.
+**State location (external, never collocated):** All Casting internal state lives in `~/.casting/<slug>/` — a directory OUTSIDE the artifact repo (the slug is assigned at `cast init`). This keeps the user's repo byte-identical: Casting never writes a `.casting/` directory (or any state) into it. `Workspace::open` hard-refuses any state dir that lives inside the repo (`ensure_outside_repo`). Multi-project support is just N such directories under `~/.casting/`, each with its own database and port; a single `cast run` operates on exactly one.
 
 ### 13.2 Setup Engine (`src/workspace/setup.rs`)
 
@@ -770,7 +770,7 @@ A normalized consultant package with: id, name, title, cast_role, avatar, summar
 
 Two-key registry (by_id + by_role). Supports:
 - `from_embedded()` — loads curated defaults built into the binary
-- `overlay_dir()` — loads user TOML files from `.casting/consultants/`
+- `overlay_dir()` — loads user TOML files from `~/.casting/<slug>/consultants/`
 - `validate_all_roles_present()` — ensures all 7 CastRole variants are bound
 - `specialists_for(description)` — keyword-matching for PM routing (advisory, not authoritative)
 
@@ -975,7 +975,7 @@ The unified gate: checks both paused AND budget-halted. Called before every LLM 
 
 ### 16.4 SecretStore (`src/workspace/secrets.rs`)
 
-- Values stored on disk in `<project>/.casting/secrets.json` (gitignored)
+- Values stored on disk in `~/.casting/<slug>/secrets.json` (outside the repo)
 - Referenced in activities via `@secret:NAME@` placeholders
 - `ensure_no_raw_secrets(activity)` — fail-closed guard: refuses to schedule/execute an activity that embeds a raw secret value verbatim
 - This is the one genuinely hard invariant: once a secret's raw value lands in an event (via `ActivityScheduled` with `Shell{cmd}` or `LlmCall{prompt}`), it is in the append-only log forever

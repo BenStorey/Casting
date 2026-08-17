@@ -145,7 +145,7 @@ async fn reclassification_is_event_sourced_and_lasts() {
         title: "t".into(),
         kind: "feature".into(),
     }
-    .to_events("proj-ma", "mei", &cause(&state, "c1"), "c1");
+    .to_events("proj-ma", "mei", &cause(&state, "c1"), "c1", None);
     for e in created {
         state.append(e).unwrap();
     }
@@ -154,7 +154,7 @@ async fn reclassification_is_event_sourced_and_lasts() {
         assignee: "lead-programmer".into(),
         merge_authority: MergeAuthority::SelfMerge,
     }
-    .to_events("proj-ma", "mei", &cause(&state, "c2"), "c2");
+    .to_events("proj-ma", "mei", &cause(&state, "c2"), "c2", None);
     for e in assigned {
         state.append(e).unwrap();
     }
@@ -164,7 +164,7 @@ async fn reclassification_is_event_sourced_and_lasts() {
         task_id: "task-e".into(),
         merge_authority: MergeAuthority::PmMerge,
     }
-    .to_events("proj-ma", "mei", &cause(&state, "c3"), "c3");
+    .to_events("proj-ma", "mei", &cause(&state, "c3"), "c3", None);
     assert_eq!(
         reclass[0].event_type,
         casting::event::EventType::MergeAuthorityChanged

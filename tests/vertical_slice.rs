@@ -26,6 +26,7 @@ fn make_state() -> AppState {
         .with_orchestrator(Arc::new(MockOrchestrator))
 }
 
+#[allow(dead_code)]
 fn owner_message(body: &str) -> Event {
     Event::new(
         "proj-test",

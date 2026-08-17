@@ -77,7 +77,7 @@ fn import_briefing_action_through_gate_and_to_events() {
         },
         serde_json::json!({}),
     );
-    let evs = action.to_events(&st.project, "owner", &cause, "brief");
+    let evs = action.to_events(&st.project, "owner", &cause, "brief", None);
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].event_type, EventType::AdvisoryBriefingImported);
     assert_eq!(evs[0].aggregate.id, "brief-9");
