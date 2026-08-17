@@ -831,10 +831,9 @@ fn do_log(log: LogArgs) -> Result<()> {
     Ok(())
 }
 
-/// Idempotently seed a fresh project: ProjectCreated + hire the PM, so the
-/// board/team starts with the management layer visible. Safe to re-run (the
-/// PM's cursor starts at 0 and these aren't director-input events, so the loop
-/// won't react to them).
+/// Idempotently seed a fresh project: ProjectCreated only, then reconcile the
+/// cast roster from `active-cast/` (the directory IS the roster — everyone
+/// present is hired). Safe to re-run; events tune to what's already there.
 fn seed_project(state: &AppState) -> Result<()> {
     let project = state.project.clone();
     if state.store.latest_sequence(&project)? > 0 {
@@ -850,22 +849,12 @@ fn seed_project(state: &AppState) -> Result<()> {
         },
         serde_json::json!({"name": "Casting demo"}),
     ))?;
-    state.append(Event::new(
-        &project,
-        Actor::System,
-        EventType::AgentHired,
-        Aggregate {
-            kind: "agent".into(),
-            id: "mei".into(),
-        },
-        serde_json::json!({"role": "Project Manager"}),
-    ))?;
 
-    // Done — the setup wizard handles hiring the rest of the cast. If the
-    // wizard is skipped (headless `cast init`), the setup flow in the backend
-    // hires them. Previously we seeded the full default cast here, but that
-    // prevented the first-run wizard from showing (the cast was already full).
-    println!("   PM seeded — setup wizard will handle the rest");
+    // Hire the entire roster from the directory: the PM, the Advisor (jeeves),
+    // and every assignable consultant (one per role). No names are hardcoded
+    // here — adding/removing a package in active-cast/ changes who's hired.
+    let hired = casting::pm::reconciler::cast_roster(state)?;
+    println!("   cast onboarded from active-cast/ ({hired} hired)");
     Ok(())
 }
 

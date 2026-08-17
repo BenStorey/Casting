@@ -15,6 +15,7 @@
 //! Future first-run UI drives this SAME engine (no second copy of setup logic).
 
 use crate::actions;
+use crate::consultants::{ConsultantConfig, ConsultantRegistry};
 use crate::event::{Actor, Aggregate, Event, EventType};
 use crate::runtime::directive::{DirectiveKind, DirectiveStrength};
 use crate::store::EventStore;
@@ -27,8 +28,8 @@ use std::os::unix::fs::PermissionsExt;
 pub struct SetupSpec {
     /// Human-readable company/product name.
     pub name: String,
-    /// Role ids from the catalog to hire (e.g. ["engineer","qa"]). Empty =
-    /// default cast.
+    /// Role ids from the roster to hire (e.g. ["lead-developer","testing-engineer"]).
+    /// Empty = the whole roster (every consultant in the directory, one per role).
     pub roles: Vec<String>,
     /// Optional director bearer token (enables auth). Empty = auth off.
     pub director_token: Option<String>,
@@ -54,21 +55,24 @@ pub struct SetupPlan {
 }
 
 impl SetupPlan {
-    /// Build the plan from a spec. Resolves the default cast when `roles` is
-    /// empty; validates every role is in the catalog.
+    /// Build the plan from a spec. Resolves the whole roster when `roles` is
+    /// empty; validates every role is in the registry (fail-closed on unknown).
     pub fn build(spec: SetupSpec) -> Result<Self> {
-        let hires = resolve_hires(&spec.roles)?;
+        let registry = ConsultantRegistry::from_embedded()?;
+        let hires = resolve_hires(&spec.roles, &registry)?;
         Ok(SetupPlan { spec, hires })
     }
 
     /// Apply the setup to a state dir: open (or create) the DBs, append the
-    /// initial events idempotently, and persist the runtime config (name +
-    /// optional director token) that `cast run` reads. Returns the number of
-    /// events written (0 if the company is already set up — in which case the
-    /// existing config is left untouched).
+    /// initial events idempotently (ProjectCreated + starting directives +
+    /// budget — the cast roster is reconciled separately by `cast_roster`),
+    /// and persist the runtime config (name + optional director token) that
+    /// `cast run` reads. Returns the number of events written (0 if the
+    /// company is already set up — in which case the existing config is left
+    /// untouched).
     pub fn apply(&self, dir: &std::path::Path) -> Result<u32> {
         let store = open_store(dir)?;
-        let written = apply_to_store(&store, &self.spec, &self.hires)?;
+        let written = apply_to_store(&store, &self.spec)?;
         if written > 0 {
             write_config(dir, &self.spec)?;
         }
@@ -83,45 +87,48 @@ pub fn open_store(dir: &std::path::Path) -> Result<SqliteEventStore> {
 }
 
 /// Resolve a list of role ids into concrete hires (agent id + role title),
-/// using the default cast when `roles` is empty. Validates each role.
-pub fn resolve_hires(roles: &[String]) -> Result<Vec<(String, String)>> {
-    let roles: Vec<String> = if roles.is_empty() {
-        crate::workspace::DEFAULT_CAST
-            .iter()
-            .map(|m| m.role_id.to_string())
-            .collect()
+/// deriving each from the consultant registry. When `roles` is empty, hires
+/// the whole roster (every consultant in the directory, one per role). Each
+/// requested role id maps to the single consultant whose `role` equals it;
+/// unknown roles fail closed (no counters, no name hardcoding).
+pub fn resolve_hires(
+    roles: &[String],
+    registry: &ConsultantRegistry,
+) -> Result<Vec<(String, String)>> {
+    // Empty = the whole roster (the directory IS the roster).
+    let candidates: Vec<&ConsultantConfig> = if roles.is_empty() {
+        registry.all()
     } else {
-        roles.to_vec()
+        let mut out = Vec::with_capacity(roles.len());
+        for role_id in roles {
+            let c = registry
+                .for_role(role_id)
+                .with_context(|| format!("unknown role in roster: {role_id}"))?;
+            out.push(c);
+        }
+        out
     };
-
+    // One consultant per role — dedup by id in case a role was repeated.
     let mut hires = Vec::new();
-    let mut seen = std::collections::HashMap::<String, usize>::new();
-    for role_id in &roles {
-        let role = crate::workspace::role_by_id(role_id)
-            .with_context(|| format!("unknown role in cast catalog: {role_id}"))?;
-        // Canonical default-cast agent for that role if it's a default one,
-        // else a per-role occurrence counter (role-1, role-2, ...).
-        let agent_id = match default_agent_for(role_id) {
-            Some(id) => id,
-            None => {
-                let n = seen.entry(role_id.clone()).or_insert(0);
-                *n += 1;
-                format!("{role_id}-{n}")
-            }
-        };
-        hires.push((agent_id, role.title.to_string()));
+    let mut seen = std::collections::HashSet::new();
+    for c in candidates {
+        if seen.insert(c.id.clone()) {
+            hires.push((c.id.clone(), c.role_title.clone()));
+        }
     }
     Ok(hires)
 }
 
 /// Idempotently ensure a set of cast members are hired against a RUNNING
-/// AppState (used by the web setup endpoint). Skips anyone already in the
-/// projection. Returns the hires that were actually issued.
+/// AppState (used by the web setup endpoint). Derives hires from the registry
+/// (`state.consultants`); an empty `roles` hires the whole roster. Skips
+/// anyone already in the projection. Returns the hires that were actually
+/// issued.
 pub fn ensure_hires(
     state: &crate::pm::AppState,
     roles: &[String],
 ) -> Result<Vec<(String, String)>> {
-    let hires = resolve_hires(roles)?;
+    let hires = resolve_hires(roles, &state.consultants)?;
     let existing: Vec<String> = state
         .projection()
         .ok()
@@ -194,23 +201,12 @@ pub fn persist_setup_prefs(
     std::fs::write(dir.join(CONFIG_FILE), json).context("write persisted setup prefs")
 }
 
-/// The canonical agent id for a default-cast role, if any (so the wizard's
-/// "add security" numbers don't collide with Marcus/Maya).
-fn default_agent_for(role_id: &str) -> Option<String> {
-    crate::workspace::DEFAULT_CAST
-        .iter()
-        .find(|m| m.role_id == role_id)
-        .map(|m| m.agent_id.to_string())
-}
-
 /// Append the initial company events against an existing store, idempotently.
-/// Assumes the store already has a seeded PM (like `cast run`); detects an
-/// existing company by the project's first event.
-fn apply_to_store(
-    store: &SqliteEventStore,
-    spec: &SetupSpec,
-    hires: &[(String, String)],
-) -> Result<u32> {
+/// Seeds only the project's existence, starting directives, and a default
+/// budget — the cast roster is reconciled separately (`cast_roster`), so NO
+/// hardcoded hire events are written here. Detects an existing company by the
+/// project's first event.
+fn apply_to_store(store: &SqliteEventStore, spec: &SetupSpec) -> Result<u32> {
     use crate::projection::Projection;
     let project = "project-demo"; // single-project for now (multi-project later)
 
@@ -233,35 +229,7 @@ fn apply_to_store(
     ))?;
     written += 1;
 
-    // 2. Hire the PM.
-    store.append(Event::new(
-        project,
-        Actor::System,
-        EventType::AgentHired,
-        Aggregate {
-            kind: "agent".into(),
-            id: "mei".into(),
-        },
-        serde_json::json!({ "role": "Project Manager" }),
-    ))?;
-    written += 1;
-
-    // 3. Hire the chosen cast members.
-    for (agent_id, role_title) in hires {
-        store.append(Event::new(
-            project,
-            Actor::System,
-            EventType::AgentHired,
-            Aggregate {
-                kind: "agent".into(),
-                id: agent_id.clone(),
-            },
-            serde_json::json!({ "role": role_title }),
-        ))?;
-        written += 1;
-    }
-
-    // 4. Optionally write starting governance directives (director-authored).
+    // 2. Optional starting governance directives (director-authored).
     for d in &spec.directives {
         store.append(actions::director_directive_created(
             "ceo",
@@ -275,7 +243,7 @@ fn apply_to_store(
         written += 1;
     }
 
-    // 5. Seed a default budget so the spend breaker is never Disabled (§4.2.8).
+    // 3. Seed a default budget so the spend breaker is never Disabled (§4.2.8).
     store.append(Event::new(
         project,
         Actor::System,

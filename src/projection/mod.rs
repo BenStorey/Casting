@@ -188,6 +188,9 @@ impl Projection {
                 id: e.aggregate.id.clone(),
                 role: string_field(e, "role").unwrap_or_default(),
             }),
+            EventType::AgentRemoved => {
+                self.agents.retain(|a| a.id != e.aggregate.id);
+            }
             EventType::RequirementCreated => self.requirements.push(Requirement {
                 id: e.aggregate.id.clone(),
                 title: string_field(e, "title").unwrap_or_default(),

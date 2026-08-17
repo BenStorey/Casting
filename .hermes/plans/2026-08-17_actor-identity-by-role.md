@@ -1,7 +1,7 @@
 # Deduplicate actor identity: stop the file structure from leaking into the app
 
 **Date:** 2026-08-17
-**Status:** done — Phase 1 (role-based) commit b12ae24; Phase 2 (rename pm→mei, advisor→jeeves incl. seeds/frontend/tests/docs) commit 0eeaa22. All green.
+**Status:** done — Phase 1 (role-based) commit b12ae24; Phase 2 (rename pm→mei, advisor→jeeves incl. seeds/frontend/tests/docs) commit 0eeaa22; Phase 3 ("active-cast/ IS the roster") commit pending. All green.
 **Owner:** Ben + Hermes
 
 ## Problem

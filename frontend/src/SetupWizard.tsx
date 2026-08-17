@@ -240,7 +240,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       await submitSetup(
         projectName.trim(),
         objective.trim(),
-        status?.roles?.map((r) => r.id) || ["engineer", "qa", "devops", "security"],
+        status?.roles?.map((r) => r.id) ?? [],
         ownerName.trim() || undefined,
         expLevel ?? undefined,
         apiKey.trim() || undefined

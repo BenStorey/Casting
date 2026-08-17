@@ -230,6 +230,22 @@ pub fn validate(
                 check_pm_authority(who, registry)
             }
         }
+        PmAction::FireAgent { agent_id } => {
+            // Only the system/director may fire; a consultant can never fire a
+            // peer, and the director/system pseudo-actors can never be removed.
+            if agent_id == DIRECTOR || agent_id == "system" {
+                return Err(PolicyError::ActionNotAuthorized(format!(
+                    "cannot fire built-in actor {agent_id}"
+                )));
+            }
+            if !state.agents.iter().any(|a| a.id == *agent_id) {
+                Err(PolicyError::AgentNotHired(agent_id.clone()))
+            } else if who == DIRECTOR || who == "system" {
+                Ok(())
+            } else {
+                check_pm_authority(who, registry)
+            }
+        }
         // CreateTask and DecomposeTask both guard id freshness.
         PmAction::CreateTask { id, .. } => {
             check_pm_authority(who, registry)?;
@@ -660,9 +676,10 @@ pub fn validate(
         PmAction::ProposeDirectiveChange { .. } => Ok(()),
         // Proposing a consultant hire is a proposal, not the hire — the team
         // change happens on director approval (or PM auto-decision per policy).
-        // The role must exist in the catalog so a bad role is rejected early.
+        // The role must be one the roster knows (a CastRole or a
+        // consultant-declared role) so a bad role is rejected early.
         PmAction::ProposeConsultant { role_id, .. } => {
-            if crate::workspace::role_by_id(role_id).is_none() {
+            if !is_known_role(role_id, registry) {
                 return Err(PolicyError::UnknownRole(role_id.clone()));
             }
             Ok(())
@@ -761,6 +778,24 @@ fn check_pm_authority(who: &str, registry: Option<&ConsultantRegistry>) -> Resul
         Ok(())
     } else {
         Err(PolicyError::ActionNotAuthorized(who.to_string()))
+    }
+}
+
+/// Check whether `role_id` is a known role: the 7 CastRole role ids are always
+/// valid; when a registry is present, package-defined roles are also accepted.
+/// This replaces the old hardcoded `role_catalog()` lookup.
+fn is_known_role(role_id: &str, registry: Option<&ConsultantRegistry>) -> bool {
+    // The 7 built-in CastRole ids are always valid.
+    if crate::consultants::cast_role::ALL_CAST_ROLES
+        .iter()
+        .any(|r| r.role_id() == role_id)
+    {
+        return true;
+    }
+    // Package-defined roles (custom consultants) when a registry is present.
+    match registry {
+        Some(reg) => reg.known_roles().iter().any(|r| r.id == role_id),
+        None => false,
     }
 }
 

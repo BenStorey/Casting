@@ -405,20 +405,13 @@ impl ConsultantRegistry {
             .collect()
     }
 
-    /// Every known role: the built-in catalog PLUS the roles assigned by the
-    /// registered consultants' `cast_role` fields. This is the dynamic role
-    /// set a director can hire into (custom consultants carry their own roles).
+    /// Every known role, derived from the registered consultants' `cast_role`
+    /// fields. This is the dynamic role set a director can hire into (the
+    /// directory IS the roster — there is no separate hardcoded catalog).
+    /// Deduped by role id; one consultant per role is enforced at load.
     pub fn known_roles(&self) -> Vec<RoleInfo> {
-        let mut out: Vec<RoleInfo> = crate::workspace::role_catalog()
-            .iter()
-            .map(|r| RoleInfo {
-                id: r.id.to_string(),
-                title: r.title.to_string(),
-                scope: r.scope.to_string(),
-            })
-            .collect();
-        let mut seen: std::collections::HashSet<String> =
-            out.iter().map(|r| r.id.clone()).collect();
+        let mut out: Vec<RoleInfo> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for c in self.by_id.values() {
             let ri = RoleInfo {
                 id: c.role.clone(),

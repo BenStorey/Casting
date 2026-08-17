@@ -167,6 +167,17 @@ impl AppState {
         self
     }
 
+    /// Builder-style: REPLACE the default pass set with exactly `passes`.
+    /// Tests that exercise a specific pass (e.g. opinion-drift) use this so the
+    /// roster pass doesn't change their expected event counts.
+    pub fn with_reconcile_passes(
+        mut self,
+        passes: Vec<Arc<dyn crate::pm::reconciler::ReconcilePass>>,
+    ) -> Self {
+        self.reconcile_passes = passes;
+        self
+    }
+
     /// Builder-style: attach the workspace so the PM can physically provision
     /// isolated worktrees when a consultant is summoned.
     pub fn with_workspace(mut self, workspace: Arc<crate::workspace::Workspace>) -> Self {

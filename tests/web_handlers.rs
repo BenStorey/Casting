@@ -389,7 +389,8 @@ fn post_directive_creates_governance() {
     );
 }
 
-/// POST /api/hire — director hires a catalog role; a new AgentHired event lands.
+/// POST /api/hire — director hires a roster role; hiring a role hires the ONE
+/// consultant bound to it (one per role). A new AgentHired event lands.
 #[test]
 fn post_hire_catalog_role() {
     let state = seeded_state();
@@ -397,11 +398,25 @@ fn post_hire_catalog_role() {
     let resp = post(
         &app,
         "/api/hire",
-        serde_json::json!({ "role_id": "devops" }),
+        serde_json::json!({ "role_id": "testing-engineer" }),
     );
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp);
     assert_eq!(json["event_type"], serde_json::json!("AgentHired"));
+}
+
+/// POST /api/hire with a legacy/unknown role that has no consultant package in
+/// the roster is rejected — roles come only from active-cast/.
+#[test]
+fn post_hire_unknown_role_rejected() {
+    let state = seeded_state();
+    let app = app(state);
+    let resp = post(
+        &app,
+        "/api/hire",
+        serde_json::json!({ "role_id": "devops" }),
+    );
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 /// POST /api/brief — director imports advisory content.

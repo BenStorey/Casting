@@ -109,50 +109,52 @@ pub(crate) struct HireIn {
     role_id: String,
 }
 
-/// POST /api/hire — the DIRECTOR adds an agent of a role to the cast (delegated
-/// authority: the CEO grows the team). Resolves the role against the dynamic
-/// role set — the catalog PLUS any roles the loaded consultants fill via
-/// `cast_role` — so a director can hire a custom consultant. It
-/// then generates a unique agent id and persists `AgentHired`
-/// via the validated `HireAgent` action.
+/// POST /api/hire — the DIRECTOR adds a consultant to the cast. The role must
+/// map to a consultant package in the roster (`active-cast/` IS the roster):
+/// hiring "a role" hires the ONE consultant that fills it. No counters, no
+/// legacy role ids — a role with no package can't be hired.
 pub(crate) async fn hire_handler(
     State(state): State<AppState>,
     CurrentUser(user_id): CurrentUser,
     Json(input): Json<HireIn>,
 ) -> Result<Json<Event>, (StatusCode, String)> {
-    // The role must be known: a catalog role OR one a consultant package defined.
+    // The role must be a consultant package role. Resolve it to the consultant
+    // that fills it (one per role) and hire THAT consultant by its package id.
     let role = state
         .consultants
         .resolve_role(&input.role_id)
         .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                format!("unknown role {:?}", input.role_id),
+                format!(
+                    "unknown role {:?} — roles are defined by consultant packages in active-cast/",
+                    input.role_id
+                ),
+            )
+        })?;
+    let consultant = state
+        .consultants
+        .all()
+        .into_iter()
+        .find(|c| c.role == role.id)
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("role {:?} has no consultant package bound to it", role.id),
             )
         })?;
 
-    // Unique agent id: role id + a monotonic counter of existing agents.
+    // The hired agent IS the consultant (id + role title). No counter.
+    let agent_id = consultant.id.clone();
+
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let taken = proj
-        .agents
-        .iter()
-        .map(|a| a.id.as_str())
-        .collect::<Vec<_>>();
-    let mut n = 1;
-    let agent_id = loop {
-        let candidate = format!("{}-{n}", input.role_id);
-        if !taken.contains(&candidate.as_str()) {
-            break candidate;
-        }
-        n += 1;
-    };
 
     // Route through the validated HireAgent action (director authority).
     let action = crate::actions::PmAction::HireAgent {
         agent_id: agent_id.clone(),
-        role: role.title.to_string(),
+        role: consultant.role_title.clone(),
     };
     if let Err(e) = crate::actions::validate(&action, "director", &proj, None) {
         return Err((StatusCode::CONFLICT, e.to_string()));

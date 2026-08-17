@@ -34,6 +34,11 @@ pub enum EventType {
     // --- Organizational events ---
     ProjectCreated,
     AgentHired,
+    /// An agent was removed from the cast (its consultant package is no longer
+    /// present in `active-cast/`, or its role is now filled by someone else).
+    /// The reconcile pass derives this from the directory; it is the "fire on
+    /// absence" counterpart to `AgentHired` ("hire on presence").
+    AgentRemoved,
     RequirementCreated,
     RequirementChanged,
     TaskCreated,

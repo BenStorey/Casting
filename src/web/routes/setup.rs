@@ -17,7 +17,9 @@ pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<
         }
     };
     let has_cast = proj.agents.iter().any(|a| !proj.is_pm(&a.id));
-    let roles: Vec<serde_json::Value> = crate::workspace::role_catalog()
+    let roles: Vec<serde_json::Value> = state
+        .consultants
+        .known_roles()
         .iter()
         .map(|r| {
             serde_json::json!({
@@ -66,15 +68,9 @@ pub(crate) async fn setup_handler(
     headers: HeaderMap,
     Json(input): Json<SetupIn>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let cast_roles: Vec<String> = if input.cast.is_empty() {
-        crate::workspace::DEFAULT_CAST
-            .iter()
-            .map(|m| m.role_id.to_string())
-            .collect()
-    } else {
-        input.cast.clone()
-    };
-
+    // `ensure_hires` handles empty (hire the whole roster from the directory);
+    // a non-empty `cast` selects specific roles to hire.
+    let cast_roles = input.cast;
     let hires = crate::workspace::setup::ensure_hires(&state, &cast_roles)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 

@@ -27,6 +27,15 @@ impl PmAction {
                 json!({ "role": role }),
                 meta,
             )],
+            PmAction::FireAgent { agent_id } => vec![ev(
+                project,
+                actor,
+                agent_id,
+                "agent",
+                EventType::AgentRemoved,
+                json!({}),
+                meta,
+            )],
             PmAction::CreateRequirement {
                 id,
                 title,

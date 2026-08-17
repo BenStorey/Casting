@@ -98,7 +98,7 @@ casting/                          (lib.rs — top-level crate)
 │   │   ├── project.rs            Workspace, Selfhost, ProvisionedWorktree, git_command
 │   │   ├── git_observer.rs       GitObserver — branch/commit/merge → events
 │   │   ├── auth.rs               Bearer token verification (constant-time)
-│   │   ├── cast.rs               Role catalog, role_by_id, DEFAULT_CAST
+│   │   ├── cast.rs               Roster reconcile — active-cast/ IS the roster
 │   │   ├── setup.rs              SetupSpec, SetupPlan — project init engine
 │   │   ├── secrets.rs            SecretStore (per-project, on-disk, never in events)
 │   │   ├── provenance.rs         Provenance tracing
@@ -745,9 +745,23 @@ Two-key registry (by_id + by_role). Supports:
 
 ### 14.4 Role Catalog (`src/workspace/cast.rs`)
 
-Legacy roles (engineer, qa, security, devops) + CastRole-derived assignable roles. Used by setup wizard and `role_by_id`/`role_by_title`.
+The old hardcoded `Role` / `LEGACY_ROLES` / `role_catalog` / `role_by_id` /
+`role_by_title` / `DEFAULT_CAST` tables and the `role-N` multi-instance counter
+have been **deleted** (2026-08-17). **`active-cast/` IS the roster**: the single
+source of who exists is `ConsultantRegistry` (loaded from the directory), and
+every role is a `CastRole`-derived role declared by a consultant package —
+exactly one consultant per role, no counters, no legacy ids.
 
-Default cast (5 agents): diego (lead-developer), tess (testing-engineer), nina (systems-architect), ali (stage-manager), julien (critic).
+Hiring is reconcile-driven: on boot and on each reconciler cadence,
+`CastReconcilePass` diffs the directory against the projection's hired agents
+and emits `AgentHired` for anyone present-not-yet-hired and `AgentRemoved` for
+anyone hired whose package is gone. Add/remove/rename a package in
+`active-cast/` and the roster follows automatically — no name hardcoding
+anywhere.
+
+The roster roles a director can see/hire come from
+`ConsultantRegistry::known_roles()` (registry-derived). `POST /api/hire`
+maps a role to the ONE consultant bound to it.
 
 ### 14.5 Playbooks (`src/consultants/playbook.rs`)
 

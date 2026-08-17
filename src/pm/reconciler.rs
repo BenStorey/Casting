@@ -92,7 +92,88 @@ pub fn default_passes() -> Vec<Arc<dyn ReconcilePass>> {
         Arc::new(OpinionDriftPass),
         Arc::new(StaleWorktreePass),
         Arc::new(ArchivePass),
+        Arc::new(CastReconcilePass),
     ]
+}
+
+/// Reconcile the cast roster against `active-cast/` — the directory IS the
+/// roster. Hire every consultant present but not yet hired; fire every hired
+/// agent whose consultant package is no longer present. The registry already
+/// enforces exactly-one-consultant-per-role at load, so this pass maintains
+/// hire-on-presence / fire-on-absence without any counter or name hardcoding.
+pub struct CastReconcilePass;
+
+impl ReconcilePass for CastReconcilePass {
+    fn name(&self) -> &'static str {
+        "cast-roster"
+    }
+    fn run(&self, state: &AppState) -> Result<u32> {
+        cast_roster(state)
+    }
+}
+
+/// Compute the roster diff and emit `HireAgent` / `FireAgent` events for the
+/// drift between the consultant directory (`state.consultants`) and the
+/// projection's hired agents. Returns how many events were appended.
+///
+/// This is authoritative SYSTEM reconciliation of the source-of-truth
+/// directory — the directory IS the roster. It appends events directly (like
+/// boot seeding), not through the policy gate, because the gate blocks hiring
+/// the PM/Advisor special roles (which are exactly the people the directory
+/// declares). Rule: a hired agent stays hired IFF a consultant package with
+/// that id is present; new hires adopt the consultant's role title. The
+/// director/system pseudo-actors are never in the directory and never agents.
+pub fn cast_roster(state: &AppState) -> Result<u32> {
+    use crate::event::{Actor, Aggregate, Event, EventType};
+
+    let projection = state.projection()?;
+    let mut authored = 0u32;
+
+    // Hired agents, keyed by id.
+    let hired: std::collections::HashSet<String> =
+        projection.agents.iter().map(|a| a.id.clone()).collect();
+    let available: std::collections::HashSet<String> = state
+        .consultants
+        .all()
+        .iter()
+        .map(|c| c.id.clone())
+        .collect();
+
+    // Fire hired agents whose package is gone.
+    for agent in projection.agents.iter() {
+        if !available.contains(&agent.id) {
+            state.append(Event::new(
+                &state.project,
+                Actor::System,
+                EventType::AgentRemoved,
+                Aggregate {
+                    kind: "agent".into(),
+                    id: agent.id.clone(),
+                },
+                serde_json::json!({}),
+            ))?;
+            authored += 1;
+        }
+    }
+
+    // Hire consultants present in the directory but not yet hired.
+    for c in state.consultants.all() {
+        if !hired.contains(&c.id) {
+            state.append(Event::new(
+                &state.project,
+                Actor::System,
+                EventType::AgentHired,
+                Aggregate {
+                    kind: "agent".into(),
+                    id: c.id.clone(),
+                },
+                serde_json::json!({ "role": c.role_title }),
+            ))?;
+            authored += 1;
+        }
+    }
+
+    Ok(authored)
 }
 
 /// Whether the reconciler is due: if at least `interval` events have landed

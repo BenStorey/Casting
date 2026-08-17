@@ -89,6 +89,12 @@ pub enum PmAction {
         agent_id: String,
         role: String,
     },
+    /// Remove a consultant from the company (its package is no longer in
+    /// `active-cast/`, or its role is filled by someone else). Emitted by the
+    /// cast-reconcile pass. Can never remove the director/system.
+    FireAgent {
+        agent_id: String,
+    },
     /// Record a requirement derived from director intent.
     CreateRequirement {
         id: String,

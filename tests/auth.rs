@@ -120,7 +120,7 @@ async fn setup_and_telegram_configure_require_token_when_configured() {
     let status = post(
         &app,
         "/api/setup",
-        r#"{"name":"Acme","objective":"x","cast":["engineer"]}"#,
+        r#"{"name":"Acme","objective":"x","cast":["testing-engineer"]}"#,
         None,
     )
     .await;
@@ -145,7 +145,7 @@ async fn setup_and_telegram_configure_open_when_no_token_configured() {
     let status = post(
         &app,
         "/api/setup",
-        r#"{"name":"Acme","objective":"x","cast":["engineer"]}"#,
+        r#"{"name":"Acme","objective":"x","cast":["testing-engineer"]}"#,
         None,
     )
     .await;

@@ -99,16 +99,16 @@ async fn status_is_unconfigured_then_configured_after_setup() {
         "role catalog listed"
     );
 
-    // Submit setup: hire engineer + devops, fire objective.
+    // Submit setup: hire testing-engineer + systems-architect, fire objective.
     let (status, body) = post_json(
         &app,
         "/api/setup",
-        r#"{"name":"Acme","objective":"Build me a todo app","cast":["engineer","devops"]}"#,
+        r#"{"name":"Acme","objective":"Build me a todo app","cast":["testing-engineer","systems-architect"]}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "setup accepted: {body}");
     assert_eq!(body["ok"], true);
-    assert!(body["hires"].as_array().unwrap().len() >= 2);
+    assert_eq!(body["hires"].as_array().unwrap().len(), 2);
 
     // Now configured, and the agents + objective message landed in state.
     let (status, _) = get_json(&app, "/api/setup/status").await;
@@ -120,8 +120,8 @@ async fn status_is_unconfigured_then_configured_after_setup() {
         .iter()
         .map(|a| a["id"].as_str().unwrap())
         .collect();
-    assert!(agents.contains(&"engineer-1"));
-    assert!(agents.contains(&"devops-1"));
+    assert!(agents.contains(&"tess"));
+    assert!(agents.contains(&"nina"));
     // The objective fired as a director message.
     assert!(
         state["messages"]
@@ -187,20 +187,20 @@ async fn setup_is_idempotent_and_persists_token() {
     let (status, _) = post_json(
         &app,
         "/api/setup",
-        r#"{"name":"Acme","objective":"x","cast":["engineer"],"director_token":"s3cr3t"}"#,
+        r#"{"name":"Acme","objective":"x","cast":["testing-engineer"],"director_token":"s3cr3t"}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
     // Second setup (no-op re: casting) must not error or duplicate.
     let (_s, state_out) = get_json(&app, "/api/state").await;
-    let engineers = state_out["agents"]
+    let tess = state_out["agents"]
         .as_array()
         .unwrap()
         .iter()
-        .filter(|a| a["id"] == "engineer-1")
+        .filter(|a| a["id"] == "tess")
         .count();
-    assert_eq!(engineers, 1, "no duplicate hires on re-setup");
+    assert_eq!(tess, 1, "no duplicate hires on re-setup");
 }
 
 // FAIL-CLOSED against silent token rotation: once a director token is persisted,

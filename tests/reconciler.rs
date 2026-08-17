@@ -15,9 +15,18 @@ use casting::store::SqliteEventStore;
 use casting::store::{CursorStore, SqliteCursorStore};
 
 fn state() -> AppState {
+    use std::sync::Arc;
     let store = SqliteEventStore::in_memory().unwrap();
     let cursors = SqliteCursorStore::in_memory().unwrap();
-    AppState::new(store, cursors, "proj-rec").with_reconcile_interval(2)
+    // These tests exercise the opinion-drift and archive passes specifically.
+    // The cast-roster pass would hire the whole active-cast/ roster on every
+    // run and change the expected event counts, so scope the pass set.
+    AppState::new(store, cursors, "proj-rec")
+        .with_reconcile_interval(2)
+        .with_reconcile_passes(vec![
+            Arc::new(reconciler::OpinionDriftPass),
+            Arc::new(reconciler::ArchivePass),
+        ])
 }
 
 fn append_opinion(state: &AppState, id: &str, subject: &str) {

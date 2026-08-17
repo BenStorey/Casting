@@ -10,6 +10,17 @@ use crate::pm::plan::{PlannedItem, Priority};
 use crate::runtime::directive;
 use serde::{Deserialize, Serialize};
 
+/// Map a role title (as stored on a hired agent) back to its governance scope,
+/// using the authoritative `CastRole` metadata. The 7 CastRole titles are
+/// fixed, so this is a deterministic lookup — no hardcoded catalog needed.
+/// Returns `None` for an unknown/legacy title so callers can fall back.
+pub fn role_scope_for_title(title: &str) -> Option<&'static str> {
+    crate::consultants::cast_role::ALL_CAST_ROLES
+        .iter()
+        .find(|r| r.title() == title)
+        .map(|r| r.scope())
+}
+
 /// A context item with a computed relevance score (context-assembly scoring).
 /// Relevance is a deterministic heuristic — how much this item matters to the
 /// receiving actor *right now*: own-task and urgent items score higher. Never
@@ -455,15 +466,15 @@ impl crate::projection::Projection {
             .filter(|t| t.assignee.as_deref() == Some(actor))
             .map(|t| t.kind.as_str())
             .collect();
-        // Role default comes from the catalog (the agent's role title maps to a
-        // real scope), falling back to a broad-but-safe area.
+        // Role default comes from the CastRole enum (the agent's role title maps
+        // to a real scope via the authoritative role metadata), falling back to
+        // a broad-but-safe area.
         if scopes.is_empty() {
             let role_scope = self
                 .agents
                 .iter()
                 .find(|a| a.id == actor)
-                .and_then(|a| crate::workspace::role_by_title(&a.role))
-                .map(|r| r.scope);
+                .and_then(|a| crate::runtime::context::role_scope_for_title(&a.role));
             scopes.push(role_scope.unwrap_or("engineering"));
         }
         scopes

@@ -1,72 +1,57 @@
-//! Tests for the cast — role catalog + default cast (+ TeamChange policy class
-//! integration). The cast is configuration/data, never authoritative state.
+//! Tests for the cast — the roster is `active-cast/` (the consultant
+//! registry), reconciled onto the event log by `CastReconcilePass`. One
+//! consultant per role, no hardcoded catalog, no name hardcoding.
 
-use casting::workspace::cast::{role_by_id, role_by_title, DEFAULT_CAST};
+use casting::consultants::cast_role::ALL_CAST_ROLES;
+use casting::consultants::ConsultantRegistry;
 
-#[test]
-fn catalog_has_sane_roles_with_scopes() {
-    let ids: Vec<&str> = casting::workspace::role_catalog()
-        .iter()
-        .map(|r| r.id)
-        .collect();
-    assert!(ids.contains(&"engineer"));
-    assert!(ids.contains(&"qa"));
-    // The assignable default-cast roles (the "Default Cast" roster).
-    for rid in [
-        "lead-developer",
-        "testing-engineer",
-        "systems-architect",
-        "stage-manager",
-        "critic",
-    ] {
-        assert!(ids.contains(&rid), "catalog must contain {rid}");
-    }
-    // Every role has a scope (governance area).
-    for r in casting::workspace::role_catalog() {
-        assert!(!r.scope.is_empty());
-    }
-    // None of the catalog roles are the special (non-assignable) actors —
-    // PM/Advisor are fixed coordinator/adviser roles, never hireable.
-    for rid in ids {
-        assert!(
-            !matches!(rid, "mei" | "jeeves"),
-            "special role {rid} must NOT be a hireable catalog role"
-        );
-    }
+/// The 7 role ids (from the authoritative CastRole enum).
+fn all_role_ids() -> Vec<&'static str> {
+    ALL_CAST_ROLES.iter().map(|r| r.role_id()).collect()
 }
 
 #[test]
-fn role_lookup_by_id_and_title() {
-    let eng = role_by_id("engineer").expect("engineer role exists");
-    assert_eq!(eng.scope, "engineering");
-    // role_by_title finds it by its stored title.
-    assert_eq!(role_by_title("Engineer").unwrap().id, "engineer");
-    // Unknown ids/titles return None.
-    assert!(role_by_id("nope").is_none());
-    assert!(role_by_title("Nope").is_none());
+fn embedded_roster_has_one_consultant_per_role() {
+    let reg = ConsultantRegistry::from_embedded().unwrap();
+    // Exactly the 7 roles, one consultant each.
+    for rid in all_role_ids() {
+        let c = reg
+            .for_role(rid)
+            .unwrap_or_else(|| panic!("role {rid} has a consultant"));
+        assert_eq!(&c.role, rid, "consultant carries its role id");
+        assert!(!c.role_title.is_empty());
+        assert!(!c.scope.is_empty());
+    }
+    // Every consultant in the roster is present exactly once (one per role).
+    assert_eq!(reg.all().len(), all_role_ids().len());
 }
 
 #[test]
-fn default_cast_members_have_catalog_roles() {
-    // Every default cast member resolves to a real catalog role with a scope.
-    for m in DEFAULT_CAST {
-        let role = role_by_id(m.role_id).unwrap_or_else(|| panic!("no role {}", m.role_id));
-        assert!(!role.title.is_empty());
-        assert!(!role.scope.is_empty());
+fn known_roles_are_derived_from_the_registry() {
+    let reg = ConsultantRegistry::from_embedded().unwrap();
+    let known = reg.known_roles();
+    // Deduped set of role ids == the 7 CastRole ids.
+    let ids: Vec<&str> = known.iter().map(|r| r.id.as_str()).collect();
+    for rid in all_role_ids() {
+        assert!(ids.contains(&rid), "known_roles must include {rid}");
     }
-    // The default cast is the five ASSIGNABLE consultants — the special roles
-    // (PM/Advisor) are NOT seeded as hireable agents.
-    assert_eq!(DEFAULT_CAST.len(), 5);
-    let ids: Vec<&str> = DEFAULT_CAST.iter().map(|m| m.agent_id).collect();
-    for expect in ["diego", "tess", "nina", "ali", "julien"] {
-        assert!(ids.contains(&expect), "default cast must include {expect}");
+    assert_eq!(
+        known.len(),
+        all_role_ids().len(),
+        "no duplicates / no extras"
+    );
+    // Titles and scopes match what consultants actually declare.
+    for c in reg.all() {
+        let ri = reg.resolve_role(&c.role).expect("role resolvable");
+        assert_eq!(ri.title, c.role_title);
+        assert_eq!(ri.scope, c.scope);
     }
 }
 
-// --- Team change (AddConsultant) via the decision pipeline ---
+// --- Team change (HireAgent) via the decision pipeline ---
 
 #[tokio::test]
-async fn owner_hire_adds_an_agent_of_a_catalog_role() {
+async fn owner_hire_adds_an_agent_of_a_role() {
     use casting::pm::AppState;
     use casting::projection::Projection;
     use casting::runtime::orchestrator::MockOrchestrator;
@@ -92,10 +77,10 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
         ))
         .unwrap();
 
-    // Owner hires a security engineer (a catalog role, not in the default cast).
+    // Owner hires a specialist for a real role (a named agent, not a counter).
     let action = casting::actions::PmAction::HireAgent {
-        agent_id: "security-1".into(),
-        role: "Security Engineer".into(),
+        agent_id: "malik".into(),
+        role: "Testing Engineer".into(),
     };
     let cause = casting::event::Event::new(
         "proj-cast",
@@ -114,14 +99,10 @@ async fn owner_hire_adds_an_agent_of_a_catalog_role() {
     }
 
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
-    assert!(proj.agents.iter().any(|a| a.id == "security-1"));
+    assert!(proj.agents.iter().any(|a| a.id == "malik"));
     assert_eq!(
-        proj.agents
-            .iter()
-            .find(|a| a.id == "security-1")
-            .unwrap()
-            .role,
-        "Security Engineer"
+        proj.agents.iter().find(|a| a.id == "malik").unwrap().role,
+        "Testing Engineer"
     );
 }
 
@@ -151,9 +132,9 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
         ))
         .unwrap();
 
-    // The PM proposes adding a devops consultant. AddConsultant defaults to Pm,
-    // so the PM can decide it itself; but to exercise the director-approval path
-    // we show the proposal is valid and routes as a decision.
+    // The PM proposes adding a testing specialist. AddConsultant defaults to
+    // Pm, so the PM can decide it itself; but to exercise the director-approval
+    // path we show the proposal is valid and routes as a decision.
     let cause = casting::event::Event::new(
         "proj-cast",
         casting::event::Actor::Agent { id: "mei".into() },
@@ -162,18 +143,18 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
             kind: "message".into(),
             id: "msg-1".into(),
         },
-        serde_json::json!({ "to": "mei", "body": "we need a devops person" }),
+        serde_json::json!({ "to": "mei", "body": "we need a testing person" }),
     );
     let proposal = casting::actions::PmAction::ProposeConsultant {
         id: "dc-1".into(),
-        subject: "Add a DevOps consultant".into(),
-        role_id: "devops".into(),
+        subject: "Add a Testing Engineer".into(),
+        role_id: "testing-engineer".into(),
         involvement: casting::pm::policy::OwnerInvolvement::Pm,
     };
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     assert!(
-        validate(&proposal, "mei", &proj, None).is_ok(),
-        "PM may propose a hire"
+        validate(&proposal, "mei", &proj, Some(&state.consultants)).is_ok(),
+        "PM may propose a hire for a known role"
     );
     for e in proposal.to_events("proj-cast", "mei", &cause, "corr-1") {
         state.append(e).unwrap();
@@ -200,7 +181,7 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
             serde_json::json!({
                 "approved": true,
                 "note": "hire them",
-                "subject": "Add a DevOps consultant",
+                "subject": "Add a Testing Engineer",
             }),
         ))
         .unwrap();
@@ -211,16 +192,16 @@ async fn pm_propose_consultant_and_owner_approval_hire() {
             casting::event::EventType::AgentHired,
             casting::event::Aggregate {
                 kind: "agent".into(),
-                id: "devops-1".into(),
+                id: "malik".into(),
             },
-            serde_json::json!({"role": "DevOps / SRE"}),
+            serde_json::json!({"role": "Testing Engineer"}),
         ))
         .unwrap();
     casting::pm::drive_pm(&state).await.unwrap();
 
     let proj = Projection::build(&state.store, "proj-cast").unwrap();
     assert!(
-        proj.agents.iter().any(|a| a.id == "devops-1"),
+        proj.agents.iter().any(|a| a.id == "malik"),
         "approved AddConsultant hire creates the agent: {:?}",
         proj.agents
             .iter()
@@ -252,7 +233,7 @@ async fn unknown_role_proposal_is_rejected() {
         },
         "mei",
         &proj,
-        None,
+        Some(&state.consultants),
     )
     .expect_err("unknown role must be rejected");
     assert!(matches!(err, PolicyError::UnknownRole(_)));
@@ -346,4 +327,90 @@ fn special_roles_cannot_be_hired_as_agents() {
         .expect_err("hiring a special role must be rejected");
         assert!(matches!(err, PolicyError::SpecialRoleNotAssignable(_)));
     }
+}
+
+// --- Roster reconcile: the directory IS the roster ---
+//
+// `CastReconcilePass` (the authoritative system reconcile) hires every
+// consultant present in the directory and fires any hired agent whose package
+// is gone. No names are hardcoded here — the embedded registry decides.
+
+#[test]
+fn cast_reconcile_hires_present_and_fires_absent() {
+    use casting::pm::reconciler::CastReconcilePass;
+    use casting::pm::{AppState, ReconcilePass};
+    use casting::projection::Projection;
+    use casting::store::SqliteCursorStore;
+    use casting::store::SqliteEventStore;
+
+    let state = {
+        let store = SqliteEventStore::in_memory().unwrap();
+        let cursors = SqliteCursorStore::in_memory().unwrap();
+        AppState::new(store, cursors, "proj-cast")
+    };
+    state
+        .append(casting::event::Event::new(
+            "proj-cast",
+            casting::event::Actor::System,
+            casting::event::EventType::ProjectCreated,
+            casting::event::Aggregate {
+                kind: "project".into(),
+                id: "proj-cast".into(),
+            },
+            serde_json::json!({}),
+        ))
+        .unwrap();
+
+    // Start with ONE roster consultant hired (diego) plus a hired agent whose
+    // package is NOT in the directory ("ghost") — it must be fired.
+    for (id, role) in [("diego", "Lead Developer"), ("ghost", "Some Ghost")] {
+        state
+            .append(casting::event::Event::new(
+                "proj-cast",
+                casting::event::Actor::System,
+                casting::event::EventType::AgentHired,
+                casting::event::Aggregate {
+                    kind: "agent".into(),
+                    id: id.into(),
+                },
+                serde_json::json!({ "role": role }),
+            ))
+            .unwrap();
+    }
+
+    let before = Projection::build(&state.store, "proj-cast").unwrap();
+    assert!(before.agents.iter().any(|a| a.id == "ghost"), "ghost hired");
+
+    // The reconcile pass hires the rest of the roster and fires the ghost.
+    let authored = CastReconcilePass.run(&state).unwrap();
+
+    let proj = Projection::build(&state.store, "proj-cast").unwrap();
+    // Every consultant in the embedded roster is now hired (one per role).
+    let roster_ids: Vec<String> = state
+        .consultants
+        .all()
+        .iter()
+        .map(|c| c.id.clone())
+        .collect();
+    for id in &roster_ids {
+        assert!(
+            proj.agents.iter().any(|a| &a.id == id),
+            "roster consultant {id} must be hired by reconcile"
+        );
+    }
+    // The ghost (package removed from the directory) is fired.
+    assert!(
+        !proj.agents.iter().any(|a| a.id == "ghost"),
+        "agent whose package is gone must be fired"
+    );
+    // Exactly the roster remains, nothing extra.
+    assert_eq!(proj.agents.len(), roster_ids.len());
+    // Every hire used the consultant's real role title.
+    for c in state.consultants.all() {
+        let a = proj.agents.iter().find(|a| a.id == c.id).unwrap();
+        assert_eq!(a.role, c.role_title, "role title from the consultant");
+    }
+    // Re-running is a no-op (idempotent).
+    assert_eq!(CastReconcilePass.run(&state).unwrap(), 0);
+    assert_eq!(authored as usize, roster_ids.len()); // all but diego, plus fire ghost
 }
