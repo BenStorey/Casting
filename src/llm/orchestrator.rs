@@ -190,7 +190,7 @@ impl Orchestrator for LlmOrchestrator {
             // use the full planning instruction so the model can either do
             // the work OR escalate (create_task, assign_task, apply_playbook).
             // For consultant-owned steps, use the focused step prompt.
-            let step_system = if context.actor == "pm" {
+            let step_system = if context.is_pm {
                 format!(
                     "{}\n\n{}",
                     resolved.system_prompt,
@@ -216,7 +216,7 @@ impl Orchestrator for LlmOrchestrator {
                 "Step: {}\nContract: produce \"{}\"",
                 step.step_title, step.produces_artifact
             )];
-            if context.actor == "pm" {
+            if context.is_pm {
                 let ask = cause
                     .data
                     .get("body")

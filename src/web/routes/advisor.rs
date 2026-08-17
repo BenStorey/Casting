@@ -41,7 +41,7 @@ pub(crate) async fn advisor_message_handler(
             kind: "advisor_thread".into(),
             id: format!("am-{}", uuid::Uuid::new_v4()),
         },
-        serde_json::json!({ "to": "advisor", "body": body }),
+        serde_json::json!({ "to": crate::actions::advisor_actor_id(Some(&state.consultants)), "body": body }),
     );
     let stored = state
         .append(owner_ev)
@@ -82,7 +82,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
     // Ground the advisor in the real high-level operating context (objective,
     // governance, risks, decisions) — NOT task machinery (the advisor's role
     // operates above task priorities).
-    let advisor_context = proj.context_for("advisor");
+    let advisor_context = proj.context_for(proj.advisor_id());
     let outcome = crate::llm::advisor_reply(
         &http_client,
         &resolver,
@@ -96,7 +96,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
             let reply_ev = Event::new(
                 &state.project,
                 Actor::Agent {
-                    id: "advisor".into(),
+                    id: proj.advisor_id().to_string(),
                 },
                 EventType::AdvisorMessageSent,
                 Aggregate {
@@ -149,7 +149,7 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
                 },
                 serde_json::json!({
                     "trigger": "AdvisorMessageSent",
-                    "actor": "advisor",
+                    "actor": proj.advisor_id(),
                     "error": format!("{err:#}"),
                     "metered": false,
                 }),

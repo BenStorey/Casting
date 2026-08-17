@@ -92,6 +92,9 @@ pub struct MockOrchestrator;
 #[async_trait::async_trait]
 impl Orchestrator for MockOrchestrator {
     async fn plan(&self, context: &AgentContext, cause: &Event) -> Result<PlanOutput> {
+        // The PM is resolved by ROLE (never by assuming its id); the mock uses
+        // it as the emitting actor for PM-governed actions.
+        let pm = context.pm_id.clone();
         // Handle director decision triggers: create a follow-up task on approval,
         // acknowledge on rejection — mimics the old plan_owner_decision logic.
         if cause.event_type == EventType::DecisionMade
@@ -123,7 +126,7 @@ impl Orchestrator for MockOrchestrator {
                 format!(" (\"{note}\")")
             };
             actions.push((
-                "pm".into(),
+                pm.clone(),
                 PmAction::SendMessage {
                     to: "director".into(),
                     body: format!("{verdict}: \"{subject}\"{suffix}"),
@@ -131,7 +134,7 @@ impl Orchestrator for MockOrchestrator {
             ));
             if approved {
                 actions.push((
-                    "pm".into(),
+                    pm.clone(),
                     PmAction::CreateTask {
                         id: format!("task-adopt-{}", cause.aggregate.id),
                         title: format!("Adopt {subject}"),
@@ -155,7 +158,7 @@ impl Orchestrator for MockOrchestrator {
                 .and_then(|b| b.as_str())
                 .unwrap_or("");
             actions.push((
-                "pm".into(),
+                pm.clone(),
                 PmAction::SendMessage {
                     to: "director".into(),
                     body: format!("On it — \u{201c}{body}\u{201d}. I'll scope it into tasks."),
@@ -171,10 +174,10 @@ impl Orchestrator for MockOrchestrator {
 
         // There's an objective: narrow the task backlog (mock "reasoning").
         // Only the PM creates tasks; non-PM actors work on what they're assigned.
-        if context.actor == "pm" {
+        if context.is_pm {
             if context.priorities.is_empty() {
                 actions.push((
-                    "pm".into(),
+                    pm.clone(),
                     PmAction::CreateTask {
                         id: "task-mock-1".into(),
                         title: "Implement the build plan".to_string(),
@@ -183,7 +186,7 @@ impl Orchestrator for MockOrchestrator {
                 ));
             } else {
                 actions.push((
-                    "pm".into(),
+                    pm.clone(),
                     PmAction::ProposeDecision {
                         id: "decision-mock-1".into(),
                         subject: "Mock follow-up".to_string(),
@@ -220,7 +223,7 @@ impl Orchestrator for MockOrchestrator {
                     context.actor.clone(),
                     PmAction::RequestReview {
                         task_id: task_id.clone(),
-                        reviewer: "pm".into(),
+                        reviewer: pm.clone(),
                     },
                 ));
             }

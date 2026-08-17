@@ -16,7 +16,7 @@ pub(crate) async fn setup_status_handler(State(state): State<AppState>) -> Json<
             Default::default()
         }
     };
-    let has_cast = proj.agents.iter().any(|a| a.id != "pm");
+    let has_cast = proj.agents.iter().any(|a| !proj.is_pm(&a.id));
     let roles: Vec<serde_json::Value> = crate::workspace::role_catalog()
         .iter()
         .map(|r| {

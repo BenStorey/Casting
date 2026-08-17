@@ -151,7 +151,7 @@ pub(crate) fn insert_worktree_provisions(
                 claimed_slots.insert(slot);
                 let cargo_target_dir = format!(".casting/worktrees/{who}-{slot}/target");
                 let prov = (
-                    "pm".into(),
+                    projection.pm_id().to_string(),
                     PmAction::ProvisionWorktree {
                         task_id: task_id.clone(),
                         assignee: who.clone(),
@@ -246,7 +246,7 @@ pub(crate) fn expand_playbooks(
                 "[planning] expand_playbooks: cannot determine assignee for \
                  parent '{parent_task_id}' — replacing ApplyPlaybook with NoOp"
             );
-            plan[i] = ("pm".into(), PmAction::NoOp);
+            plan[i] = (projection.pm_id().to_string(), PmAction::NoOp);
             i += 1;
             continue;
         };
@@ -261,7 +261,7 @@ pub(crate) fn expand_playbooks(
                     "[planning] expand_playbooks: ad-hoc recipe for \
                          '{parent_task_id}' has no steps — replacing with NoOp"
                 );
-                plan[i] = ("pm".into(), PmAction::NoOp);
+                plan[i] = (projection.pm_id().to_string(), PmAction::NoOp);
                 i += 1;
                 continue;
             }
@@ -280,7 +280,7 @@ pub(crate) fn expand_playbooks(
                         "[planning] expand_playbooks: playbook '{playbook_id}' \
                              not found in consultant registry — replacing with NoOp"
                     );
-                    plan[i] = ("pm".into(), PmAction::NoOp);
+                    plan[i] = (projection.pm_id().to_string(), PmAction::NoOp);
                     i += 1;
                     continue;
                 }
@@ -298,7 +298,7 @@ pub(crate) fn expand_playbooks(
             .collect();
 
         // Build the expanded actions to replace ApplyPlaybook.
-        let who_pm = "pm".to_string();
+        let who_pm = projection.pm_id().to_string();
         let mut expanded: Vec<crate::pm::PlannedAction> = Vec::new();
 
         // 1. DecomposeTask: register all children under the parent.
@@ -395,7 +395,7 @@ pub(crate) fn actors_with_work(projection: &crate::projection::Projection) -> Ve
             // Only include actors who are actually hired. The PM is a special
             // case — they can self-assign tasks via the chat-interface playbook
             // and are never in the agents list (not hirable).
-            if assignee != "pm" && !projection.agents.iter().any(|a| a.id == *assignee) {
+            if !projection.is_pm(assignee) && !projection.agents.iter().any(|a| a.id == *assignee) {
                 continue;
             }
             // Skip Backlog tasks that are blocked by unresolved dependencies.
@@ -415,9 +415,9 @@ pub(crate) fn actors_with_work(projection: &crate::projection::Projection) -> Ve
         .tasks
         .iter()
         .any(|t| t.status == TaskStatus::InReview)
-        && !actors.contains(&"pm".to_string())
+        && !actors.contains(&projection.pm_id().to_string())
     {
-        actors.push("pm".into());
+        actors.push(projection.pm_id().to_string());
     }
 
     actors

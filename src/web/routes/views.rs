@@ -50,8 +50,8 @@ pub(crate) async fn routing_handler(State(state): State<AppState>) -> Json<Vec<A
         .iter()
         .map(|c| c.id.clone())
         .collect();
-    actors.push("pm".into());
-    actors.push("advisor".into());
+    actors.push(crate::actions::pm_actor_id(Some(&state.consultants)).to_string());
+    actors.push(crate::actions::advisor_actor_id(Some(&state.consultants)).to_string());
     actors.sort();
     actors.dedup();
 
@@ -178,11 +178,11 @@ pub(crate) async fn full_context_handler(
         .by_id(&actor)
         .and_then(|c| c.system_prompt.clone())
         .or_else(|| {
-            // PM and advisor have special handling.
-            if actor == "pm" || actor == "advisor" {
+            // PM and advisor have special handling (resolved by ROLE).
+            if proj.is_pm(&actor) || proj.is_advisor(&actor) {
                 state
                     .consultants
-                    .by_id("pm")
+                    .by_id(proj.pm_id())
                     .and_then(|c| c.system_prompt.clone())
             } else {
                 None

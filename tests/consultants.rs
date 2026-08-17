@@ -194,15 +194,26 @@ fn consultant_banks_load_and_require_validation_passes() {
         .knowledge("casting-conventions")
         .expect("diego has the casting-conventions knowledge");
     assert_eq!(knowledge.char_budget, 2000);
-    assert!(knowledge.body.contains("event log"), "knowledge body loaded");
+    assert!(
+        knowledge.body.contains("event log"),
+        "knowledge body loaded"
+    );
 
     // The feature-implement playbook steps require these — loading already
     // validated the ids resolve against Diego's banks (fail-closed).
-    let (_owner, pb) = reg.playbook("diego/feature-implement").expect("playbook present");
+    let (_owner, pb) = reg
+        .playbook("diego/feature-implement")
+        .expect("playbook present");
     let survey = pb.steps.iter().find(|s| s.id == "survey").unwrap();
-    assert_eq!(survey.requires_knowledge, vec!["casting-conventions".to_string()]);
+    assert_eq!(
+        survey.requires_knowledge,
+        vec!["casting-conventions".to_string()]
+    );
     let implement = pb.steps.iter().find(|s| s.id == "implement").unwrap();
-    assert_eq!(implement.requires_skills, vec!["worktree-commits".to_string()]);
+    assert_eq!(
+        implement.requires_skills,
+        vec!["worktree-commits".to_string()]
+    );
 
     // required_slices resolves the exact bodies, truncated to char_budget.
     let slices = diego.required_slices(survey);

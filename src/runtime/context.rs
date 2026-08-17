@@ -104,6 +104,22 @@ pub struct ActiveStepContext {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AgentContext {
     pub actor: String,
+    /// Whether this actor is the Project Manager, resolved by ROLE from the
+    /// hired agents (not by a hardcoded id). Lets downstream readers (the
+    /// orchestrator) grant PM affordances without knowing the PM's id.
+    #[serde(default)]
+    pub is_pm: bool,
+    /// Whether this actor is the Advisor, resolved by role.
+    #[serde(default)]
+    pub is_advisor: bool,
+    /// The actor id (name) currently filling the Project Manager role, resolved
+    /// by role from the hired agents. Lets planners/emitters name the PM without
+    /// hardcoding an id that could be a folder name.
+    #[serde(default)]
+    pub pm_id: String,
+    /// The actor id currently filling the Advisor role (same semantics).
+    #[serde(default)]
+    pub advisor_id: String,
     pub objective: Option<String>,
     pub priorities: Vec<PlannedItem>,
     /// Priorities annotated with a relevance score for THIS actor (own-task +
@@ -220,6 +236,39 @@ pub fn summary(ctx: &AgentContext) -> String {
 }
 
 impl crate::projection::Projection {
+    /// The actor id AgentHired with the given CastRole (resolved by role title,
+    /// so no config registry is needed and the id is never a folder name).
+    /// Returns `None` if that role isn't currently hired in this project.
+    fn actor_for_role(&self, role: crate::consultants::cast_role::CastRole) -> Option<&str> {
+        self.agents
+            .iter()
+            .find(|a| a.role == role.title())
+            .map(|a| a.id.as_str())
+    }
+
+    /// The actor id currently filling the Project Manager role (role-resolved).
+    /// Emitters/planners use this instead of a hardcoded "pm" string.
+    pub fn pm_id(&self) -> &str {
+        self.actor_for_role(crate::consultants::cast_role::CastRole::ProjectManager)
+            .unwrap_or("pm")
+    }
+
+    /// The actor id currently filling the Advisor role (role-resolved).
+    pub fn advisor_id(&self) -> &str {
+        self.actor_for_role(crate::consultants::cast_role::CastRole::Advisor)
+            .unwrap_or("advisor")
+    }
+
+    /// True if `actor` is the Project Manager, resolved by role.
+    pub fn is_pm(&self, actor: &str) -> bool {
+        actor == self.pm_id()
+    }
+
+    /// True if `actor` is the Advisor, resolved by role.
+    pub fn is_advisor(&self, actor: &str) -> bool {
+        actor == self.advisor_id()
+    }
+
     /// Assemble the operating context for `actor` (agent id, "director", or "pm").
     pub fn context_for(&self, actor: &str) -> AgentContext {
         let plan = self.plan();
@@ -282,7 +331,7 @@ impl crate::projection::Projection {
         let external_requests = self
             .external_requests
             .iter()
-            .filter(|_| actor == "pm" || actor == "director" || actor == "system")
+            .filter(|_| self.is_pm(actor) || actor == "director" || actor == "system")
             .map(|r| {
                 let body = truncate(&r.body, 5000);
                 format!(
@@ -315,6 +364,10 @@ impl crate::projection::Projection {
 
         AgentContext {
             actor: actor.to_string(),
+            is_pm: actor == self.pm_id(),
+            is_advisor: actor == self.advisor_id(),
+            pm_id: self.pm_id().to_string(),
+            advisor_id: self.advisor_id().to_string(),
             objective: plan.objective.clone(),
             priorities: plan.priorities.clone(),
             scored_priorities,
@@ -382,7 +435,7 @@ impl crate::projection::Projection {
         let mine: f64 = if is_mine { 1.0 } else { 0.0 };
         // Owner/PM genuinely care about everything; non-directors get a mild boost
         // only for their own scope.
-        let role: f64 = if actor == "director" || actor == "pm" || actor == "system" {
+        let role: f64 = if actor == "director" || self.is_pm(actor) || actor == "system" {
             0.0
         } else {
             -0.5
@@ -393,7 +446,7 @@ impl crate::projection::Projection {
     /// The governance areas an actor operates in: their task kinds (as scope
     /// tokens) plus the scope of their catalog role. Owner/PM see everything.
     pub fn scopes_for(&self, actor: &str) -> Vec<&str> {
-        if actor == "director" || actor == "pm" || actor == "system" {
+        if actor == "director" || self.is_pm(actor) || actor == "system" {
             return vec!["engineering", "qa", "architecture", "finance", "product"];
         }
         let mut scopes: Vec<&str> = self

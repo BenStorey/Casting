@@ -1,6 +1,9 @@
 //! The policy gate: validation of a proposed action against the projection, and
 //! the `PolicyError` rejection vocabulary.
-use super::action::{is_valid_assignee, PmAction, DIRECTOR, SPECIAL_ACTORS};
+use super::action::{
+    advisor_actor_id, is_advisor_actor, is_pm_actor, is_valid_assignee, pm_actor_id, PmAction,
+    DIRECTOR,
+};
 use crate::consultants::ConsultantRegistry;
 use crate::pm::policy;
 use crate::projection::Projection;
@@ -214,23 +217,22 @@ pub fn validate(
     match action {
         PmAction::HireAgent { agent_id, .. } => {
             // The PM/Advisor special roles can never be hired as task-doers;
-            // they are fixed co-ordinator / adviser actors. "pm" is excluded
-            // from SPECIAL_ACTORS to allow self-assignment via the
-            // chat-interface playbook, but it is still not hirable.
-            if agent_id == "pm"
-                || crate::actions::action::SPECIAL_ACTORS.contains(&agent_id.as_str())
-            {
+            // they are fixed co-ordinator / adviser actors. The PM is excluded
+            // from the blocked-assignee set to allow self-assignment via the
+            // chat-interface playbook, but it is still not hirable. Both are
+            // identified by ROLE (not by id), so the id is never a folder name.
+            if pm_actor_id(registry) == agent_id || advisor_actor_id(registry) == agent_id {
                 return Err(PolicyError::SpecialRoleNotAssignable(agent_id.clone()));
             }
             if state.agents.iter().any(|a| a.id == *agent_id) {
                 Err(PolicyError::AgentAlreadyHired(agent_id.clone()))
             } else {
-                check_pm_authority(who)
+                check_pm_authority(who, registry)
             }
         }
         // CreateTask and DecomposeTask both guard id freshness.
         PmAction::CreateTask { id, .. } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             if state.tasks.iter().any(|t| t.id == *id) {
                 Err(PolicyError::TaskAlreadyExists(id.clone()))
             } else {
@@ -241,7 +243,7 @@ pub fn validate(
         // exist, and every child id must be fresh (not an existing task, and not
         // duplicated within this decomposition). The parent is the join point.
         PmAction::DecomposeTask { parent, children } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             if !state.tasks.iter().any(|t| t.id == *parent) {
                 return Err(PolicyError::TaskNotFound(parent.clone()));
             }
@@ -288,7 +290,7 @@ pub fn validate(
             version: _,
             recipe,
         } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             // Parent must exist
             let parent = state
                 .tasks
@@ -360,7 +362,7 @@ pub fn validate(
         PmAction::AssignTask {
             task_id, assignee, ..
         } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             let task_exists = state.tasks.iter().any(|t| t.id == *task_id);
             if !task_exists {
                 return Err(PolicyError::TaskNotFound(task_id.clone()));
@@ -370,16 +372,16 @@ pub fn validate(
             // (director can take a task on personally and deliver via their harness).
             // Anything else is rejected — and a reserved special role (Advisor)
             // is rejected with a distinct, clearer error.
-            if SPECIAL_ACTORS.contains(&assignee.as_str()) {
+            if is_advisor_actor(assignee, registry) {
                 return Err(PolicyError::SpecialRoleNotAssignable(assignee.clone()));
             }
-            if !is_valid_assignee(state, assignee) {
+            if !is_valid_assignee(state, assignee, registry) {
                 return Err(PolicyError::AgentNotHired(assignee.clone()));
             }
             Ok(())
         }
         PmAction::StartTask { task_id } => {
-            check_assignee(task_id, who, state)?;
+            check_assignee(task_id, who, state, registry)?;
             // Fail-closed: a task can only be started from Backlog state.
             // System and director bypass this check (trusted actors).
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
@@ -420,7 +422,7 @@ pub fn validate(
         // own worktree. They must be the assignee AND their task must have an
         // isolated worktree (isolation is structural, never optional).
         PmAction::CommitToChangeSet { task_id, .. } => {
-            check_assignee(task_id, who, state)?;
+            check_assignee(task_id, who, state, registry)?;
             if !state
                 .worktrees
                 .iter()
@@ -431,7 +433,7 @@ pub fn validate(
             Ok(())
         }
         PmAction::ProvisionWorktree { task_id, .. } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             // Only hired agents get worktrees, plus the PM (who can self-assign
             // via the chat-interface playbook). the director works through their
             // own harness. The task must exist and be assigned to a consultant.
@@ -461,7 +463,7 @@ pub fn validate(
             Ok(())
         }
         PmAction::CompleteTask { task_id, .. } => {
-            check_assignee(task_id, who, state)?;
+            check_assignee(task_id, who, state, registry)?;
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             // Fail-closed: a task can only be completed from Working state.
             // System bypasses this check (trusted actor).
@@ -480,11 +482,11 @@ pub fn validate(
             }
             Ok(())
         }
-        PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state),
+        PmAction::BlockTask { task_id, .. } => check_assignee(task_id, who, state, registry),
         // Reclassifying merge authority is the escape hatch (scope grew past its
         // assignment label). PM/director/system authority only; the task must exist.
         PmAction::SetMergeAuthority { task_id, .. } => {
-            if !matches!(who, "pm" | "director" | "system") {
+            if !(who == DIRECTOR || who == "system" || is_pm_actor(who, registry)) {
                 return Err(PolicyError::ActionNotAuthorized(who.to_string()));
             }
             if !state.tasks.iter().any(|t| t.id == *task_id) {
@@ -495,7 +497,7 @@ pub fn validate(
         // Submitting work for review: the assignee submits their own work, and
         // the reviewer must be a real agent.
         PmAction::RequestReview { task_id, reviewer } => {
-            check_assignee(task_id, who, state)?;
+            check_assignee(task_id, who, state, registry)?;
             // Fail-closed: a task can only be sent for review from Working state.
             let task = state.tasks.iter().find(|t| t.id == *task_id).unwrap();
             if task.status != crate::projection::TaskStatus::Working {
@@ -524,7 +526,7 @@ pub fn validate(
         }
         // Setting a priority is a plan mutation on an existing task.
         PmAction::SetTaskPriority { task_id, .. } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             let exists = state.tasks.iter().any(|t| t.id == *task_id);
             if exists {
                 Ok(())
@@ -551,7 +553,7 @@ pub fn validate(
             subject,
             ..
         } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             // Reactive anti-thrash: don't accumulate a duplicate OPEN decision
             // on the same subject. The PM must instead supersede a stale one or
             // leave it — never re-propose.
@@ -587,7 +589,7 @@ pub fn validate(
             decision_id,
             by_decision_id,
         } => {
-            check_pm_authority(who)?;
+            check_pm_authority(who, registry)?;
             if !state.decisions.iter().any(|d| d.id == *decision_id) {
                 return Err(PolicyError::DecisionNotFound(decision_id.clone()));
             }
@@ -751,10 +753,14 @@ fn check_unique_entity(exists: bool, err: PolicyError) -> Result<(), PolicyError
 /// ProvisionWorktree, SetTaskPriority, ProposeDecision, SupersedeDecision).
 /// Consultants/agents cannot reorganize the project plan — they execute within
 /// their assigned tasks (C1).
-fn check_pm_authority(who: &str) -> Result<(), PolicyError> {
-    match who {
-        "director" | "pm" | "system" => Ok(()),
-        other => Err(PolicyError::ActionNotAuthorized(other.to_string())),
+///
+/// "pm" here is resolved by ROLE (the consultant filling
+/// `CastRole::ProjectManager`), so the app never hardcodes the PM's id.
+fn check_pm_authority(who: &str, registry: Option<&ConsultantRegistry>) -> Result<(), PolicyError> {
+    if who == DIRECTOR || who == "system" || is_pm_actor(who, registry) {
+        Ok(())
+    } else {
+        Err(PolicyError::ActionNotAuthorized(who.to_string()))
     }
 }
 
@@ -798,7 +804,12 @@ fn opinion_not_found(opinion_id: &str) -> PolicyError {
 /// The PM may also act on tasks assigned to the director — the director is a human
 /// without an agent loop, so the PM acts as their proxy for lifecycle
 /// operations (start/complete/block).
-fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), PolicyError> {
+fn check_assignee(
+    task_id: &str,
+    who: &str,
+    state: &Projection,
+    registry: Option<&ConsultantRegistry>,
+) -> Result<(), PolicyError> {
     let Some(task) = state.tasks.iter().find(|t| t.id == task_id) else {
         return Err(PolicyError::TaskNotFound(task_id.to_string()));
     };
@@ -811,7 +822,7 @@ fn check_assignee(task_id: &str, who: &str, state: &Projection) -> Result<(), Po
         return Err(PolicyError::TaskUnassigned(task_id.to_string()));
     };
     // The PM acts as proxy for the director (human has no agent loop).
-    if who == "pm" && assignee == "director" {
+    if is_pm_actor(who, registry) && assignee == "director" {
         return Ok(());
     }
     if who != assignee {

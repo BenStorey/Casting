@@ -25,7 +25,10 @@ mod director;
 mod events;
 pub mod policy;
 
-pub use action::{action_vocab_for, is_valid_assignee, PmAction, TaskSpec, DIRECTOR};
+pub use action::{
+    action_vocab_for, advisor_actor_id, is_advisor_actor, is_pm_actor, is_valid_assignee,
+    pm_actor_id, PmAction, TaskSpec, DIRECTOR,
+};
 pub use director::{
     director_budget_set, director_decision_made, director_directive_created,
     director_policy_changed, director_work_paused, director_work_resumed,

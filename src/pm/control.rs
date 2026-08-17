@@ -497,9 +497,10 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
             // Only works when an orchestrator is attached (Phase 2 needs it).
             if state.orchestrator.is_some() {
                 let task_id = format!("chat-{}", uuid::Uuid::new_v4());
+                let pm = projection.pm_id().to_string();
                 let mut actions: Vec<PlannedAction> = vec![
                     (
-                        "pm".into(),
+                        pm.clone(),
                         PmAction::CreateTask {
                             id: task_id.clone(),
                             title: body.to_string(),
@@ -507,17 +508,17 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                         },
                     ),
                     (
-                        "pm".into(),
+                        pm.clone(),
                         PmAction::AssignTask {
                             task_id: task_id.clone(),
-                            assignee: "pm".into(),
+                            assignee: pm.clone(),
                             merge_authority: crate::types::MergeAuthority::SelfMerge,
                         },
                     ),
                     (
-                        "pm".into(),
+                        pm.clone(),
                         PmAction::ApplyPlaybook {
-                            playbook_id: "pm/chat-interface".into(),
+                            playbook_id: format!("{pm}/chat-interface"),
                             parent_task_id: task_id.clone(),
                             version: Some(1),
                             recipe: None,
@@ -554,7 +555,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                     log::warn!("[pm] guard blocked LLM dispatch: {reason}");
                     (Vec::new(), None)
                 } else {
-                    let mut context = projection.context_for("pm");
+                    let mut context = projection.context_for(projection.pm_id());
                     // Populate available playbooks from the consultant registry
                     context.available_playbooks = state
                         .consultants
@@ -617,7 +618,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                                 &correlation,
                                 serde_json::json!({
                                     "trigger": format!("{:?}", e.event_type),
-                                    "actor": "pm",
+                                    "actor": context.actor.clone(),
                                     "correlation": correlation.clone(),
                                     "context_summary": crate::runtime::context::summary(&context),
                                     "error": format!("{err:#}"),
@@ -641,7 +642,7 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                             &correlation,
                             serde_json::json!({
                                 "trigger": format!("{:?}", e.event_type),
-                                "actor": "pm",
+                                "actor": context.actor.clone(),
                                 "correlation": correlation.clone(),
                                 "context_summary": crate::runtime::context::summary(&context),
                                 "planned": planned_strs,

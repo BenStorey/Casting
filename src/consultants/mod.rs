@@ -337,6 +337,19 @@ impl ConsultantRegistry {
         self.by_role.get(role.role_id()).map(|c| c.as_ref())
     }
 
+    /// The **actor id** (consultant name) that fills the given `CastRole`, if
+    /// a consultant is bound. This is the single role→actor resolution the
+    /// application should use to identify the PM, the Advisor, or any
+    /// role-backed actor — never a hardcoded id string tied to a folder name.
+    pub fn actor_for(&self, role: CastRole) -> Option<&str> {
+        self.for_cast_role(role).map(|c| c.id.as_str())
+    }
+
+    /// True if `actor` is the consultant filling `role` (see `actor_for`).
+    pub fn actor_is(&self, actor: &str, role: CastRole) -> bool {
+        self.actor_for(role) == Some(actor)
+    }
+
     /// Ensure all 7 CastRole variants have exactly one bound consultant.
     /// Call after loading to fail early on startup.
     pub fn validate_all_roles_present(&self) -> Result<(), Vec<String>> {

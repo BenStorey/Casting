@@ -1,5 +1,7 @@
 //! The PM's structured action vocabulary — the typed unitary actions and the
 //! assignee model.
+use crate::consultants::cast_role::CastRole;
+use crate::consultants::ConsultantRegistry;
 use crate::pm::{DecisionClass, OwnerInvolvement};
 use crate::projection::Projection;
 use serde::{Deserialize, Serialize};
@@ -12,32 +14,64 @@ use serde_json::Value;
 /// there is only the CEO.
 pub const DIRECTOR: &str = "director";
 
-/// The reserved, NON-assignable special-role actors: the PM (co-ordinator) and
-/// the Advisor (strategic thinking partner). They coordinate / advise / debate
-/// but can NEVER be assigned implementation work — the PM cannot route a task
-/// to itself, and the Advisor's conversations stay isolated from the project
-/// event log. The policy gate (is_valid_assignee + HireAgent) treats these as
-/// not-assignable and not-hirable, so a director or model cannot accidentally
-/// turn a special role into a task-doer.
-///
-/// NOTE: "pm" is NOT in this list because the PM may self-assign tasks
-/// through the `chat-interface` playbook for small direct work. The
-/// policy gate has a dedicated carve-out for PM self-assignment; "advisor"
-/// and future non-implementer roles stay blocked.
-pub const SPECIAL_ACTORS: &[&str] = &["advisor"];
+/// Special-role identification is now resolved by ROLE (see `is_advisor_actor` /
+/// `is_pm_actor` below): the Advisor and PM are identified by `CastRole`, not by
+/// a hardcoded id tied to a folder name. The Advisor can never be assigned
+/// implementation work (its conversations stay isolated from the event log);
+/// the PM may self-assign small direct work via the `chat-interface` playbook,
+/// so it is not treated as a blocked assignee.
 
 /// True if `candidate` is a valid task assignee: either the human director, the
 /// PM (for self-assigned small work via the chat-interface playbook), or a
 /// hired agent — and never one of the other reserved special roles. (director
-/// 2026-08-10 — human-as-consultant delivery.)
-pub fn is_valid_assignee(state: &Projection, candidate: &str) -> bool {
-    if candidate == DIRECTOR || candidate == "pm" {
+/// 2026-08-10 — human-as-consultant delivery.) The PM/Advisor are identified by
+/// ROLE, so their id is never a folder name.
+pub fn is_valid_assignee(
+    state: &Projection,
+    candidate: &str,
+    registry: Option<&ConsultantRegistry>,
+) -> bool {
+    if candidate == DIRECTOR || is_pm_actor(candidate, registry) {
         return true;
     }
-    if SPECIAL_ACTORS.contains(&candidate) {
+    if is_advisor_actor(candidate, registry) {
         return false;
     }
     state.agents.iter().any(|a| a.id == candidate)
+}
+
+/// Resolve the Project Manager's **actor id**. With a registry this is the
+/// consultant filling `CastRole::ProjectManager`; without one (legacy paths,
+/// tests) it falls back to the historical "pm" id. The app should never
+/// hardcode "pm" — it should resolve through this (or `pm_actor`).
+pub fn pm_actor_id(registry: Option<&ConsultantRegistry>) -> &str {
+    registry
+        .and_then(|r| r.actor_for(CastRole::ProjectManager))
+        .unwrap_or("pm")
+}
+
+/// Resolve the Advisor's **actor id** (same rule as `pm_actor_id`).
+pub fn advisor_actor_id(registry: Option<&ConsultantRegistry>) -> &str {
+    registry
+        .and_then(|r| r.actor_for(CastRole::Advisor))
+        .unwrap_or("advisor")
+}
+
+/// True if `actor` is the Project Manager (resolved by role; legacy fallback
+/// to the "pm" id when no registry is present).
+pub fn is_pm_actor(actor: &str, registry: Option<&ConsultantRegistry>) -> bool {
+    match registry {
+        Some(r) => r.actor_is(actor, CastRole::ProjectManager),
+        None => actor == "pm",
+    }
+}
+
+/// True if `actor` is the Advisor (resolved by role; legacy fallback).
+pub fn is_advisor_actor(actor: &str, registry: Option<&ConsultantRegistry>) -> bool {
+    match registry {
+        Some(r) => r.actor_is(actor, CastRole::Advisor),
+        None => actor == "advisor",
+    }
 }
 
 /// One organizational move the PM may propose. Serde-tagged so an LLM can emit

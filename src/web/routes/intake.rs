@@ -37,7 +37,7 @@ pub(crate) async fn message_handler(
             kind: "message".into(),
             id: format!("msg-{}", uuid::Uuid::new_v4()),
         },
-        serde_json::json!({ "to": "pm", "body": body }),
+        serde_json::json!({ "to": crate::actions::pm_actor_id(Some(&state.consultants)), "body": body }),
     );
     append_json(&state, ev)
 }
@@ -183,7 +183,7 @@ pub(crate) async fn request_handler(
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::actions::validate(&action, "pm", &proj, None)
+    crate::actions::validate(&action, proj.pm_id(), &proj, None)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let cause = Event::new(
@@ -197,7 +197,7 @@ pub(crate) async fn request_handler(
         serde_json::json!({}),
     );
     let ev = action
-        .to_events(&state.project, "pm", &cause, "request")
+        .to_events(&state.project, proj.pm_id(), &cause, "request")
         .into_iter()
         .next()
         .ok_or_else(|| {
@@ -236,7 +236,7 @@ pub(crate) async fn diagram_handler(
     let proj = state
         .projection()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::actions::validate(&action, "pm", &proj, None)
+    crate::actions::validate(&action, proj.pm_id(), &proj, None)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let cause = Event::new(
@@ -252,7 +252,7 @@ pub(crate) async fn diagram_handler(
         serde_json::json!({}),
     );
     let ev = action
-        .to_events(&state.project, "pm", &cause, "diagram")
+        .to_events(&state.project, proj.pm_id(), &cause, "diagram")
         .into_iter()
         .next()
         .ok_or_else(|| {

@@ -167,7 +167,7 @@ pub(crate) async fn hire_handler(
             kind: "message".into(),
             id: format!("msg-hire-{agent_id}"),
         },
-        serde_json::json!({ "to": "pm", "body": "hiring" }),
+        serde_json::json!({ "to": proj.pm_id(), "body": "hiring" }),
     );
     let last = action
         .to_events(&state.project, "director", &cause, "hire")

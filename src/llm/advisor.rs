@@ -35,7 +35,15 @@ pub async fn advisor_reply(
     thread: &[Message],
     owner_msg: &str,
 ) -> Result<AdvisorOutcome> {
-    let resolved = resolver.resolve("advisor", None);
+    // The advisor's actor id — resolved by role from the context; fall back to
+    // the role-resolved constant when the context is minimal (e.g. tests pass a
+    // default AgentContext with no advisor agent populated).
+    let advisor = if context.advisor_id.is_empty() {
+        crate::actions::advisor_actor_id(None).to_string()
+    } else {
+        context.advisor_id.clone()
+    };
+    let resolved = resolver.resolve(&advisor, None);
 
     // The advisor's memory = the private thread. Include it verbatim so it can
     // continue the strategic conversation.
@@ -94,7 +102,7 @@ pub async fn advisor_reply(
         + u.completion_tokens as f64 * resolved.output_price_per_mtok)
         / 1_000_000.0;
     let metering = Some(crate::runtime::orchestrator::CostMetering {
-        agent_id: "advisor".into(),
+        agent_id: advisor.clone(),
         task_id: None,
         cost_class: "research".into(),
         model_tier: "premium".into(),
@@ -191,7 +199,7 @@ pub async fn advisor_summarize(
     resolver: &ModelResolver,
     thread: &[Message],
 ) -> Result<String> {
-    let resolved = resolver.resolve("advisor", None);
+    let resolved = resolver.resolve(crate::actions::advisor_actor_id(None), None);
     let mut messages = vec![ChatMessage {
         role: "system".into(),
         content: format!(
