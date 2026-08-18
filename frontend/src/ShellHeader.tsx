@@ -18,6 +18,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Menu } from "lucide-react";
 
 function ago(ms: number): string {
   const s = Math.floor((Date.now() - ms) / 1000);
@@ -124,11 +125,22 @@ export function HeaderRight() {
 
 interface ShellHeaderProps {
   tab: Tab;
+  onOpenMobile?: () => void;
 }
 
-export function ShellHeader({ tab }: ShellHeaderProps) {
+export function ShellHeader({ tab, onOpenMobile }: ShellHeaderProps) {
   return (
     <header className="app-header">
+      {onOpenMobile && (
+        <button
+          onClick={onOpenMobile}
+          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent lg:hidden"
+          aria-label="Open navigation"
+          title="Open navigation"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      )}
       <h1>{tabLabel(tab)}</h1>
       <HeaderRight />
     </header>

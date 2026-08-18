@@ -264,9 +264,11 @@ Each phase commits independently (`feat(ui): …`), keeping the tree green. Pref
 - No react-router: tab-key state only. Deep-linking/bookmarking a specific page isn't possible yet. Cheap to add later if wanted.
 
 **Open questions for Ben**
-1. **Static visual mockup first?** I recommend building a single static `mockup.html` (Home dashboard + wizard) from these tokens so you can *see* the direction before I touch the app. ~1 item of work, high confidence payoff. Want that, or go straight to implementation?
-2. React-router (real URLs `/board`, `/settings`…) now, or keep tab-state for this pass?
-3. Sidebar collapse-to-icons on desktop, or full-width sidebar always (mobile overlays regardless)?
+1. ~~Static visual mockup first?~~ → **Skipped (Ben chose go straight to implementation).**
+2. React-router (real URLs `/board`, `/settings`…) now, or keep tab-state for this pass? → **Tab-state (no react-router) this pass.** Deep-linking/bookmarking is a cheap later add.
+3. Sidebar collapse-to-icons on desktop, or full-width always? → **Collapsible to 64px icons on desktop; mobile overlays.**
+
+**Status (2026-08-18): DONE.** Theme, shell, page split, per-surface restyle, wizard redesign, and polish all implemented, tested, built, and pushed (`b4d64a0`). Verified: `tsc --noEmit` clean, 7/7 vitest, `vite build` + `cargo build` embed the new SPA, all 15 nav destinations render.
 
 ---
 

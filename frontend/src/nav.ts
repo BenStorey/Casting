@@ -1,6 +1,7 @@
 // Application navigation — the grouped IA for the Casting UI.
 // Retires the old 12-flat-tab bar in favour of a hierarchy grouped by what
 // the owner does: daily surfaces first, internals tucked under ADVANCED.
+// Each tab maps to a real URL (react-router), so surfaces are deep-linkable.
 import {
   Activity,
   BookOpen,
@@ -42,6 +43,8 @@ export interface NavItem {
   key: Tab;
   label: string;
   icon: LucideIcon;
+  /** URL path for this surface. */
+  path: string;
 }
 
 export interface NavGroup {
@@ -53,45 +56,45 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Home",
     items: [
-      { key: "home", label: "Home", icon: Home },
-      { key: "inbox", label: "Inbox", icon: Inbox },
-      { key: "chat", label: "Chat", icon: MessageSquare },
+      { key: "home", label: "Home", icon: Home, path: "/" },
+      { key: "inbox", label: "Inbox", icon: Inbox, path: "/inbox" },
+      { key: "chat", label: "Chat", icon: MessageSquare, path: "/chat" },
     ],
   },
   {
     label: "Work",
     items: [
-      { key: "board", label: "Board", icon: SquareKanban },
-      { key: "graph", label: "Graph", icon: GitBranch },
-      { key: "team", label: "Cast", icon: Users },
-      { key: "activity", label: "History", icon: Activity },
+      { key: "board", label: "Board", icon: SquareKanban, path: "/board" },
+      { key: "graph", label: "Graph", icon: GitBranch, path: "/graph" },
+      { key: "team", label: "Cast", icon: Users, path: "/cast" },
+      { key: "activity", label: "History", icon: Activity, path: "/history" },
     ],
   },
   {
     label: "Tools",
     items: [
-      { key: "advisor", label: "Advisor", icon: Brain },
-      { key: "sketch", label: "Sketch", icon: PenTool },
+      { key: "advisor", label: "Advisor", icon: Brain, path: "/advisor" },
+      { key: "sketch", label: "Sketch", icon: PenTool, path: "/sketch" },
     ],
   },
   {
     label: "Review",
     items: [
-      { key: "decisions", label: "Decisions", icon: Scale },
-      { key: "knowledge", label: "Knowledge", icon: BookOpen },
-      { key: "spend", label: "Spend", icon: CreditCard },
+      { key: "decisions", label: "Decisions", icon: Scale, path: "/decisions" },
+      { key: "knowledge", label: "Knowledge", icon: BookOpen, path: "/knowledge" },
+      { key: "spend", label: "Spend", icon: CreditCard, path: "/spend" },
     ],
   },
   {
     label: "Settings",
     items: [
-      { key: "settings", label: "Setup & Connect", icon: Settings },
-      { key: "routing", label: "Model routing", icon: SlidersHorizontal },
+      { key: "settings", label: "Setup & Connect", icon: Settings, path: "/settings" },
+      { key: "routing", label: "Model routing", icon: SlidersHorizontal, path: "/routing" },
     ],
   },
   {
     label: "Advanced",
-    items: [{ key: "debug", label: "Debug", icon: TerminalSquare }],
+    items: [{ key: "debug", label: "Debug", icon: TerminalSquare, path: "/debug" }],
   },
 ];
 
@@ -100,6 +103,26 @@ export const ALL_TABS: Tab[] = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.ke
 
 /** The default landing surface after setup. */
 export const DEFAULT_TAB: Tab = "home";
+
+/** Map a tab to its URL path (used when navigating). */
+export function pathForTab(tab: Tab): string {
+  for (const g of NAV_GROUPS) {
+    const it = g.items.find((i) => i.key === tab);
+    if (it) return it.path;
+  }
+  return "/";
+}
+
+/** Resolve a URL path to a tab; unknown paths fall back to the default. */
+export function tabForPath(path: string): Tab {
+  const clean = path.startsWith("/") ? path : `/${path}`;
+  for (const g of NAV_GROUPS) {
+    for (const it of g.items) {
+      if (it.path === clean) return it.key;
+    }
+  }
+  return DEFAULT_TAB;
+}
 
 /** Human label for a tab (for the header breadcrumb). */
 export function tabLabel(tab: Tab): string {

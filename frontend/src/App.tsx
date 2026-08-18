@@ -23,7 +23,8 @@ import {
 import { TASK_COLUMNS } from "./boardColumns";
 import { identityForAgent } from "./identities";
 import TelegramConnect from "./TelegramConnect";
-import { DEFAULT_TAB, tabLabel, type Tab } from "./nav";
+import { useNavigate, useLocation } from "react-router-dom";
+import { pathForTab, tabLabel, tabForPath, type Tab } from "./nav";
 import { ShellSidebar } from "./ShellSidebar";
 import { ShellHeader } from "./ShellHeader";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -52,8 +53,11 @@ function agentLabel(id: string): string {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>(DEFAULT_TAB);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const tab = tabForPath(location.pathname);
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const state = useCastStore((s) => s.state);
   const model = useCastStore((s) => s.model);
@@ -79,23 +83,34 @@ export default function App() {
     if (tab === "debug") refreshLazy("events");
   }, [tab, refreshLazy]);
 
+  // Normalise unknown/deep URLs to a known tab (e.g. stray path → home).
+  useEffect(() => {
+    const resolved = pathForTab(tab);
+    if (location.pathname !== resolved) {
+      navigate(resolved, { replace: true });
+    }
+  }, [location.pathname, tab, navigate]);
+
   // First-run: no cast hired beyond the seed PM → show setup wizard full-screen.
   const needsSetup = state && state.agents.filter((a) => a.id !== "mei").length === 0;
   if (needsSetup) return <SetupWizard onDone={refresh} />;
   if (!state) return null;
+
+  const go = (t: Tab) => navigate(pathForTab(t));
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="app-shell">
         <ShellSidebar
           active={tab}
-          onNavigate={setTab}
           collapsed={collapsed}
           onToggle={() => setCollapsed((c) => !c)}
           unread={inbox?.unread ?? 0}
+          mobileOpen={mobileOpen}
+          onCloseMobile={() => setMobileOpen(false)}
         />
         <main className="app-main">
-          <ShellHeader tab={tab} />
+          <ShellHeader tab={tab} onOpenMobile={() => setMobileOpen(true)} />
 
         {errors.length > 0 && (
           <div className="banner">
@@ -120,8 +135,8 @@ export default function App() {
             onOpenTask={setOpenTask}
             onDecide={refresh}
             onSent={refresh}
-            onGoInbox={() => setTab("inbox")}
-            onGoChat={() => setTab("chat")}
+            onGoInbox={() => go("inbox")}
+            onGoChat={() => go("chat")}
           />
         </div>
       </main>
