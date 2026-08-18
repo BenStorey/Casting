@@ -26,6 +26,7 @@ import TelegramConnect from "./TelegramConnect";
 import { DEFAULT_TAB, tabLabel, type Tab } from "./nav";
 import { ShellSidebar } from "./ShellSidebar";
 import { ShellHeader } from "./ShellHeader";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "./pages/Home";
 import Spend from "./pages/Spend";
 import Routing from "./pages/Routing";
@@ -84,16 +85,17 @@ export default function App() {
   if (!state) return null;
 
   return (
-    <div className="app-shell">
-      <ShellSidebar
-        active={tab}
-        onNavigate={setTab}
-        collapsed={collapsed}
-        onToggle={() => setCollapsed((c) => !c)}
-        unread={inbox?.unread ?? 0}
-      />
-      <main className="app-main">
-        <ShellHeader tab={tab} />
+    <TooltipProvider delayDuration={200}>
+      <div className="app-shell">
+        <ShellSidebar
+          active={tab}
+          onNavigate={setTab}
+          collapsed={collapsed}
+          onToggle={() => setCollapsed((c) => !c)}
+          unread={inbox?.unread ?? 0}
+        />
+        <main className="app-main">
+          <ShellHeader tab={tab} />
 
         {errors.length > 0 && (
           <div className="banner">
@@ -125,7 +127,8 @@ export default function App() {
       </main>
 
       {openTask && <TaskDrawer task={openTask} onClose={() => setOpenTask(null)} />}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
 
