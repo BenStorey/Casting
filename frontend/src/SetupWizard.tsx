@@ -1,34 +1,27 @@
 import { useEffect, useState } from "react";
-import { fetchSetupStatus, submitSetup, type SetupRole, type SetupStatus, type SetupResult, type ConsultantConfig } from "./api";
+import {
+  fetchSetupStatus,
+  submitSetup,
+  type SetupStatus,
+  type SetupResult,
+  type ConsultantConfig,
+} from "./api";
 import { useCastStore } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PM_IDENTITY } from "./identities";
+import { cn } from "@/lib/utils";
 
 type ExpLevel = "novice" | "somewhat" | "confident";
 
 const EXP_LEVELS: { value: ExpLevel; label: string; desc: string }[] = [
-  {
-    value: "novice",
-    label: "No experience",
-    desc: "I'm new to software development — explain things simply.",
-  },
-  {
-    value: "somewhat",
-    label: "Somewhat familiar",
-    desc: "I've dabbled or worked with dev teams before.",
-  },
-  {
-    value: "confident",
-    label: "Confident with technology",
-    desc: "I'm technical — give me the details.",
-  },
+  { value: "novice", label: "No experience", desc: "I'm new — explain things simply." },
+  { value: "somewhat", label: "Somewhat familiar", desc: "I've dabbled with dev teams before." },
+  { value: "confident", label: "Confident with technology", desc: "I'm technical — give me the details." },
 ];
 
-/// Which LLM provider the user's key belongs to. OpenRouter is the default
-/// (one key → many models); OpenAI and Anthropic accept first-party API keys.
 type Provider = "openrouter" | "openai" | "anthropic";
 
 const PROVIDERS: {
@@ -39,57 +32,24 @@ const PROVIDERS: {
   keyPlaceholder: string;
   blurb: string;
 }[] = [
-  {
-    id: "openrouter",
-    label: "OpenRouter",
-    keysHint: "openrouter.ai/keys",
-    defaultModel: "deepseek/deepseek-v4-flash-0731",
-    keyPlaceholder: "sk-or-v1-...",
-    blurb: "one key, many models — the easiest default",
-  },
-  {
-    id: "openai",
-    label: "OpenAI",
-    keysHint: "platform.openai.com/api-keys",
-    defaultModel: "gpt-4o-mini",
-    keyPlaceholder: "sk-...",
-    blurb: "use your OpenAI API subscription",
-  },
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    keysHint: "console.anthropic.com/settings/keys",
-    defaultModel: "claude-sonnet-4-5",
-    keyPlaceholder: "sk-ant-...",
-    blurb: "use your Anthropic API subscription",
-  },
+  { id: "openrouter", label: "OpenRouter", keysHint: "openrouter.ai/keys", defaultModel: "deepseek/deepseek-v4-flash-0731", keyPlaceholder: "sk-or-v1-...", blurb: "one key, many models" },
+  { id: "openai", label: "OpenAI", keysHint: "platform.openai.com/api-keys", defaultModel: "gpt-4o-mini", keyPlaceholder: "sk-...", blurb: "your OpenAI subscription" },
+  { id: "anthropic", label: "Anthropic", keysHint: "console.anthropic.com/settings/keys", defaultModel: "claude-sonnet-4-5", keyPlaceholder: "sk-ant-...", blurb: "your Anthropic subscription" },
 ];
 
-/// Step enumeration. Using numbers so we can add/subtract easily.
-type Step =
-  | { kind: "welcome" }
-  | { kind: "name" }
-  | { kind: "experience" }
-  | { kind: "cast-intro"; index: number }
-  | { kind: "existing-project" }
-  | { kind: "project-details" }
-  | { kind: "policies" }
-  | { kind: "api-key" }
-  | { kind: "launch" };
+/// Regrouped wizard steps — 6 meaningful ones (about you, cast, project,
+/// autonomy, AI, launch) instead of the old 9 micro-steps. Fewer clicks, same
+/// backend contract.
+const STEPS = [
+  { id: "about", title: "About you" },
+  { id: "cast", title: "Meet your cast" },
+  { id: "project", title: "Your project" },
+  { id: "autonomy", title: "Autonomy" },
+  { id: "ai", title: "AI provider" },
+  { id: "launch", title: "Launch" },
+] as const;
+type StepId = (typeof STEPS)[number]["id"];
 
-const STEPS: { kind: Step["kind"]; label: string }[] = [
-  { kind: "welcome", label: "Welcome" },
-  { kind: "name", label: "Name" },
-  { kind: "experience", label: "Experience" },
-  { kind: "cast-intro", label: "Meet the team" },
-  { kind: "existing-project", label: "Project" },
-  { kind: "project-details", label: "Details" },
-  { kind: "policies", label: "Policies" },
-  { kind: "api-key", label: "API Key" },
-  { kind: "launch", label: "Launch" },
-];
-
-// Decision classes and their human-readable labels
 const DECISION_CLASSES: { id: string; label: string; desc: string }[] = [
   { id: "internal_rename", label: "Internal renames", desc: "Renaming variables or symbols" },
   { id: "internal_refactor", label: "Internal refactors", desc: "Code changes with no product-facing effect" },
@@ -106,12 +66,16 @@ const DECISION_CLASSES: { id: string; label: string; desc: string }[] = [
   { id: "governance_change", label: "Governance changes", desc: "Changing project rules or policies" },
 ];
 
-// Policy presets: which classes are "ask owner" vs "pm can decide"
 type PolicyPreset = "autonomous" | "balanced" | "supervised";
 const POLICY_PRESETS: { id: PolicyPreset; label: string; desc: string }[] = [
-  { id: "autonomous", label: "Do everything autonomously", desc: "I trust you — only flag security issues to me." },
-  { id: "balanced", label: "Only high-impact changes by me", desc: "Run the day-to-day; escalate architecture, database, and spending decisions." },
-  { id: "supervised", label: "Run everything past me", desc: "I want to review every decision before it's made." },
+  { id: "autonomous", label: "Do everything autonomously", desc: "Only flag security issues to me." },
+  { id: "balanced", label: "Only high-impact changes by me", desc: "Run the day-to-day; escalate architecture, database, and spending." },
+  { id: "supervised", label: "Run everything past me", desc: "Review every decision before it's made." },
+];
+
+const ASK_BY_DEFAULT = [
+  "Database", "Architecture", "ProductRequirement", "SpendingThreshold",
+  "ProductionDeployment", "Irreversible", "GovernanceChange", "SecurityCritical",
 ];
 
 export default function SetupWizard({ onDone }: { onDone: () => void }) {
@@ -121,7 +85,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [created, setCreated] = useState<SetupResult | null>(null);
 
   // Wizard data
-  const [step, setStep] = useState<Step>({ kind: "welcome" });
+  const [stepIdx, setStepIdx] = useState(0);
   const [ownerName, setOwnerName] = useState("");
   const [expLevel, setExpLevel] = useState<ExpLevel | null>(null);
   const [existingProject, setExistingProject] = useState<boolean | null>(null);
@@ -132,153 +96,48 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [provider, setProvider] = useState<Provider>("openrouter");
   const [model, setModel] = useState(PROVIDERS[0].defaultModel);
   const [policyPreset, setPolicyPreset] = useState<PolicyPreset>("balanced");
-  // Which classes should ask the owner (true = ask, false = pm can decide)
+  const [castIndex, setCastIndex] = useState(0);
   const [policyOverrides, setPolicyOverrides] = useState<Record<string, boolean>>(() => {
-    const overrides: Record<string, boolean> = {};
-    for (const dc of DECISION_CLASSES) {
-      // Default: Database, Architecture, ProductRequirement, SpendingThreshold,
-      // ProductionDeployment, Irreversible, GovernanceChange = ask
-      // SecurityCritical = notify (still needs owner)
-      // Everything else = pm can decide
-      const askByDefault = ["Database", "Architecture", "ProductRequirement",
-        "SpendingThreshold", "ProductionDeployment", "Irreversible",
-        "GovernanceChange", "SecurityCritical"];
-      overrides[dc.id] = askByDefault.includes(dc.id);
-    }
-    return overrides;
+    const o: Record<string, boolean> = {};
+    for (const dc of DECISION_CLASSES) o[dc.id] = ASK_BY_DEFAULT.includes(dc.id);
+    return o;
   });
 
   const consultants = useCastStore((s) => s.consultants);
+  const castMembers = consultants.filter(
+    (c) => c.id !== "mei" && c.id !== "jeeves" && c.role !== "advisor"
+  );
 
   useEffect(() => {
     fetchSetupStatus().then(setStatus).catch((e) => setErr(String(e)));
   }, []);
 
-  // The cast members to introduce — from the consultant registry, excluding the PM and Advisor
-  const castMembers = consultants.filter(
-    (c) => c.id !== "mei" && c.id !== "jeeves" && c.role !== "advisor"
-  );
-
-  const stepIndex = STEPS.findIndex((s) => s.kind === step.kind);
-
-  // The provider metadata for the currently-selected provider.
   const activeProvider = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+  const step = STEPS[stepIdx];
 
   const canContinue = (() => {
-    switch (step.kind) {
-      case "welcome":
-        return true;
-      case "name":
-        return ownerName.trim().length > 0;
-      case "experience":
-        return expLevel !== null;
-      case "cast-intro":
-        return true; // always can continue past a cast intro card
-      case "existing-project":
-        return existingProject !== null;
-      case "project-details":
+    switch (step.id) {
+      case "about": return ownerName.trim().length > 0;
+      case "cast": return true;
+      case "project":
         return (
           projectName.trim().length > 0 &&
           objective.trim().length > 0 &&
-          // First run (no project configured yet): the wizard is CREATING the
-          // project, so we must also collect the artifact repo path.
           (status?.project_exists !== false || projectPath.trim().length > 0)
         );
-      case "policies":
-        return true;
-      case "api-key":
-        return apiKey.trim().length > 0;
-      case "launch":
-        return true;
+      case "autonomy": return true;
+      case "ai": return apiKey.trim().length > 0;
+      case "launch": return true;
     }
   })();
-
-  const nextStep = () => {
-    switch (step.kind) {
-      case "welcome":
-        setStep({ kind: "name" });
-        break;
-      case "name":
-        setStep({ kind: "experience" });
-        break;
-      case "experience":
-        setStep({ kind: "cast-intro", index: 0 });
-        break;
-      case "cast-intro":
-        if (step.index + 1 < castMembers.length) {
-          setStep({ kind: "cast-intro", index: step.index + 1 });
-        } else {
-          setStep({ kind: "existing-project" });
-        }
-        break;
-      case "existing-project":
-        setStep({ kind: "project-details" });
-        break;
-      case "project-details":
-        setStep({ kind: "policies" });
-        break;
-      case "policies":
-        setStep({ kind: "api-key" });
-        break;
-      case "api-key":
-        setStep({ kind: "launch" });
-        break;
-      case "launch":
-        break;
-    }
-  };
-
-  const prevStep = () => {
-    switch (step.kind) {
-      case "welcome":
-        break;
-      case "name":
-        setStep({ kind: "welcome" });
-        break;
-      case "experience":
-        setStep({ kind: "name" });
-        break;
-      case "cast-intro":
-        if (step.index > 0) {
-          setStep({ kind: "cast-intro", index: step.index - 1 });
-        } else {
-          setStep({ kind: "experience" });
-        }
-        break;
-      case "existing-project":
-        setStep({ kind: "cast-intro", index: castMembers.length - 1 });
-        break;
-      case "project-details":
-        setStep({ kind: "existing-project" });
-        break;
-      case "policies":
-        setStep({ kind: "project-details" });
-        break;
-      case "api-key":
-        setStep({ kind: "policies" });
-        break;
-      case "launch":
-        setStep({ kind: "api-key" });
-        break;
-    }
-  };
 
   const applyPreset = (preset: PolicyPreset) => {
     setPolicyPreset(preset);
     const updated: Record<string, boolean> = {};
     for (const dc of DECISION_CLASSES) {
-      if (preset === "supervised") {
-        updated[dc.id] = true; // everything asks owner
-      } else if (preset === "autonomous") {
-        // only security-critical asks
-        updated[dc.id] = dc.id === "SecurityCritical";
-      } else {
-        // balanced: sensible defaults
-        const askByDefault = ["Database", "Architecture", "ProductRequirement",
-          "SpendingThreshold", "ProductionDeployment", "Irreversible",
-          "GovernanceChange", "SecurityCritical"];
-        updated[dc.id] = askByDefault.includes(dc.id);
-      }
+      if (preset === "supervised") updated[dc.id] = true;
+      else if (preset === "autonomous") updated[dc.id] = dc.id === "SecurityCritical";
+      else updated[dc.id] = ASK_BY_DEFAULT.includes(dc.id);
     }
     setPolicyOverrides(updated);
   };
@@ -288,37 +147,22 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     setErr(null);
     try {
       const res = await submitSetup(
-        projectName.trim(),
-        objective.trim(),
-        status?.roles?.map((r) => r.id) ?? [],
-        ownerName.trim() || undefined,
-        expLevel ?? undefined,
-        apiKey.trim() || undefined,
-        undefined,
-        provider,
-        model.trim() || undefined,
-        // First run (no project yet): the wizard is creating the project, so
-        // include the artifact repo path. Otherwise the repo is already known.
+        projectName.trim(), objective.trim(), status?.roles?.map((r) => r.id) ?? [],
+        ownerName.trim() || undefined, expLevel ?? undefined, apiKey.trim() || undefined,
+        undefined, provider, model.trim() || undefined,
         status?.project_exists === false ? projectPath.trim() : undefined
       );
-      // On first run the project was just created: there is no booted workspace
-      // yet, so don't fire policy changes (they'd hit a server with no state).
-      // Show a success screen telling the user to restart `cast run` instead.
       if (res.created) {
         setCreated(res);
         setBusy(false);
         return;
       }
-      // Apply policy overrides: for classes where the owner chose a non-default
-      // involvement, POST to /api/policy. The backend fires DecisionPolicyChanged.
       for (const dc of DECISION_CLASSES) {
         const ask = policyOverrides[dc.id];
-        // Map boolean to OwnerInvolvement: true → "ask", false → "pm"
-        const involvement = ask ? "ask" : "pm";
         await fetch("/api/policy", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ class: dc.id, involvement }),
+          body: JSON.stringify({ class: dc.id, involvement: ask ? "ask" : "pm" }),
         });
       }
       onDone();
@@ -328,555 +172,356 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const current = castMembers[step.kind === "cast-intro" ? step.index : -1];
-
   if (created) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-gradient-to-b from-background to-muted/30">
-        <div className="w-full max-w-xl space-y-8">
-          <div className="text-center space-y-4">
-            <div className="text-5xl">🎉</div>
-            <h2 className="text-2xl font-bold">Project &ldquo;{created.name}&rdquo; created</h2>
-            <p className="text-muted-foreground">
-              State is at <code>~/.casting/{created.slug}</code> (port {created.port}).
-            </p>
-            <p className="text-muted-foreground">
-              Stop this <code>cast run</code> and start it again &mdash; it will now
-              auto-select this project and launch the workspace.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
+    return <SuccessScreen name={created.name ?? projectName} slug={created.slug} port={created.port} />;
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-gradient-to-b from-background to-muted/30">
-      <div className="w-full max-w-xl space-y-8">
-        {/* Step indicator */}
-        <div className="flex items-center justify-center gap-2">
-          {STEPS.slice(0, 7).map((s, i) => (
-            <span
-              key={s.kind}
-              className={
-                "h-2 rounded-full transition-all duration-300 " +
-                (i < stepIndex
-                  ? "w-6 bg-primary"
-                  : i === stepIndex
-                  ? "w-8 bg-primary shadow-md"
-                  : "w-2 bg-border")
-              }
-            />
-          ))}
-        </div>
-
-        {err && (
-          <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            ⚠️ {err}
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto flex min-h-screen w-full max-w-5xl">
+        {/* Progress rail */}
+        <aside className="hidden w-72 shrink-0 flex-col border-r border-border bg-card px-6 py-10 md:flex">
+          <div className="mb-8 flex items-center gap-3">
+            <span className="text-2xl">🎬</span>
+            <div>
+              <div className="font-display text-lg font-bold leading-none">Casting</div>
+              <div className="text-xs text-muted-foreground mt-0.5">set up your company</div>
+            </div>
           </div>
-        )}
-
-        {/* WELCOME */}
-        {step.kind === "welcome" && (
-          <div className="space-y-8 text-center">
-            <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-primary/10 text-5xl">
-              🎬
-            </div>
-            <div className="space-y-4">
-              <h1 className="text-4xl font-bold tracking-tight">
-                Welcome to Casting
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-sm mx-auto leading-relaxed">
-                Every great production starts with a great cast. Casting is your
-                autonomous software company — a team of AI specialists who plan,
-                build, test, and ship software while you direct.
-              </p>
-            </div>
-            <div className="flex items-start gap-4 bg-card border rounded-2xl p-5 text-left">
-              <img
-                src={PM_IDENTITY.avatar ?? ""}
-                alt={PM_IDENTITY.name}
-                className="h-14 w-14 rounded-xl shrink-0"
-              />
-              <div>
-                <div className="font-semibold text-base">
-                  {PM_IDENTITY.name}
+          <nav className="space-y-1">
+            {STEPS.map((s, i) => {
+              const done = i < stepIdx;
+              const active = i === stepIdx;
+              return (
+                <div key={s.id}>
+                  <button
+                    onClick={() => setStepIdx(i)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                      active ? "bg-primary-soft font-medium text-primary" : "text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                        done ? "bg-success/15 text-success-foreground" : active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+                      )}
+                    >
+                      {done ? "✓" : i + 1}
+                    </span>
+                    <span>{s.title}</span>
+                  </button>
                 </div>
-                <div className="text-sm text-muted-foreground">
-                  {PM_IDENTITY.role} · {PM_IDENTITY.persona}
-                </div>
-                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                  I'm your Project Manager. You tell me what you want in plain
-                  language — I scope it into tasks, hand them to the right
-                  people, and come back to you only when a decision really needs
-                  an owner. Let's get you set up.
-                </p>
-              </div>
-            </div>
-            <Button size="lg" className="px-10" onClick={nextStep}>
-              Get started
-            </Button>
-          </div>
-        )}
+              );
+            })}
+          </nav>
+        </aside>
 
-        {/* NAME */}
-        {step.kind === "name" && (
-          <div className="space-y-6 text-center">
-            <div className="flex items-center justify-center gap-3">
-              <img
-                src={PM_IDENTITY.avatar ?? ""}
-                alt={PM_IDENTITY.name}
-                className="h-12 w-12 rounded-xl"
-              />
-              <div className="text-left">
-                <div className="font-semibold">{PM_IDENTITY.name}</div>
-                <div className="text-sm text-muted-foreground">
-                  Your Project Manager
-                </div>
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold">What should I call you?</h2>
-            <p className="text-muted-foreground">
-              I'll use your name throughout our conversations.
-            </p>
-            <Input
-              className="text-center text-lg max-w-xs mx-auto"
-              value={ownerName}
-              onChange={(e) => setOwnerName(e.target.value)}
-              placeholder="e.g. Ben"
-              onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
-              autoFocus
-            />
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
-                Back
-              </Button>
-              <Button onClick={nextStep} disabled={!canContinue}>
-                Continue
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* EXPERIENCE */}
-        {step.kind === "experience" && (
-          <div className="space-y-6 text-center">
-            <h2 className="text-2xl font-bold">
-              How familiar are you with software development?
-            </h2>
-            <p className="text-muted-foreground">
-              This helps me calibrate how technically I explain things.
-            </p>
-            <div className="space-y-3">
-              {EXP_LEVELS.map((el) => (
-                <button
-                  key={el.value}
-                  type="button"
-                  onClick={() => setExpLevel(el.value)}
-                  className={
-                    "w-full text-left rounded-xl border p-4 transition-all " +
-                    (expLevel === el.value
-                      ? "border-primary bg-primary/10 shadow-sm"
-                      : "border-border bg-card hover:border-primary/40")
-                  }
-                >
-                  <div className="font-semibold">{el.label}</div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {el.desc}
-                  </div>
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
-                Back
-              </Button>
-              <Button onClick={nextStep} disabled={!canContinue}>
-                Continue
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* CAST INTRO — one by one */}
-        {step.kind === "cast-intro" && current && (
-          <div className="space-y-6 text-center">
-            <div className="text-sm text-muted-foreground">
-              Meet your team ({step.index + 1} of {castMembers.length})
-            </div>
-            <div className="bg-card border rounded-2xl p-8 space-y-5">
-              <img
-                src={current.avatar ?? ""}
-                alt={current.name}
-                className="mx-auto h-24 w-24 rounded-2xl"
-              />
-              <div>
-                <h2 className="text-2xl font-bold">{current.name}</h2>
-                <div className="text-muted-foreground">{current.title}</div>
-              </div>
-              {current.summary && (
-                <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
-                  {current.summary}
-                </p>
-              )}
-              {current.routing?.specializations &&
-                current.routing.specializations.length > 0 && (
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {current.routing.specializations.map((s) => (
-                      <Badge key={s} variant="secondary">
-                        {s}
-                      </Badge>
-                    ))}
-                  </div>
+        {/* Content */}
+        <main className="flex-1 px-6 py-10 md:px-12">
+          {/* Mobile stepper */}
+          <div className="mb-6 flex items-center gap-2 md:hidden">
+            {STEPS.map((s, i) => (
+              <div
+                key={s.id}
+                className={cn(
+                  "h-1.5 flex-1 rounded-full",
+                  i <= stepIdx ? "bg-primary" : "bg-border"
                 )}
-            </div>
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
-                Back
-              </Button>
-              <Button onClick={nextStep}>
-                {step.index + 1 < castMembers.length
-                  ? "Meet the next member"
-                  : "All set — continue"}
-              </Button>
-            </div>
+              />
+            ))}
           </div>
-        )}
 
-        {/* EXISTING PROJECT */}
-        {step.kind === "existing-project" && (
-          <div className="space-y-6 text-center">
-            <h2 className="text-2xl font-bold">Do you have an existing project?</h2>
-            <p className="text-muted-foreground">
-              If you already have a codebase, I can point Casting at it. Otherwise
-              I'll create a new project for you.
-            </p>
-            <div className="flex justify-center gap-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setExistingProject(true);
-                  setProjectPath("");
-                }}
-                className={
-                  "rounded-xl border p-5 w-44 text-center transition-all " +
-                  (existingProject === true
-                    ? "border-primary bg-primary/10 shadow-sm"
-                    : "border-border bg-card hover:border-primary/40")
-                }
-              >
-                <div className="text-2xl mb-2">📁</div>
-                <div className="font-semibold">Yes, I have one</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setExistingProject(false)}
-                className={
-                  "rounded-xl border p-5 w-44 text-center transition-all " +
-                  (existingProject === false
-                    ? "border-primary bg-primary/10 shadow-sm"
-                    : "border-border bg-card hover:border-primary/40")
-                }
-              >
-                <div className="text-2xl mb-2">✨</div>
-                <div className="font-semibold">Start something new</div>
-              </button>
+          {err && (
+            <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              ⚠️ {err}
             </div>
-            {existingProject === true && (
-              <Input
-                value={projectPath}
-                onChange={(e) => setProjectPath(e.target.value)}
-                placeholder="/path/to/your/project"
-                className="max-w-sm mx-auto"
+          )}
+
+          <div className="mx-auto max-w-xl">
+            {step.id === "about" && <AboutStep {...{ ownerName, setOwnerName, expLevel, setExpLevel }} />}
+            {step.id === "cast" && (
+              <CastStep
+                members={castMembers}
+                index={castIndex}
+                onNext={() => setCastIndex((i) => i + 1)}
+                onPrev={() => setCastIndex((i) => i - 1)}
+                done={castIndex >= castMembers.length - 1}
               />
             )}
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
+            {step.id === "project" && <ProjectStep {...{ existingProject, setExistingProject, projectPath, setProjectPath, projectName, setProjectName, objective, setObjective, needsRepo: status?.project_exists === false }} />}
+            {step.id === "autonomy" && <AutonomyStep {...{ policyPreset, applyPreset, policyOverrides, setPolicyOverrides }} />}
+            {step.id === "ai" && <AiStep {...{ provider, setProvider, activeProvider, model, setModel, apiKey, setApiKey }} />}
+            {step.id === "launch" && (
+              <LaunchStep {...{ ownerName, expLevel, projectName, objective, castMembers, activeProvider, model, apiKey, existingProject, projectPath, status, launch, busy }} />
+            )}
+
+            <div className="mt-8 flex items-center justify-between gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (step.id === "cast" && castIndex > 0) setCastIndex((i) => i - 1);
+                  else setStepIdx((i) => Math.max(0, i - 1));
+                }}
+                disabled={stepIdx === 0 && !(step.id === "cast" && castIndex > 0)}
+              >
                 Back
               </Button>
-              <Button onClick={nextStep} disabled={!canContinue}>
-                Continue
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* PROJECT DETAILS */}
-        {step.kind === "project-details" && (
-          <div className="space-y-6 text-center">
-            <h2 className="text-2xl font-bold">Tell me about your project</h2>
-            <div className="space-y-4 text-left">
-              <div>
-                <label className="text-sm font-medium text-muted-foreground block mb-1">
-                  Project name
-                </label>
-                <Input
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  placeholder="e.g. MyTodo"
-                  onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-muted-foreground block mb-1">
-                  What are you building? (short description)
-                </label>
-                <textarea
-                  value={objective}
-                  onChange={(e) => setObjective(e.target.value)}
-                  placeholder="e.g. A todo app with user accounts, shared lists, and real-time sync"
-                  className="flex min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onKeyDown={(e) => e.key === "Enter" && e.metaKey && canContinue && nextStep()}
-                />
-              </div>
-              {status?.project_exists === false && (
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground block mb-1">
-                    Artifact repo path
-                  </label>
-                  <Input
-                    value={projectPath}
-                    onChange={(e) => setProjectPath(e.target.value)}
-                    placeholder="/path/to/your/repo (must already exist)"
-                    onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
-                  />
-                </div>
+              {step.id !== "launch" ? (
+                <Button
+                  onClick={() => {
+                    if (step.id === "cast" && castIndex < castMembers.length - 1) {
+                      setCastIndex((i) => i + 1);
+                    } else {
+                      setStepIdx((i) => i + 1);
+                    }
+                  }}
+                  disabled={!canContinue}
+                >
+                  {step.id === "cast" && castIndex < castMembers.length - 1 ? "Next member" : "Continue"}
+                </Button>
+              ) : (
+                <Button onClick={launch} disabled={busy} size="lg">
+                  {busy ? "Setting up your company…" : "🚀 Launch my company"}
+                </Button>
               )}
             </div>
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
-                Back
-              </Button>
-              <Button onClick={nextStep} disabled={!canContinue}>
-                Continue
-              </Button>
-            </div>
           </div>
-        )}
+        </main>
+      </div>
+    </div>
+  );
+}
 
-        {/* POLICIES */}
-        {step.kind === "policies" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-center">
-              How much autonomy should the PM have?
-            </h2>
-            <p className="text-muted-foreground text-center max-w-sm mx-auto leading-relaxed">
-              You can always change these later. Pick a style that feels right.
-            </p>
-            <div className="space-y-3">
-              {POLICY_PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => applyPreset(p.id)}
-                  className={
-                    "w-full text-left rounded-xl border p-4 transition-all " +
-                    (policyPreset === p.id
-                      ? "border-primary bg-primary/10 shadow-sm"
-                      : "border-border bg-card hover:border-primary/40")
-                  }
-                >
-                  <div className="font-semibold">{p.label}</div>
-                  <div className="text-sm text-muted-foreground mt-1">{p.desc}</div>
-                </button>
-              ))}
-            </div>
-            <details className="text-sm">
-              <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">
-                Tweak individual decisions
-              </summary>
-              <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
-                {DECISION_CLASSES.map((dc) => (
-                  <label
-                    key={dc.id}
-                    className="flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-muted/30"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={policyOverrides[dc.id] ?? false}
-                      onChange={() => {
-                        const next = { ...policyOverrides };
-                        next[dc.id] = !next[dc.id];
-                        setPolicyOverrides(next);
-                      }}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <div>
-                      <div className="text-sm font-medium">{dc.label}</div>
-                      <div className="text-xs text-muted-foreground">{dc.desc}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </details>
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>Back</Button>
-              <Button onClick={nextStep}>Continue</Button>
-            </div>
-          </div>
-        )}
+// ── Steps ───────────────────────────────────────────────────────────────────
 
-        {/* API KEY */}
-        {step.kind === "api-key" && (
-          <div className="space-y-6 text-center">
-            <h2 className="text-2xl font-bold">
-              Connect your AI provider
-            </h2>
-            <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
-              Pick the provider your API key belongs to. OpenRouter is the
-              easiest default — one key, many models. You can also use a
-              first-party OpenAI or Anthropic API key.
-            </p>
-            {/* Provider selector */}
-            <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto">
-              {PROVIDERS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    setProvider(p.id);
-                    setModel(p.defaultModel);
-                  }}
-                  className={
-                    "rounded-lg border p-3 text-sm transition-all " +
-                    (provider === p.id
-                      ? "border-primary bg-primary/10 shadow-sm"
-                      : "border-border bg-card hover:border-primary/40")
-                  }
-                >
-                  <div className="font-semibold">{p.label}</div>
-                  <div className="text-xs text-muted-foreground mt-1 leading-tight">
-                    {p.blurb}
-                  </div>
-                </button>
-              ))}
-            </div>
-            {/* Get-key hint for the selected provider */}
-            <div className="bg-card border rounded-xl p-5 text-left space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="text-primary">1.</span>
-                <span>
-                  Create an API key at{" "}
-                  <a
-                    href={`https://${activeProvider.keysHint}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline underline-offset-2 hover:text-primary"
-                  >
-                    {activeProvider.keysHint}
-                  </a>
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="text-primary">2.</span>
-                <span>Model</span>
-              </div>
-            </div>
-            <Input
-              className="text-center font-mono text-sm max-w-sm mx-auto"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder={activeProvider.defaultModel}
-              onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
-            />
-            <Input
-              className="text-center font-mono text-sm max-w-sm mx-auto"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={activeProvider.keyPlaceholder}
-              onKeyDown={(e) => e.key === "Enter" && canContinue && nextStep()}
-              autoFocus
-            />
-            <p className="text-xs text-muted-foreground">
-              Your key is stored in .casting/config.json (gitignored) and never
-              leaves your machine.
-            </p>
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
-                Back
-              </Button>
-              <Button onClick={nextStep} disabled={!canContinue}>
-                Continue
-              </Button>
-            </div>
+function AboutStep({ ownerName, setOwnerName, expLevel, setExpLevel }: any) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-3xl font-bold tracking-tight">Welcome to Casting</h2>
+        <p className="mt-2 text-muted-foreground leading-relaxed">
+          Your autonomous software company — a cast of AI specialists who plan,
+          build, test, and ship software while you direct.
+        </p>
+      </div>
+      <div className="flex items-start gap-4 rounded-xl border bg-card p-4">
+        <img src={PM_IDENTITY.avatar ?? ""} alt={PM_IDENTITY.name} className="h-14 w-14 rounded-xl shrink-0" />
+        <div>
+          <div className="font-semibold">{PM_IDENTITY.name}</div>
+          <div className="text-sm text-muted-foreground">{PM_IDENTITY.role} · {PM_IDENTITY.persona}</div>
+          <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+            I'm your Project Manager. You tell me what you want in plain language — I scope it,
+            hand it to the right people, and come back only when a decision needs an owner.
+          </p>
+        </div>
+      </div>
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm font-medium text-muted-foreground block mb-1">What should I call you?</label>
+          <Input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="e.g. Ben" autoFocus />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground block mb-1">How familiar are you with software?</label>
+          <div className="space-y-2">
+            {EXP_LEVELS.map((el) => (
+              <button key={el.value} type="button" onClick={() => setExpLevel(el.value)}
+                className={cn("w-full text-left rounded-lg border p-3 transition-all", expLevel === el.value ? "border-primary bg-primary-soft/50" : "border-border bg-card hover:border-primary/40")}>
+                <div className="font-medium text-sm">{el.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{el.desc}</div>
+              </button>
+            ))}
           </div>
-        )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        {/* LAUNCH */}
-        {step.kind === "launch" && (
-          <div className="space-y-6 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-green-500/10 text-3xl">
-              🚀
+function CastStep({ members, index, onNext, done }: any) {
+  const m = members[index];
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-3xl font-bold tracking-tight">Meet your cast</h2>
+        <p className="mt-2 text-muted-foreground">A specialist team, ready to work. You can hire more later.</p>
+      </div>
+      {!m ? (
+        <div className="empty">
+          <div className="icon">🎭</div>
+          <div className="title">No cast packages loaded</div>
+        </div>
+      ) : (
+        <div className="rounded-xl border bg-card p-6 text-center">
+          {m.avatar && <img src={m.avatar} alt={m.name} className="mx-auto h-24 w-24 rounded-2xl" />}
+          <h3 className="mt-3 text-xl font-bold">{m.name}</h3>
+          <div className="text-muted-foreground">{m.title}</div>
+          {m.summary && <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">{m.summary}</p>}
+          {m.routing?.specializations?.length > 0 && (
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              {m.routing.specializations.map((s: string) => <Badge key={s} variant="secondary">{s}</Badge>)}
             </div>
-            <h2 className="text-2xl font-bold">Ready to launch</h2>
-            <p className="text-muted-foreground">
-              Here's what we've got. Everything can be changed later.
-            </p>
-            <Card>
-              <CardContent className="pt-6 space-y-3 text-left">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Owner</span>
-                  <span className="font-medium">{ownerName}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Experience</span>
-                  <span className="font-medium capitalize">{expLevel}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Project</span>
-                  <span className="font-medium">{projectName}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Objective</span>
-                  <span className="font-medium text-right max-w-[60%]">
-                    {objective}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Team size</span>
-                  <span className="font-medium">
-                    {castMembers.length} specialists
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Provider</span>
-                  <span className="font-medium">{activeProvider.label}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Model</span>
-                  <span className="font-medium font-mono text-xs max-w-[55%] text-right break-all">
-                    {model}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">API key</span>
-                  <span className="font-medium">
-                    {apiKey
-                      ? `...${apiKey.slice(-4)}`
-                      : "Not set"}
-                  </span>
-                </div>
-                {existingProject && projectPath && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Existing project</span>
-                    <span className="font-medium font-mono text-xs">
-                      {projectPath}
-                    </span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            <div className="flex justify-center gap-3">
-              <Button variant="ghost" onClick={prevStep}>
-                Back
-              </Button>
-              <Button onClick={launch} disabled={busy} size="lg">
-                {busy ? "Setting up your company…" : "🚀 Launch my company"}
-              </Button>
-            </div>
+          )}
+        </div>
+      )}
+      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+        {members.length > 0 && <span>{index + 1} of {members.length}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ProjectStep({ existingProject, setExistingProject, projectPath, setProjectPath, projectName, setProjectName, objective, setObjective, needsRepo }: any) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-3xl font-bold tracking-tight">Your project</h2>
+        <p className="mt-2 text-muted-foreground">Point Casting at an existing codebase, or start fresh.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={() => setExistingProject(true)}
+          className={cn("rounded-xl border p-5 text-center transition-all", existingProject === true ? "border-primary bg-primary-soft/50" : "border-border bg-card hover:border-primary/40")}>
+          <div className="text-2xl mb-2">📁</div>
+          <div className="font-semibold text-sm">Yes, I have one</div>
+        </button>
+        <button type="button" onClick={() => setExistingProject(false)}
+          className={cn("rounded-xl border p-5 text-center transition-all", existingProject === false ? "border-primary bg-primary-soft/50" : "border-border bg-card hover:border-primary/40")}>
+          <div className="text-2xl mb-2">✨</div>
+          <div className="font-semibold text-sm">Start something new</div>
+        </button>
+      </div>
+      {existingProject === true && (
+        <Input value={projectPath} onChange={(e) => setProjectPath(e.target.value)} placeholder="/path/to/your/project" />
+      )}
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm font-medium text-muted-foreground block mb-1">Project name</label>
+          <Input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g. MyTodo" />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground block mb-1">What are you building?</label>
+          <textarea value={objective} onChange={(e) => setObjective(e.target.value)}
+            placeholder="e.g. A todo app with user accounts, shared lists, and real-time sync"
+            className="min-h-[100px] w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" />
+        </div>
+        {needsRepo && (
+          <div>
+            <label className="text-sm font-medium text-muted-foreground block mb-1">Artifact repo path</label>
+            <Input value={projectPath} onChange={(e) => setProjectPath(e.target.value)} placeholder="/path/to/your/repo (must exist)" />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AutonomyStep({ policyPreset, applyPreset, policyOverrides, setPolicyOverrides }: any) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-3xl font-bold tracking-tight">How much autonomy?</h2>
+        <p className="mt-2 text-muted-foreground">You can always change these later.</p>
+      </div>
+      <div className="space-y-2">
+        {POLICY_PRESETS.map((p) => (
+          <button key={p.id} type="button" onClick={() => applyPreset(p.id)}
+            className={cn("w-full text-left rounded-lg border p-4 transition-all", policyPreset === p.id ? "border-primary bg-primary-soft/50" : "border-border bg-card hover:border-primary/40")}>
+            <div className="font-semibold text-sm">{p.label}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{p.desc}</div>
+          </button>
+        ))}
+      </div>
+      <details className="text-sm">
+        <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">Tweak individual decisions</summary>
+        <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+          {DECISION_CLASSES.map((dc) => (
+            <label key={dc.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-3 hover:bg-muted/30">
+              <input type="checkbox" checked={policyOverrides[dc.id] ?? false}
+                onChange={() => { const n = { ...policyOverrides }; n[dc.id] = !n[dc.id]; setPolicyOverrides(n); }}
+                className="h-4 w-4 rounded border-gray-300" />
+              <div>
+                <div className="text-sm font-medium">{dc.label}</div>
+                <div className="text-xs text-muted-foreground">{dc.desc}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function AiStep({ provider, setProvider, activeProvider, model, setModel, apiKey, setApiKey }: any) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-3xl font-bold tracking-tight">Connect your AI provider</h2>
+        <p className="mt-2 text-muted-foreground">OpenRouter is the easiest default — one key, many models.</p>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {PROVIDERS.map((p) => (
+          <button key={p.id} type="button" onClick={() => { setProvider(p.id); setModel(p.defaultModel); }}
+            className={cn("rounded-lg border p-3 text-sm transition-all", provider === p.id ? "border-primary bg-primary-soft/50" : "border-border bg-card hover:border-primary/40")}>
+            <div className="font-semibold">{p.label}</div>
+            <div className="mt-1 text-xs text-muted-foreground leading-tight">{p.blurb}</div>
+          </button>
+        ))}
+      </div>
+      <div className="rounded-xl border bg-card p-5 text-left text-sm space-y-2">
+        <div className="flex items-center gap-2 font-medium"><span className="text-primary">1.</span>Create an API key at{" "}<a href={`https://${activeProvider.keysHint}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-primary">{activeProvider.keysHint}</a></div>
+        <div className="flex items-center gap-2"><span className="text-primary">2.</span><span>Model &amp; key below</span></div>
+      </div>
+      <Input className="font-mono text-sm" value={model} onChange={(e) => setModel(e.target.value)} placeholder={activeProvider.defaultModel} />
+      <Input className="font-mono text-sm" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={activeProvider.keyPlaceholder} />
+      <p className="text-xs text-muted-foreground">Your key is stored in .casting/config.json (gitignored) and never leaves your machine.</p>
+    </div>
+  );
+}
+
+function LaunchStep(props: any) {
+  const { ownerName, expLevel, projectName, objective, castMembers, activeProvider, model, apiKey, projectPath, existingProject, launch, busy } = props;
+  const rows: [string, React.ReactNode][] = [
+    ["Owner", ownerName || "—"],
+    ["Experience", expLevel || "—"],
+    ["Project", projectName],
+    ["Objective", <span className="text-right">{objective}</span>],
+    ["Team size", `${castMembers.length} specialists`],
+    ["Provider", activeProvider.label],
+    ["Model", <span className="font-mono text-xs break-all text-right">{model}</span>],
+    ["API key", apiKey ? `...${apiKey.slice(-4)}` : "Not set"],
+  ];
+  if (existingProject && projectPath) rows.push(["Repo", <span className="font-mono text-xs">{projectPath}</span>]);
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-success/15 text-3xl">🚀</div>
+        <h2 className="mt-4 font-display text-3xl font-bold tracking-tight">Ready to launch</h2>
+        <p className="mt-1 text-muted-foreground">Here's what we've got — everything can be changed later.</p>
+      </div>
+      <Card>
+        <CardContent className="pt-5 space-y-3 text-sm">
+          {rows.map(([label, val], i) => (
+            <div key={i} className="flex items-start justify-between gap-3">
+              <span className="text-muted-foreground shrink-0">{label}</span>
+              <span className="font-medium text-right">{val}</span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SuccessScreen({ name, slug, port }: { name: string; slug?: string; port?: number }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-background">
+      <div className="w-full max-w-lg space-y-6 text-center">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-success/15 text-5xl">🎉</div>
+        <h2 className="font-display text-3xl font-bold">Project “{name}” created</h2>
+        <p className="text-muted-foreground leading-relaxed">
+          State is at <code>~/.casting/{slug}</code> {port ? `(port ${port})` : ""}. Stop this{" "}
+          <code>cast run</code> and start it again — it will now auto-select this project and launch the workspace.
+        </p>
       </div>
     </div>
   );

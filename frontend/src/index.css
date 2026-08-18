@@ -1,36 +1,83 @@
 @import "tailwindcss";
 
-/* Tailwind v4 CSS-first config (no tailwind.config.js). Theme tokens are
+/* ============================================================================
+   Casting — Light Editorial Studio theme
+   Tailwind v4 CSS-first config (no tailwind.config.js). Theme tokens are
    defined with @theme (colors map to --color-<name> → utilities like
    bg-background, text-foreground). shadcn/ui maps its component vars onto
-   these; edit this block to re-theme the whole app. */
+   these; edit this block to re-theme the whole app.
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(0.14 0.01 258); /* deep cockpit */
-  --foreground: oklch(0.94 0.008 258);
-  --card: oklch(0.17 0.012 258);
-  --card-foreground: oklch(0.94 0.008 258);
-  --popover: oklch(0.17 0.012 258);
-  --popover-foreground: oklch(0.94 0.008 258);
-  --primary: oklch(0.65 0.19 248); /* Casting blue */
-  --primary-foreground: oklch(0.98 0.005 258);
-  --secondary: oklch(0.22 0.015 258);
-  --secondary-foreground: oklch(0.94 0.008 258);
-  --muted: oklch(0.22 0.015 258);
-  --muted-foreground: oklch(0.7 0.02 258);
-  --accent: oklch(0.24 0.015 258);
-  --accent-foreground: oklch(0.94 0.008 258);
-  --destructive: oklch(0.72 0.19 25);
-  --destructive-foreground: oklch(0.98 0.005 258);
-  --border: oklch(0.26 0.02 258);
-  --input: oklch(0.26 0.02 258);
-  --ring: oklch(0.65 0.19 248);
-  --success: oklch(0.72 0.16 155);
+   Palette: warm paper neutrals, refined deep indigo primary, warm amber
+   "spotlight" accent used sparingly, calm status hues.
+   Typography: Fraunces (display serif) + Inter (UI/body).
+   ============================================================================ */
+
+/* ---- Self-hosted fonts (woff2, bundled — no CDN, offline-friendly) ---- */
+/* Note: font files must live under frontend/public/fonts/. If they are not
+   present yet, the fallback stacks below keep the UI fully usable, and the
+   fonts drop in as soon as the files are added. */
+@font-face {
+  font-family: "Fraunces";
+  src: url("/fonts/Fraunces-Variable.woff2") format("woff2-variations");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-Variable.woff2") format("woff2-variations");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
 }
 
-/* Map our shadcn component variables onto Tailwind color tokens (v4 @theme).
-   Utilities: bg-background, bg-card, text-foreground, bg-primary, border, etc. */
+:root {
+  --radius: 0.75rem;
+
+  /* Backgrounds / surfaces — warm paper, never sterile white or grey */
+  --background: oklch(0.985 0.004 90);
+  --foreground: oklch(0.26 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.26 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.26 0.02 260);
+  --secondary: oklch(0.95 0.005 90);
+  --secondary-foreground: oklch(0.26 0.02 260);
+  --muted: oklch(0.955 0.005 90);
+  --muted-foreground: oklch(0.54 0.02 260);
+  --accent: oklch(0.93 0.02 90);
+  --accent-foreground: oklch(0.26 0.02 260);
+
+  /* Brand — cinematic deep indigo */
+  --primary: oklch(0.52 0.17 262);
+  --primary-foreground: oklch(0.985 0.004 262);
+  --primary-soft: oklch(0.94 0.03 262);
+
+  /* Status */
+  --destructive: oklch(0.58 0.21 25);
+  --destructive-foreground: oklch(0.99 0.005 25);
+  --warning: oklch(0.79 0.15 76);
+  --warning-foreground: oklch(0.28 0.07 60);
+  --success: oklch(0.62 0.15 150);
+  --success-foreground: oklch(0.99 0.005 150);
+
+  /* Lines / focus */
+  --border: oklch(0.9 0.01 90);
+  --input: oklch(0.9 0.01 90);
+  --ring: oklch(0.52 0.17 262);
+
+  /* Typography */
+  --font-display: "Fraunces", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  /* Layered, quiet shadows for a light theme */
+  --shadow-sm: 0 1px 2px oklch(0.26 0.02 260 / 0.05);
+  --shadow-md: 0 2px 8px -1px oklch(0.26 0.02 260 / 0.08);
+  --shadow-lg: 0 8px 24px -4px oklch(0.26 0.02 260 / 0.12);
+}
+
+/* Map component vars onto Tailwind color tokens (v4 @theme). */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -40,6 +87,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -48,10 +96,21 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-success: var(--success);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -64,78 +123,260 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
     margin: 0;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
   }
   #root {
     min-height: 100vh;
   }
 }
 
-/* Keep the app shell utility classes that shadcn doesn't supply directly. */
-.app {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 24px 20px 80px;
+/* Tabular figures for money/counts (usable with @apply). */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
 }
 
+/* Editorial overline micro-label — registered as a real utility so it can be
+   composed with @apply elsewhere (Tailwind v4 @utility). */
+@utility overline-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+
+/* ============================================================================
+   App shell
+   ============================================================================ */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-content {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 32px 96px;
+}
+
+/* Header */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: oklch(0.985 0.004 90 / 0.82);
+  backdrop-filter: blur(8px);
+}
+.app-header h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+.header-crumb {
+  @apply text-sm text-muted-foreground;
+}
+
+/* Sidebar */
+.app-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--background);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  gap: 4px;
+}
+.app-sidebar.collapsed {
+  width: 64px;
+}
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 20px;
+}
+.sidebar-brand .logo {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.sidebar-brand .name {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.sidebar-group-label {
+  @apply overline-label px-3 pt-5 pb-1.5;
+}
+.nav-item {
+  @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors;
+}
+.nav-item:hover {
+  @apply bg-accent text-accent-foreground;
+}
+.nav-item.active {
+  @apply bg-primary-soft text-primary font-semibold;
+}
+.nav-item .nav-icon {
+  @apply h-[18px] w-[18px] shrink-0;
+}
+.sidebar-footer {
+  margin-top: auto;
+  padding: 12px 4px 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* Status dot */
+.status-dot {
+  @apply inline-block h-2.5 w-2.5 rounded-full;
+}
+.status-dot.green { background: var(--success); }
+.status-dot.amber { background: var(--warning); }
+.status-dot.red   { background: var(--destructive); }
+
+/* ============================================================================
+   Shared content patterns
+   ============================================================================ */
+/* Page title block */
+.page-head {
+  margin-bottom: 24px;
+}
+.page-head .title {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.page-head .subtitle {
+  @apply text-[0.9375rem] text-muted-foreground mt-1;
+}
+
+/* Card grid helpers */
+.grid-cards {
+  display: grid;
+  gap: 16px;
+}
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1024px) { .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+/* Stat micro-card */
+.stat {
+  @apply rounded-xl border bg-card p-5 shadow-sm;
+}
+.stat .label {
+  @apply overline-label;
+}
+.stat .value {
+  @apply text-2xl font-semibold tabular mt-1.5;
+  font-family: var(--font-display);
+}
+.stat .hint {
+  @apply text-xs text-muted-foreground mt-1;
+}
+
+/* Empty state */
+.empty {
+  @apply flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 px-6 text-center;
+}
+.empty .icon { @apply text-2xl; }
+.empty .title { @apply text-sm font-medium text-muted-foreground; }
+.empty .hint { @apply text-xs text-muted-foreground/80 max-w-sm; }
+
+/* Thread / chat bubbles */
 .thread {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 420px;
+  max-height: 460px;
   overflow-y: auto;
   padding: 8px 4px;
 }
-
 .bubble {
   max-width: 78%;
-  padding: 9px 13px;
-  border-radius: 12px;
-  font-size: 0.925rem;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 0.9rem;
   line-height: 1.45;
 }
-
 .bubble.pm {
   align-self: flex-start;
-  background: oklch(0.22 0.015 258);
-  border: 1px solid oklch(0.26 0.02 258);
-  color: oklch(0.94 0.008 258);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--foreground);
 }
-
 .bubble.owner {
   align-self: flex-end;
-  background: oklch(0.65 0.19 248);
-  color: oklch(0.98 0.005 258);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
-
+.bubble.consultant {
+  align-self: flex-start;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+}
 .bubble .from {
   font-size: 0.72rem;
   opacity: 0.7;
   margin-bottom: 3px;
 }
 
+/* Kanban board */
 .board {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
 }
-
+@media (max-width: 1200px) { .board { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media (max-width: 768px)  { .board { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 480px)  { .board { grid-template-columns: 1fr; } }
 .board .col {
-  background: oklch(0.17 0.012 258);
-  border: 1px solid oklch(0.26 0.02 258);
+  background: var(--secondary);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
 }
 
+/* Event stream rows */
 .stream .row {
   display: flex;
   gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid oklch(0.26 0.02 258);
-  font-size: 0.9rem;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+.stream .seq {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
 }
 
-.stream .seq {
-  color: oklch(0.7 0.02 258);
-  font-variant-numeric: tabular-nums;
+/* Alert banner */
+.banner {
+  @apply mx-auto w-full max-w-1280 px-6;
+}
+.banner > div {
+  @apply rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive mb-3;
 }

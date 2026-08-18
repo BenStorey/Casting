@@ -1,25 +1,15 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import SetupWizard from "./SetupWizard";
 import { useCastStore } from "./store";
-import Health from "./Health";
 import ActivityView from "./ActivityView";
 import DebugView from "./DebugView";
 import TaskDrawer from "./TaskDrawer";
+import GraphView from "./GraphView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { getAuthToken, setAuthToken, clearAuthToken, hasAuthToken } from "./api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { identityForAgent } from "./identities";
-import Overview from "./Overview";
-import GraphView from "./GraphView";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Decision,
   Inbox,
@@ -27,46 +17,48 @@ import {
   Observation,
   Projection,
   Task,
-  TaskStatus,
-  decide,
   sendMessage,
+  decide,
 } from "./api";
 import { TASK_COLUMNS } from "./boardColumns";
+import { identityForAgent } from "./identities";
 import TelegramConnect from "./TelegramConnect";
+import { DEFAULT_TAB, tabLabel, type Tab } from "./nav";
+import { ShellSidebar } from "./ShellSidebar";
+import { ShellHeader } from "./ShellHeader";
+import Home from "./pages/Home";
+import Spend from "./pages/Spend";
+import Routing from "./pages/Routing";
+import Knowledge from "./pages/Knowledge";
+import {
+  decisionStatusVariant,
+  severityVariant,
+  taskStatusVariant,
+} from "./lib/status";
+import type {
+  ConsultantConfig,
+  GraphView as GraphViewData,
+  OperatingModel,
+} from "./api";
 
-type Tab = "overview" | "graph" | "chat" | "board" | "team" | "decisions" | "inbox" | "activity" | "debug" | "advisor" | "sketch" | "settings";
-
-// Lazy: Excalidraw is ~1MB — never load it unless the owner opens Sketch.
+// Lazy: heavy feature surfaces — never load unless opened.
 const Whiteboard = lazy(() => import("./Whiteboard"));
 const Advisor = lazy(() => import("./Advisor"));
 
-const AGENT_NAMES: Record<string, string> = {
-  pm: "Sarah Chen · PM",
-};
-
 function agentLabel(id: string): string {
   const c = useCastStore.getState().consultants;
-  return identityForAgent(id, "", c)?.name ?? AGENT_NAMES[id] ?? id;
-}
-
-function agentName(id: string): string {
-  const c = useCastStore.getState().consultants;
-  return identityForAgent(id, "", c)?.name ?? AGENT_NAMES[id]?.split(" · ")[0] ?? id;
-}
-
-function agentAvatar(id: string): string | undefined {
-  const c = useCastStore.getState().consultants;
-  return identityForAgent(id, "", c)?.avatar ?? undefined;
+  return identityForAgent(id, "", c)?.name ?? id;
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("chat");
+  const [tab, setTab] = useState<Tab>(DEFAULT_TAB);
+  const [collapsed, setCollapsed] = useState(false);
   const [openTask, setOpenTask] = useState<Task | null>(null);
-  const [tokenInput, setTokenInput] = useState("");
   const state = useCastStore((s) => s.state);
   const model = useCastStore((s) => s.model);
   const graph = useCastStore((s) => s.graph);
   const consultants = useCastStore((s) => s.consultants);
+  const routing = useCastStore((s) => s.routing);
   const inbox = useCastStore((s) => s.inbox);
   const errors = useCastStore((s) => s.errors);
   const refresh = useCastStore((s) => s.refresh);
@@ -74,126 +66,167 @@ export default function App() {
   const start = useCastStore((s) => s.start);
 
   useEffect(() => {
-    // Hydrate the snapshot and subscribe to the live stream (once).
     const unsub = start();
     return unsub;
   }, [start]);
 
-  // First-run: no cast hired beyond the seed PM → show setup wizard full-screen
-  const needsSetup =
-    state && state.agents.filter((a) => a.id !== "mei").length === 0;
+  // Lazy-refresh the data a surface needs when it's opened.
+  useEffect(() => {
+    if (tab === "home") refreshLazy("model");
+    if (tab === "graph") refreshLazy("graph");
+    if (tab === "inbox") refreshLazy("inbox");
+    if (tab === "debug") refreshLazy("events");
+  }, [tab, refreshLazy]);
+
+  // First-run: no cast hired beyond the seed PM → show setup wizard full-screen.
+  const needsSetup = state && state.agents.filter((a) => a.id !== "mei").length === 0;
   if (needsSetup) return <SetupWizard onDone={refresh} />;
   if (!state) return null;
 
   return (
-    <div className="app">
-      <header className="top">
-        <div className="logo">🎬</div>
-        <div className="brand">
-          <h1>Casting</h1>
-          <p>Every great production starts with a great cast.</p>
-        </div>
-        <div className="ml-auto">
-          {hasAuthToken() ? (
-            <button
-              className="text-xs text-muted-foreground hover:text-foreground mr-2"
-              onClick={() => { clearAuthToken(); refresh(); }}
-              title="Clear auth token"
-            >
-              🔑
-            </button>
-          ) : (
-            <form
-              className="inline-flex items-center gap-1 mr-2"
-              onSubmit={(e) => { e.preventDefault(); if (tokenInput.trim()) { setAuthToken(tokenInput.trim()); setTokenInput(""); refresh(); } }}
-            >
-              <Input
-                type="password"
-                placeholder="owner token…"
-                className="h-6 w-28 text-xs"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-              />
-              <Button type="submit" size="sm" className="h-6 text-xs px-2">Set</Button>
-            </form>
-          )}
-          <Health />
-        </div>
-      </header>
+    <div className="app-shell">
+      <ShellSidebar
+        active={tab}
+        onNavigate={setTab}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((c) => !c)}
+        unread={inbox?.unread ?? 0}
+      />
+      <main className="app-main">
+        <ShellHeader tab={tab} />
 
-      {/* G8: per-resource errors — which endpoint broke, so a partial snapshot
-          isn't mistaken for "all quiet". Auto-clears on successful refetch. */}
-      {errors.length > 0 && (
-        <div className="banner">
-          {errors.map((e) => (
-            <div key={`${e.resource}-${e.at}`}>
-              ⚠️ <strong>{e.resource}</strong>: {e.message.replace(/^[^:]*: /, "")}
-            </div>
-          ))}
+        {errors.length > 0 && (
+          <div className="banner">
+            {errors.map((e) => (
+              <div key={`${e.resource}-${e.at}`}>
+                ⚠️ <strong>{e.resource}</strong>: {e.message.replace(/^[^:]*: /, "")}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="app-content">
+          <PageHead title={tabLabel(tab)} tab={tab} />
+          <PageBody
+            tab={tab}
+            state={state}
+            model={model}
+            graph={graph}
+            consultants={consultants}
+            routing={routing}
+            inbox={inbox}
+            onOpenTask={setOpenTask}
+            onDecide={refresh}
+            onSent={refresh}
+            onGoInbox={() => setTab("inbox")}
+            onGoChat={() => setTab("chat")}
+          />
         </div>
-      )}
+      </main>
 
-      <Tabs value={tab} onValueChange={(v) => {
-            const newTab = v as Tab;
-            setTab(newTab);
-            // Lazy-refresh the data this tab needs.
-            if (newTab === "overview") refreshLazy("model");
-            if (newTab === "graph") refreshLazy("graph");
-            if (newTab === "inbox") refreshLazy("inbox");
-          }}>
-            <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5 md:grid-cols-10">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="graph">Graph</TabsTrigger>
-              <TabsTrigger value="chat">Chat</TabsTrigger>
-              <TabsTrigger value="board">Board</TabsTrigger>
-              <TabsTrigger value="team">Team</TabsTrigger>
-              <TabsTrigger value="decisions">Decisions</TabsTrigger>
-              <TabsTrigger value="inbox" className="relative">
-                Inbox
-                {inbox && inbox.unread > 0 && (
-                  <span className="absolute -right-1 -top-1">
-                    <Badge className="bg-primary text-primary-foreground">
-                      {inbox.unread}
-                    </Badge>
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
-              <TabsTrigger value="debug">Debug</TabsTrigger>
-              <TabsTrigger value="advisor">Advisor</TabsTrigger>
-              <TabsTrigger value="sketch">Sketch</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
-            </TabsList>
-            {tab === "overview" && <Overview model={model} />}
-            {tab === "graph" && <GraphView graph={graph} />}
-            {tab === "chat" && <Chat state={state} onSent={refresh} />}
-            {tab === "board" && <Board tasks={state.tasks} onOpenTask={setOpenTask} />}
-            {tab === "team" && <Team agents={state.agents} consultants={consultants} />}
-            {tab === "decisions" && (
-              <Decisions decisions={state.decisions} onDecide={refresh} />
-            )}
-            {tab === "inbox" && <InboxView inbox={inbox} observations={state.observations} onDecide={refresh} />}
-            {tab === "activity" && <ActivityView />}
-            {tab === "debug" && <DebugView />}
-            {tab === "sketch" && (
-              <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
-                <Whiteboard onSaved={refresh} />
-              </Suspense>
-            )}
-            {tab === "advisor" && (
-              <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading advisor…</CardContent></Card>}>
-                <Advisor thread={state.advisor_thread} onChanged={refresh} />
-              </Suspense>
-            )}
-            {tab === "settings" && <SettingsView />}
-          </Tabs>
-
-      {/* G7: per-task drill-down drawer (opened from the board). */}
       {openTask && <TaskDrawer task={openTask} onClose={() => setOpenTask(null)} />}
     </div>
   );
 }
 
+function PageHead({ title, tab }: { title: string; tab: Tab }) {
+  const subtitle = SUBTITLES[tab] ?? "";
+  return (
+    <div className="page-head">
+      <h1 className="title">{title}</h1>
+      {subtitle && <div className="subtitle">{subtitle}</div>}
+    </div>
+  );
+}
+
+const SUBTITLES: Partial<Record<Tab, string>> = {
+  home: "Your operating picture — what needs you, and how the production is going.",
+  inbox: "Everything awaiting your decision or attention.",
+  chat: "Direct the cast — commands, questions, and updates in one thread.",
+  board: "The work stream across all five stages.",
+  graph: "How tasks and dependencies flow from one state to the next.",
+  team: "The cast you've hired for this production.",
+  activity: "The full event stream — the single source of truth.",
+  decisions: "Every decision, its options, and who ruled on it.",
+  knowledge: "Facts, opinions, risks, and briefings the company runs on.",
+  spend: "Where the budget is going, call by call.",
+  advisor: "Your thinking partner on product direction.",
+  sketch: "A freeform whiteboard for ideas and diagrams.",
+  settings: "Messaging, autonomy, and how your company connects.",
+  routing: "Which model each actor runs on, and what that costs.",
+  debug: "Under the hood — events, contexts, and diagnostics.",
+};
+
+interface PageBodyProps {
+  tab: Tab;
+  state: Projection;
+  model: OperatingModel | null;
+  graph: GraphViewData | null;
+  consultants: ConsultantConfig[];
+  routing: import("./api").ActorRouting[];
+  inbox: Inbox | null;
+  onOpenTask: (t: Task) => void;
+  onDecide: () => void;
+  onSent: () => void;
+  onGoInbox: () => void;
+  onGoChat: () => void;
+}
+
+function PageBody(p: PageBodyProps) {
+  switch (p.tab) {
+    case "home":
+      return (
+        <Home
+          model={p.model}
+          inbox={p.inbox}
+          observations={p.state.observations}
+          decisions={p.state.decisions}
+          onGoInbox={p.onGoInbox}
+          onGoChat={p.onGoChat}
+        />
+      );
+    case "inbox":
+      return <InboxView inbox={p.inbox} observations={p.state.observations} onDecide={p.onDecide} />;
+    case "chat":
+      return <Chat state={p.state} onSent={p.onSent} />;
+    case "board":
+      return <Board tasks={p.state.tasks} onOpenTask={p.onOpenTask} />;
+    case "graph":
+      return <GraphView graph={p.graph} />;
+    case "team":
+      return <Team agents={p.state.agents} consultants={p.consultants} />;
+    case "activity":
+      return <ActivityView />;
+    case "decisions":
+      return <Decisions decisions={p.state.decisions} onDecide={p.onDecide} />;
+    case "knowledge":
+      return <Knowledge model={p.model} />;
+    case "spend":
+      return <Spend model={p.model} spendEntries={p.state.spend} />;
+    case "routing":
+      return <Routing routing={p.routing} />;
+    case "advisor":
+      return (
+        <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading advisor…</CardContent></Card>}>
+          <Advisor thread={p.state.advisor_thread} onChanged={p.onSent} />
+        </Suspense>
+      );
+    case "sketch":
+      return (
+        <Suspense fallback={<Card className="muted"><CardContent className="py-6">Loading sketchpad…</CardContent></Card>}>
+          <Whiteboard onSaved={p.onSent} />
+        </Suspense>
+      );
+    case "settings":
+      return <SettingsView />;
+    case "debug":
+      return <DebugView />;
+    default:
+      return null;
+  }
+}
+
+// ── Chat ────────────────────────────────────────────────────────────────────
 function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -216,84 +249,51 @@ function Chat({ state, onSent }: { state: Projection; onSent: () => void }) {
     }
   };
 
-  const agentLabel = (id: string) => {
-    if (id === "owner") return "Owner (You)";
-    if (id === "mei") return "Project Manager";
-    // A consultant id from the assignable cast, or unknown actor
-    return id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  };
-
-  const agentBadge = (id: string) => {
-    if (id === "owner") return <Badge variant="default">You</Badge>;
-    if (id === "mei") return <Badge variant="secondary">PM</Badge>;
-    return <Badge variant="outline">Consultant</Badge>;
-  };
+  const kind = (from: string) =>
+    from === "owner" ? "owner" : from === "mei" ? "pm" : "consultant";
+  const label = (from: string) => (from === "owner" ? "You" : agentLabel(from));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Team Chat</CardTitle>
+    <Card className="max-w-3xl">
+      <CardHeader className="pb-2">
+        <CardTitle>Team chat</CardTitle>
         <CardDescription>
-          Messages between the owner, PM, and the cast. Owner sends commands;
-          consultants surface findings, flag concerns, and request decisions.
+          Send commands to the PM; the cast surfaces findings and requests decisions here.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="thread">
-          {state.messages.length === 0 && (
-            <div className="muted small">Tell the PM what you want to build.</div>
-          )}
+          {state.messages.length === 0 && <div className="muted small">Tell the PM what you want to build.</div>}
           {state.messages.map((m: Message) => (
-            <div
-              key={m.id}
-              className={`bubble ${
-                m.from === "owner"
-                  ? "owner"
-                  : m.from === "mei"
-                  ? "mei"
-                  : "consultant"
-              }`}
-            >
+            <div key={m.id} className={`bubble ${kind(m.from)}`}>
               <div className="flex items-center gap-2 mb-1">
-                {agentBadge(m.from)}
-                <span className="text-xs font-medium text-muted-foreground">
-                  {agentLabel(m.from)}
-                </span>
+                <span className="text-xs font-semibold text-muted-foreground">{label(m.from)}</span>
               </div>
               {m.body}
             </div>
           ))}
           <div ref={bottomRef} />
         </div>
-        <div className="composer" style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <div className="mt-3 flex gap-2">
           <Input
             value={draft}
-            placeholder='e.g. "Build me a todo app"'
+            placeholder="e.g. “Build me a todo app”"
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
           />
-          <Button onClick={send} disabled={busy || !draft.trim()}>
-            Send
-          </Button>
+          <Button onClick={send} disabled={busy || !draft.trim()}>Send</Button>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function Board({
-  tasks,
-  onOpenTask,
-}: {
-  tasks: Projection["tasks"];
-  onOpenTask: (t: Task) => void;
-}) {
+// ── Board ───────────────────────────────────────────────────────────────────
+function Board({ tasks, onOpenTask }: { tasks: Task[]; onOpenTask: (t: Task) => void }) {
   return (
     <div>
       {tasks.length === 0 && (
-        <Card className="muted">
-          <CardContent className="pt-6">No tasks yet — tell the PM what to build.</CardContent>
-        </Card>
+        <Card className="muted"><CardContent className="pt-6">No tasks yet — tell the PM what to build.</CardContent></Card>
       )}
       <div className="board">
         {TASK_COLUMNS.map((col) => (
@@ -313,13 +313,21 @@ function Board({
                     >
                       <CardContent className="p-3">
                         <div className="text-sm font-medium leading-snug">{t.title}</div>
-                        <Badge variant={t.status === "blocked" ? "destructive" : "secondary"} className="mt-2">
-                          {t.status}
-                        </Badge>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {t.kind}
-                          {t.assignee ? ` · ${agentLabel(t.assignee)}` : ""}
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <Badge variant={taskStatusVariant(t.status)}>{t.status}</Badge>
+                          {t.assignee && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <Avatar className="h-4 w-4">
+                                <AvatarImage src="" alt="" />
+                                <AvatarFallback className="text-[8px]">
+                                  {agentLabel(t.assignee).slice(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              {agentLabel(t.assignee)}
+                            </span>
+                          )}
                         </div>
+                        <div className="mt-1 text-xs text-muted-foreground">{t.kind}</div>
                       </CardContent>
                     </Card>
                   ))}
@@ -332,36 +340,24 @@ function Board({
   );
 }
 
-function Team({
-  agents,
-  consultants,
-}: {
-  agents: Projection["agents"];
-  consultants: import("./api").ConsultantConfig[];
-}) {
+// ── Team / Cast ─────────────────────────────────────────────────────────────
+function Team({ agents, consultants }: { agents: Projection["agents"]; consultants: ConsultantConfig[] }) {
   return (
     <div>
       {agents.length === 0 && <Card className="muted"><CardContent className="pt-6">No one hired yet.</CardContent></Card>}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {agents.map((a) => {
           const identity = identityForAgent(a.id, a.role, consultants);
-          const avatar = identity?.avatar ?? agentAvatar(a.id);
           return (
             <Card key={a.id}>
-              <CardContent className="pt-6">
+              <CardContent className="pt-5">
                 <div className="flex items-center gap-4">
-                  {avatar ? (
-                    <img src={avatar} alt={identity?.name ?? a.id} className="h-12 w-12 rounded-xl shrink-0" />
-                  ) : (
-                    <div
-                      className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
-                      style={{ background: "linear-gradient(135deg,#4f8cff,#7a5cff)", color: "#fff" }}
-                    >
-                      {a.id === "mei" ? "SC" : initials(a.id)}
-                    </div>
-                  )}
+                  <Avatar className="h-12 w-12">
+                    {identity?.avatar && <AvatarImage src={identity.avatar} alt={identity.name} />}
+                    <AvatarFallback>{a.id.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
                   <div>
-                    <div className="font-semibold">{identity?.name ?? agentName(a.id) ?? agentLabel(a.id).split(" · ")[0]}</div>
+                    <div className="font-semibold">{identity?.name ?? a.id}</div>
                     <div className="text-sm text-muted-foreground">{a.role}</div>
                   </div>
                 </div>
@@ -384,59 +380,22 @@ function Team({
   );
 }
 
-function initials(id: string): string {
-  return id
-    .split("-")
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .slice(0, 2)
-    .join("");
-}
-
-/// Settings — owner-configurable surface (2026-08-14). Hosts the Telegram
-/// owner-channel connect (reusable, also in the setup wizard) so messaging can
-/// be set up / reconnected any time, not just first-run.
-function SettingsView() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Settings</CardTitle>
-        <CardDescription>
-          Connect or reconnect your messaging. Each Casting install uses its own
-          Telegram bot — the PM you talk to on your phone.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <TelegramConnect />
-      </CardContent>
-    </Card>
-  );
-}
-
-function Decisions({
-  decisions,
-  onDecide,
-}: {
-  decisions: Decision[];
-  onDecide: () => void;
-}) {
+// ── Decisions ───────────────────────────────────────────────────────────────
+function Decisions({ decisions, onDecide }: { decisions: Decision[]; onDecide: () => void }) {
   return (
     <div className="flex flex-col gap-3">
       {decisions.length === 0 && <Card className="muted"><CardContent className="py-6">No decisions recorded yet.</CardContent></Card>}
       {decisions.map((d) => (
         <Card key={d.id}>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5">
             <div className="flex items-center justify-between gap-2">
               <div className="font-semibold">{d.subject}</div>
-              <Badge variant={d.status === "proposed" ? "default" : d.status === "approved" ? "secondary" : "destructive"}>
-                {d.status}
-              </Badge>
+              <Badge variant={decisionStatusVariant(d.status)}>{d.status}</Badge>
             </div>
             {Object.entries(d.options).length > 0 && (
               <ul className="mt-2 list-disc pl-5 text-sm">
                 {Object.entries(d.options).map(([k, v]) => (
-                  <li key={k}>
-                    <strong>{k}:</strong> {v}
-                  </li>
+                  <li key={k}><strong>{k}:</strong> {v}</li>
                 ))}
               </ul>
             )}
@@ -444,12 +403,8 @@ function Decisions({
             {d.owner_verdict && <div className="text-xs text-muted-foreground mt-1">Owner: {d.owner_verdict}</div>}
             {d.status === "proposed" && (
               <div className="flex gap-2 mt-3">
-                <Button size="sm" onClick={() => void decide(d.id, d.subject, true).then(onDecide)}>
-                  Approve
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => void decide(d.id, d.subject, false).then(onDecide)}>
-                  Reject
-                </Button>
+                <Button size="sm" onClick={() => void decide(d.id, d.subject, true).then(onDecide)}>Approve</Button>
+                <Button size="sm" variant="outline" onClick={() => void decide(d.id, d.subject, false).then(onDecide)}>Reject</Button>
               </div>
             )}
           </CardContent>
@@ -459,34 +414,38 @@ function Decisions({
   );
 }
 
-function InboxView({
-  inbox,
-  observations,
-  onDecide,
-}: {
-  inbox: Inbox | null;
-  observations: Observation[];
-  onDecide: () => void;
-}) {
+// ── Inbox (action center) ───────────────────────────────────────────────────
+function InboxView({ inbox, observations, onDecide }: { inbox: Inbox | null; observations: Observation[]; onDecide: () => void }) {
   const items = inbox?.items ?? [];
   const flagged = observations.filter((o) => o.pm_action_required);
+  const empty = items.length === 0 && flagged.length === 0;
+
   return (
     <div className="flex flex-col gap-6">
-      {/* ---- Pending decisions ---- */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Pending decisions</CardTitle>
-          <CardDescription>Items awaiting your approval or rejection.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {items.length === 0 ? (
-            <div className="muted text-sm">🟢 Nothing needs your attention right now.</div>
-          ) : (
+      {empty && (
+        <Card><CardContent className="pt-6">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🎉</span>
+            <div>
+              <div className="font-semibold">You're all caught up</div>
+              <div className="text-sm text-muted-foreground">Nothing needs your attention right now.</div>
+            </div>
+          </div>
+        </CardContent></Card>
+      )}
+
+      {items.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Pending decisions</CardTitle>
+            <CardDescription>Items awaiting your approval or rejection.</CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="flex flex-col gap-3">
               {items.map((it) => (
                 <Card key={it.id} className="border-primary/40">
-                  <CardContent className="pt-6">
-                    <Badge variant="outline" className="mb-2">awaiting your decision</Badge>
+                  <CardContent className="pt-5">
+                    <Badge variant="warning" className="mb-2">awaiting your decision</Badge>
                     <div className="font-semibold">{it.subject}</div>
                     {Object.entries(it.options).length > 0 && (
                       <ul className="mt-2 list-disc pl-5 text-sm">
@@ -503,42 +462,23 @@ function InboxView({
                 </Card>
               ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* ---- Observations from the cast ---- */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            Observations from the cast
-            {flagged.length > 0 && (
-              <Badge variant="destructive" className="text-xs">{flagged.length} need action</Badge>
-            )}
-          </CardTitle>
-          <CardDescription>
-            Findings and flags raised by consultants. Items marked "needs action" require your attention.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {observations.length === 0 ? (
-            <div className="muted text-sm">No observations yet.</div>
-          ) : (
+      {flagged.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Flagged observations</CardTitle>
+            <CardDescription>Findings from the cast that need your attention.</CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="flex flex-col gap-2">
-              {observations.map((o) => (
-                <Card key={o.id} className={`border-l-4 ${o.pm_action_required ? "border-l-destructive/60" : "border-l-muted"}`}>
+              {flagged.map((o) => (
+                <Card key={o.id} className="border-l-4 border-l-destructive/60">
                   <CardContent className="py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={o.pm_action_required ? "destructive" : "secondary"} className="text-[10px]">
-                          {o.severity}
-                        </Badge>
-                        {o.pm_action_required && (
-                          <Badge variant="outline" className="text-[10px] border-destructive/40 text-destructive">
-                            Needs action
-                          </Badge>
-                        )}
-                      </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant={severityVariant(o.severity)} className="text-[10px]">{o.severity}</Badge>
                       <span className="text-xs text-muted-foreground shrink-0">from {o.from}</span>
                     </div>
                     <div className="font-medium text-sm mt-1">{o.subject}</div>
@@ -547,9 +487,26 @@ function InboxView({
                 </Card>
               ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
+  );
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+function SettingsView() {
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader className="pb-2">
+        <CardTitle>Setup & Connect</CardTitle>
+        <CardDescription>
+          Connect or reconnect your messaging, and review your setup.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <TelegramConnect />
+      </CardContent>
+    </Card>
   );
 }
