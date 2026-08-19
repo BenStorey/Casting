@@ -486,6 +486,8 @@ export interface OrchestrationRun {
   actor: string;
   correlation: string;
   context_summary: string;
+  prompt_ref: string | null;
+  response_ref: string | null;
   planned: string[];
   metered: boolean;
   metering_agent: string | null;

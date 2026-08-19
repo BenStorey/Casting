@@ -126,6 +126,12 @@ fn open_state(repo: &Path, state_dir: &Path, db: Option<&str>) -> Result<AppStat
     state = state.with_secrets(casting::workspace::secrets::SecretStore::load(
         ws.casting_dir(),
     )?);
+    // Out-of-band prompt/response archive (2026-08-19): write every LLM call's
+    // assembled prompt + raw response under `~/.casting/<slug>/prompts/` (off
+    // the artifact repo) so the `OrchestrationRun` events can carry refs.
+    state = state.with_prompt_archive(Some(
+        casting::workspace::prompt_archive::PromptArchive::open(ws.casting_dir()),
+    ));
     Ok(state)
 }
 

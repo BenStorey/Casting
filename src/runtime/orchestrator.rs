@@ -75,6 +75,13 @@ pub struct CostMetering {
 pub struct PlanOutput {
     pub actions: Vec<PlannedAction>,
     pub metering: Option<CostMetering>,
+    /// The fully-assembled prompt sent to the model (the exact bytes), for
+    /// out-of-band archival. `None` when a real provider wasn't called (e.g.
+    /// the deterministic mock).
+    pub prompt: Option<String>,
+    /// The raw model completion text, for out-of-band archival. `None` when a
+    /// real provider wasn't called.
+    pub response: Option<String>,
 }
 
 /// The D2 contract: turn an assembled operating context + the triggering event
@@ -155,6 +162,8 @@ impl Orchestrator for MockOrchestrator {
             return Ok(PlanOutput {
                 actions,
                 metering: None,
+                prompt: None,
+                response: None,
             });
         }
 
@@ -179,6 +188,8 @@ impl Orchestrator for MockOrchestrator {
                 // The mock is deterministic/stateless — no real provider call, so
                 // no cost to record (the seam is exercised but spend stays zero).
                 metering: None,
+                prompt: None,
+                response: None,
             });
         }
 
@@ -242,6 +253,8 @@ impl Orchestrator for MockOrchestrator {
         Ok(PlanOutput {
             actions,
             metering: None, // stateless mock records no real spend
+            prompt: None,
+            response: None,
         })
     }
 }

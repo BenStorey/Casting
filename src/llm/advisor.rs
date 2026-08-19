@@ -18,6 +18,10 @@ use anyhow::Result;
 pub struct AdvisorOutcome {
     pub reply: String,
     pub metering: Option<crate::runtime::orchestrator::CostMetering>,
+    /// The fully-assembled prompt sent to the model, for out-of-band archival.
+    pub prompt: Option<String>,
+    /// The raw model completion text, for out-of-band archival.
+    pub response: Option<String>,
 }
 
 /// Generate the advisor's reply to `owner_msg`, given the private thread so far
@@ -90,6 +94,15 @@ pub async fn advisor_reply(
         response_format: None,
     };
 
+    // The exact prompt bytes as sent — surfaced on `AdvisorOutcome` so the
+    // caller can archive it out-of-band (prompt_archive).
+    let prompt_string = req
+        .messages
+        .iter()
+        .map(|m| format!("[{}]\n{}", m.role, m.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
     let started = std::time::Instant::now();
     let completion = client.chat(&req).await?;
     let latency_ms = started.elapsed().as_millis() as u64;
@@ -116,7 +129,12 @@ pub async fn advisor_reply(
         completion.usage.cost,
     ));
 
-    Ok(AdvisorOutcome { reply, metering })
+    Ok(AdvisorOutcome {
+        reply,
+        metering,
+        prompt: Some(prompt_string),
+        response: Some(completion.content.clone()),
+    })
 }
 
 /// Curate the HIGH-LEVEL operating context the advisor grounds its advice in:

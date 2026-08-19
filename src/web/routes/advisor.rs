@@ -93,6 +93,17 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
     .await;
     match outcome {
         Ok(outcome) => {
+            // Persist the advisor's assembled prompt + raw response out-of-band
+            // and record their refs on the reply event (advisor archival).
+            let correlation = format!("advisor-{}", uuid::Uuid::new_v4());
+            let (prompt_ref, response_ref) = match &state.prompt_archive {
+                Some(a) if outcome.prompt.is_some() => a.persist(
+                    &correlation,
+                    outcome.prompt.as_deref().unwrap_or(""),
+                    outcome.response.as_deref(),
+                ),
+                _ => (None, None),
+            };
             let reply_ev = Event::new(
                 &state.project,
                 Actor::Agent {
@@ -103,7 +114,12 @@ async fn maybe_advisor_reply(state: &AppState, owner_body: &str) {
                     kind: "advisor_thread".into(),
                     id: format!("am-{}", uuid::Uuid::new_v4()),
                 },
-                serde_json::json!({ "to": "director", "body": outcome.reply }),
+                serde_json::json!({
+                    "to": "director",
+                    "body": outcome.reply,
+                    "prompt_ref": prompt_ref,
+                    "response_ref": response_ref,
+                }),
             );
             if let Err(e) = state.append(reply_ev) {
                 eprintln!("[advisor] failed to append reply: {e:#}");

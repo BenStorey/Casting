@@ -638,6 +638,8 @@ impl Projection {
                     actor: string_field(e, "actor").unwrap_or_default(),
                     correlation: string_field(e, "correlation").unwrap_or_default(),
                     context_summary: string_field(e, "context_summary").unwrap_or_default(),
+                    prompt_ref: string_field(e, "prompt_ref"),
+                    response_ref: string_field(e, "response_ref"),
                     planned,
                     metered: e
                         .data

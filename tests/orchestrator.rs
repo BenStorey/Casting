@@ -5,9 +5,11 @@
 //! LlmOrchestrator in production). Tests that need cost tracking should use
 //! a real provider client or a different test seam.
 
+use casting::actions::PmAction;
 use casting::event::{Actor, Aggregate, Event, EventType};
 use casting::pm::AppState;
 use casting::projection::Projection;
+use casting::runtime::context::AgentContext;
 use casting::runtime::orchestrator::MockOrchestrator;
 use casting::store::EventStore;
 use casting::store::SqliteCursorStore;
@@ -167,4 +169,102 @@ async fn orchestrator_records_a_planning_run_in_diagnostics() {
     assert!(!run.metered, "a stateless mock reports no metering");
     assert_eq!(run.provider, None);
     assert_eq!(run.estimated_usd, 0.0);
+}
+
+/// A test orchestrator that reports the assembled prompt + raw response (like
+/// the real `LlmOrchestrator`), so the archival wiring can be exercised end to
+/// end without a live provider.
+#[derive(Debug, Clone, Copy, Default)]
+struct PromptOrch;
+
+#[async_trait::async_trait]
+impl casting::runtime::orchestrator::Orchestrator for PromptOrch {
+    async fn plan(
+        &self,
+        context: &AgentContext,
+        _cause: &Event,
+    ) -> anyhow::Result<casting::runtime::orchestrator::PlanOutput> {
+        let pm = context.pm_id.clone();
+        Ok(casting::runtime::orchestrator::PlanOutput {
+            actions: vec![(
+                pm.clone(),
+                PmAction::SendMessage {
+                    to: "director".into(),
+                    body: "ok".into(),
+                },
+            )],
+            metering: None,
+            prompt: Some("SYSTEM x\nUSER y".into()),
+            response: Some("{\"actions\":[]}".into()),
+        })
+    }
+}
+
+#[tokio::test]
+async fn orchestrator_persists_prompt_and_response_to_archive() {
+    // Attach a prompt archive rooted at a temp dir and drive a planning pass
+    // with an orchestrator that reports its prompt/response.
+    let tmp = std::env::temp_dir().join(format!("casting-orch-archive-{}", uuid::Uuid::new_v4()));
+    let state = AppState::new(
+        SqliteEventStore::in_memory().unwrap(),
+        SqliteCursorStore::in_memory().unwrap(),
+        "proj-orch",
+    )
+    .with_step_delay(Duration::ZERO)
+    .with_orchestrator(Arc::new(PromptOrch))
+    .with_prompt_archive(Some(
+        casting::workspace::prompt_archive::PromptArchive::open(&tmp),
+    ));
+    seed_requirement(&state);
+    state
+        .append(Event::new(
+            "proj-orch",
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
+            EventType::BudgetSet,
+            Aggregate {
+                kind: "budget".into(),
+                id: "budget".into(),
+            },
+            serde_json::json!({ "limit_usd": 100.0, "warn_at": 0.80 }),
+        ))
+        .unwrap();
+    state
+        .append(Event::new(
+            "proj-orch",
+            Actor::Director {
+                user_id: "ceo".into(),
+            },
+            EventType::DecisionMade,
+            Aggregate {
+                kind: "decision".into(),
+                id: "msg-1".into(),
+            },
+            serde_json::json!({ "subject": "test", "approved": true, "body": "Build a thing" }),
+        ))
+        .unwrap();
+
+    casting::pm::drive_pm(&state).await.unwrap();
+
+    let proj = Projection::build(&state.store, "proj-orch").unwrap();
+    assert_eq!(proj.orchestration.len(), 1, "one planning pass recorded");
+    let run = &proj.orchestration[0];
+
+    // The refs are recorded on the OrchestrationRun projection.
+    let prompt_ref = run.prompt_ref.as_deref().expect("prompt ref recorded");
+    let response_ref = run.response_ref.as_deref().expect("response ref recorded");
+
+    // And the blobs actually landed under the archive dir with the right content.
+    let archive = casting::workspace::prompt_archive::PromptArchive::open(&tmp);
+    assert_eq!(
+        std::fs::read_to_string(archive.resolve(prompt_ref).unwrap()).unwrap(),
+        "SYSTEM x\nUSER y"
+    );
+    assert_eq!(
+        std::fs::read_to_string(archive.resolve(response_ref).unwrap()).unwrap(),
+        "{\"actions\":[]}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
 }

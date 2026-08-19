@@ -13,6 +13,7 @@ pub mod auth;
 pub mod cast;
 pub mod git_observer;
 pub mod project;
+pub mod prompt_archive;
 pub mod provenance;
 pub mod repo_metrics;
 pub mod secrets;

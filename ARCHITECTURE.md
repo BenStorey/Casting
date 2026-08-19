@@ -210,9 +210,23 @@ Built via `Projection::build(store, project_id)` or from snapshot + tail via `st
 | `ChangeSet` | id, task_id, branch, commits, agent, status (Open/Ready/Merged) |
 | `Worktree` | consultant, slot, task_id, branch, path, cargo_target_dir, port |
 | `ActionRejection` | who, action (serialized PmAction), reason, correlation, at |
-| `OrchestrationRun` | trigger, actor, correlation, context_summary, planned[], metering fields |
+| `OrchestrationRun` | trigger, actor, correlation, context_summary, prompt_ref, response_ref, planned[], metering fields |
 | `RepoMetrics` | merge_sha, captured_at, file_count, lines_by_language, coverage |
 | `ArchivedRecord` | entity_kind, entity_id, summary, result, archived_at, archived_by |
+
+### 3.4a Out-of-band prompt/response archival (`src/workspace/prompt_archive.rs`)
+
+Every real LLM call's fully-assembled prompt and raw response are written to
+disk under the per-project state dir (`~/.casting/<slug>/prompts/`), NOT into
+the artifact repo agents work in — the `Workspace` boundary already guarantees
+Casting's own state never lives inside `repo`. The `OrchestrationRun` (and
+advisor `AdvisorMessageSent`) event carries small `prompt_ref` / `response_ref`
+filenames instead of the blobs inline, so the append-only log stays lean. The
+log remains self-sufficient (`context_summary` + full metering + parsed actions
+are inline); the blobs are best-effort enrichment for bit-exact audit/replay
+and may dangle if the state dir is pruned. Archival never fails an LLM call —
+a write error logs and yields `None` refs. Disabled when no state dir exists
+(tests): refs stay `None`.
 
 ### 3.5 PmAction (`src/actions/action.rs`)
 

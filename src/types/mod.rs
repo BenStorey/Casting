@@ -574,6 +574,13 @@ pub struct OrchestrationRun {
     /// The context summary handed in (objective + priority/task counts), so a
     /// reader can tell what the model saw without re-deriving it.
     pub context_summary: String,
+    /// Ref (filename under the prompt archive dir) for this pass's fully-
+    /// assembled prompt (out-of-band), if it was persisted. `None` when no
+    /// archive was attached or the write failed.
+    pub prompt_ref: Option<String>,
+    /// Ref (filename under the prompt archive dir) for this pass's raw model
+    /// response, if it was persisted. `None` when not written.
+    pub response_ref: Option<String>,
     /// The planned actions (serialized list of `PlannedAction`), each as
     /// `"who -> PmAction"` — what the model decided to do.
     pub planned: Vec<String>,

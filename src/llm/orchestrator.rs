@@ -285,6 +285,15 @@ impl Orchestrator for LlmOrchestrator {
                 response_format: Some(serde_json::json!({"type": "json_object"})),
             };
 
+            // The exact prompt bytes as sent — surfaced on `PlanOutput` so the
+            // caller can archive it out-of-band (prompt_archive).
+            let prompt_string = req
+                .messages
+                .iter()
+                .map(|m| format!("[{}]\n{}", m.role, m.content))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+
             let started = std::time::Instant::now();
             let completion = client.chat(&req).await?;
             let latency_ms = started.elapsed().as_millis() as u64;
@@ -327,6 +336,8 @@ impl Orchestrator for LlmOrchestrator {
                     .map(|a| (context.actor.clone(), a))
                     .collect(),
                 metering: Some(metering),
+                prompt: Some(prompt_string),
+                response: Some(completion.content.clone()),
             });
         }
 
@@ -373,6 +384,15 @@ impl Orchestrator for LlmOrchestrator {
             max_tokens: resolved.max_tokens,
             response_format: Some(serde_json::json!({"type": "json_object"})),
         };
+
+        // The exact prompt bytes as sent — surfaced on `PlanOutput` so the
+        // caller can archive it out-of-band (prompt_archive).
+        let prompt_string = req
+            .messages
+            .iter()
+            .map(|m| format!("[{}]\n{}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
 
         let started = std::time::Instant::now();
         let completion = client.chat(&req).await?;
@@ -421,6 +441,8 @@ impl Orchestrator for LlmOrchestrator {
                 .map(|a| (context.actor.clone(), a))
                 .collect(),
             metering: Some(metering),
+            prompt: Some(prompt_string),
+            response: Some(completion.content.clone()),
         })
     }
 }

@@ -111,6 +111,12 @@ pub struct AppState {
     /// Shared HTTP client for all LLM calls. Built once at startup so all
     /// connections share a single pool. `None` when LLM is not configured.
     pub http_client: Option<reqwest::Client>,
+    /// Out-of-band prompt/response archive (2026-08-19). When present, every
+    /// LLM call's assembled prompt + raw response are written under the state
+    /// dir (`~/.casting/<slug>/prompts/`, never inside the artifact repo) and
+    /// their refs recorded on the `OrchestrationRun` event. `None` in tests /
+    /// when no state dir exists (no archival, refs stay `None`).
+    pub prompt_archive: Option<crate::workspace::prompt_archive::PromptArchive>,
     events: Arc<broadcast::Sender<Event>>,
 }
 
@@ -146,6 +152,7 @@ impl AppState {
             telegram_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             telegram_handle: Arc::new(std::sync::Mutex::new(None)),
             http_client: None,
+            prompt_archive: None,
             events: Arc::new(tx),
         }
     }
@@ -234,6 +241,17 @@ impl AppState {
     /// secret value (the no-secret-in-log invariant).
     pub fn with_secrets(mut self, secrets: crate::workspace::secrets::SecretStore) -> Self {
         self.secrets = Some(Arc::new(secrets));
+        self
+    }
+
+    /// Builder-style: attach the out-of-band prompt/response archive (writes
+    /// LLM prompts + raw responses under the state dir, off the artifact repo).
+    /// Pass `None` (the default) to skip archival.
+    pub fn with_prompt_archive(
+        mut self,
+        archive: Option<crate::workspace::prompt_archive::PromptArchive>,
+    ) -> Self {
+        self.prompt_archive = archive;
         self
     }
 
@@ -670,6 +688,16 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                             })
                             .collect::<Vec<_>>();
                         let m = out.metering.as_ref();
+                        // Persist the assembled prompt + raw response out-of-band
+                        // and record their refs on the audit event.
+                        let (prompt_ref, response_ref) = match &state.prompt_archive {
+                            Some(a) if out.prompt.is_some() => a.persist(
+                                &correlation,
+                                out.prompt.as_deref().unwrap_or(""),
+                                out.response.as_deref(),
+                            ),
+                            _ => (None, None),
+                        };
                         let _ = state.append(orchestration_run_event(
                             &state.project,
                             &correlation,
@@ -678,6 +706,8 @@ async fn respond(state: &AppState, projection: &Projection, new_events: &[Event]
                                 "actor": context.actor.clone(),
                                 "correlation": correlation.clone(),
                                 "context_summary": crate::runtime::context::summary(&context),
+                                "prompt_ref": prompt_ref,
+                                "response_ref": response_ref,
                                 "planned": planned_strs,
                                 "metered": m.is_some(),
                                 "metering_agent": m.map(|x| x.agent_id.clone()),
@@ -866,6 +896,16 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
                 })
                 .collect::<Vec<_>>();
             let m = out.metering.as_ref();
+            // Persist the assembled prompt + raw response out-of-band and
+            // record their refs on the audit event.
+            let (prompt_ref, response_ref) = match &state.prompt_archive {
+                Some(a) if out.prompt.is_some() => a.persist(
+                    &correlation,
+                    out.prompt.as_deref().unwrap_or(""),
+                    out.response.as_deref(),
+                ),
+                _ => (None, None),
+            };
             let _ = state.append(orchestration_run_event(
                 &state.project,
                 &correlation,
@@ -874,6 +914,8 @@ async fn run_actor_turns(state: &AppState, new_events: &[Event]) -> Result<u32> 
                     "actor": actor,
                     "correlation": correlation.clone(),
                     "context_summary": crate::runtime::context::summary(&context),
+                    "prompt_ref": prompt_ref,
+                    "response_ref": response_ref,
                     "planned": planned_strs,
                     "metered": m.is_some(),
                     "metering_agent": m.map(|x| x.agent_id.clone()),
